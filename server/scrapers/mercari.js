@@ -24,8 +24,10 @@ async function search(query) {
         // Add status=on_sale to filter out sold items
         const searchUrl = `https://jp.mercari.com/search?keyword=${encodeURIComponent(query)}&status=on_sale`;
 
-        // Use system Chromium on ARM/Linux servers where bundled Chrome may not work
-        const executablePath = process.platform === 'linux'
+        // Use system Chromium only on ARM Linux (bundled Chrome doesn't work on ARM)
+        // On x64 Linux and other platforms, use bundled Puppeteer Chrome (faster)
+        const isARM = process.arch === 'arm' || process.arch === 'arm64';
+        const executablePath = (process.platform === 'linux' && isARM)
             ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
             : undefined;
 
