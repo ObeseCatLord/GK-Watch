@@ -44,6 +44,21 @@ const Watchlist = {
         const terms = typeof data === 'string' ? [data] : (data.terms || [data.term]);
         const name = data.name || terms[0];
 
+        // Check for duplicates
+        // We consider it a duplicate if the sorted JSON string representation of terms matches
+        // OR if the name matches (optional, but name/term is often 1:1)
+        const normalizeTerms = (t) => JSON.stringify(t.slice().sort());
+        const newTermsNorm = normalizeTerms(terms);
+
+        const existing = list.find(item => {
+            const itemTerms = Array.isArray(item.terms) ? item.terms : [item.term];
+            return normalizeTerms(itemTerms) === newTermsNorm || item.name === name;
+        });
+
+        if (existing) {
+            return existing; // Return existing item without adding a new one
+        }
+
         const newItem = {
             id: Date.now().toString(),
             name,
@@ -52,7 +67,8 @@ const Watchlist = {
             createdAt: new Date().toISOString(),
             lastRun: null,
             active: true,
-            emailNotify: true
+            emailNotify: true,
+            filters: data.filters || [] // Persist filters if provided (e.g. from import)
         };
         list.push(newItem);
         fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));

@@ -212,9 +212,9 @@ const OptionsManager = ({ authenticatedFetch }) => {
         try {
             // Fetch all data
             const [watchlistRes, blacklistRes, blockedRes] = await Promise.all([
-                fetch('/api/watchlist'),
-                fetch('/api/blacklist'),
-                fetch('/api/blocked')
+                authenticatedFetch('/api/watchlist'),
+                authenticatedFetch('/api/blacklist'),
+                authenticatedFetch('/api/blocked')
             ]);
 
             const watchlist = await watchlistRes.json();
@@ -272,6 +272,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
             let added = 0;
             let errors = 0;
+            let firstError = null;
 
             if (isJson) {
                 // Handle JSON Backup Import
@@ -292,11 +293,13 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify(payload)
                             });
-                            if (!res.ok) throw new Error(`Status ${res.status}`);
+                            if (!res.ok) throw new Error(`Status ${res.status} (${res.statusText})`);
                             added++;
                         } catch (err) {
                             console.error(`Failed to import watchlist item: ${item.name}`, err);
                             errors++;
+                            // Capture first error for alert
+                            if (errors === 1) firstError = err.message;
                         }
                     }
                 }
@@ -314,11 +317,12 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ term })
                             });
-                            if (!res.ok && res.status !== 409) throw new Error(`Status ${res.status}`); // Ignore duplicates (409)
+                            if (!res.ok && res.status !== 409) throw new Error(`Status ${res.status} (${res.statusText})`); // Ignore duplicates (409)
                             if (res.ok) added++;
                         } catch (err) {
                             console.error(`Failed to import blacklist item`, err);
                             errors++;
+                            if (errors === 1) firstError = err.message;
                         }
                     }
                 }
@@ -332,11 +336,12 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ url: item.url, title: item.title })
                             });
-                            if (!res.ok) throw new Error(`Status ${res.status}`);
+                            if (!res.ok) throw new Error(`Status ${res.status} (${res.statusText})`);
                             added++;
                         } catch (err) {
                             console.error(`Failed to import blocked item`, err);
                             errors++;
+                            if (errors === 1) firstError = err.message;
                         }
                     }
                 }
@@ -362,27 +367,28 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 })
                             });
 
-                            if (!res.ok) throw new Error(`Status ${res.status}`);
+                            if (!res.ok) throw new Error(`Status ${res.status} (${res.statusText})`);
                             added++;
                         }
                     } catch (err) {
                         console.error(`Failed to add line: ${line}`, err);
                         errors++;
+                        if (errors === 1) firstError = err.message;
                     }
                 }
             }
 
-            alert(`Import completed!\nSuccessfully added: ${added} items\nErrors/Duplicates: ${errors}`);
+            alert(`Import completed!\nSuccessfully added: ${added} items\nErrors/Duplicates: ${errors}\n${firstError ? 'First Error: ' + firstError : ''}`);
             e.target.value = ''; // Reset file input
 
             // Refresh data
             fetchSettings(); // Refresh settings/stats if applicable
-            // If we had parent props to refresh watchlist/blacklist we would call them here, 
+            // If we had parent props to refresh watchlist/blacklist we would call them here,
             // but OptionsManager typically manages its own fetches or relies on parent refreshes.
 
         } catch (err) {
             console.error('Error importing file:', err);
-            alert('Failed to import file');
+            alert('Failed to import file: ' + err.message);
         }
     };
 

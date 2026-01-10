@@ -241,7 +241,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         }
     };
 
-    const removeTerm = async (id, e) => {
+    const removeWatch = async (id, e) => {
         e.stopPropagation();
         if (!window.confirm('Are you sure you want to delete this watchlist item?')) return;
 
@@ -695,7 +695,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                                     onClick={async () => {
                                         if (!selectedId) return;
                                         try {
-                                            const res = await fetch(`http://localhost:3000/api/watchlist/${selectedId}/toggle-email`, {
+                                            const res = await authenticatedFetch(`/api/watchlist/${selectedId}/toggle-email`, {
                                                 method: 'POST'
                                             });
                                             const data = await res.json();
@@ -713,7 +713,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                                     onClick={async () => {
                                         if (!selectedId) return;
                                         try {
-                                            const res = await fetch(`http://localhost:3000/api/watchlist/${selectedId}/toggle-active`, {
+                                            const res = await authenticatedFetch(`/api/watchlist/${selectedId}/toggle-active`, {
                                                 method: 'POST'
                                             });
                                             const data = await res.json();
