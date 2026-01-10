@@ -20,6 +20,11 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
     const [timeZoneName, setTimeZoneName] = useState('Local');
 
+    // Password State
+    const [newPassword, setNewPassword] = useState('');
+    const [passwordError, setPasswordError] = useState('');
+    const [passwordSaved, setPasswordSaved] = useState(false);
+
     useEffect(() => {
         try {
             const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
@@ -83,6 +88,38 @@ const OptionsManager = ({ authenticatedFetch }) => {
         let localHour = (jstHour + diff) % 24;
         if (localHour < 0) localHour += 24;
         return Math.floor(localHour);
+    };
+
+    const savePassword = async () => {
+        if (!newPassword) {
+            setPasswordError('Password cannot be empty');
+            return;
+        }
+        if (newPassword.length < 5) {
+            setPasswordError('Password must be at least 5 characters');
+            return;
+        }
+
+        try {
+            const res = await authenticatedFetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ loginPassword: newPassword })
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            setNewPassword('');
+            setPasswordError('');
+            setPasswordSaved(true);
+            setTimeout(() => setPasswordSaved(false), 3000);
+
+            // Refresh settings to reflect loginEnabled status
+            fetchSettings();
+        } catch (err) {
+            console.error('Error saving password:', err);
+            setPasswordError(err.message || 'Failed to save password');
+        }
     };
 
 
@@ -221,40 +258,131 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
         try {
             const text = await file.text();
-            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            let importData = null;
+            let isJson = false;
 
-            if (lines.length === 0) {
-                alert('No terms found in file');
-                return;
+            // Try parsing as JSON first
+            try {
+                importData = JSON.parse(text);
+                isJson = true;
+            } catch (e) {
+                // Not JSON, fall back to text lines
+                isJson = false;
             }
 
             let added = 0;
-            for (const line of lines) {
-                try {
-                    const terms = line.split(',').map(t => t.trim()).filter(t => t);
-                    if (terms.length > 0) {
-                        const res = await authenticatedFetch('/api/watchlist', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                term: terms[0], // for compatibility/name fallback
-                                terms: terms
-                            })
-                        });
+            let errors = 0;
 
-                        if (!res.ok) throw new Error(`Status ${res.status}`);
-                        added++;
+            if (isJson) {
+                // Handle JSON Backup Import
+                const { watchlist, blacklist, blockedItems } = importData;
+
+                // Import Watchlist
+                if (Array.isArray(watchlist)) {
+                    for (const item of watchlist) {
+                        try {
+                            const payload = {
+                                name: item.name,
+                                term: item.term || item.terms?.[0], // fallback
+                                terms: item.terms || [item.term],
+                                filters: item.filters || []
+                            };
+                            const res = await authenticatedFetch('/api/watchlist', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            if (!res.ok) throw new Error(`Status ${res.status}`);
+                            added++;
+                        } catch (err) {
+                            console.error(`Failed to import watchlist item: ${item.name}`, err);
+                            errors++;
+                        }
                     }
-                } catch (err) {
-                    console.error(`Failed to add line: ${line}`, err);
+                }
+
+                // Import Blacklist
+                if (Array.isArray(blacklist)) {
+                    for (const item of blacklist) {
+                        try {
+                            // Support both object {term: "foo"} and string "foo"
+                            const term = typeof item === 'string' ? item : item.term;
+                            if (!term) continue;
+
+                            const res = await authenticatedFetch('/api/blacklist', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ term })
+                            });
+                            if (!res.ok && res.status !== 409) throw new Error(`Status ${res.status}`); // Ignore duplicates (409)
+                            if (res.ok) added++;
+                        } catch (err) {
+                            console.error(`Failed to import blacklist item`, err);
+                            errors++;
+                        }
+                    }
+                }
+
+                // Import Blocked Items
+                if (Array.isArray(blockedItems)) {
+                    for (const item of blockedItems) {
+                        try {
+                            const res = await authenticatedFetch('/api/blocked', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ url: item.url, title: item.title })
+                            });
+                            if (!res.ok) throw new Error(`Status ${res.status}`);
+                            added++;
+                        } catch (err) {
+                            console.error(`Failed to import blocked item`, err);
+                            errors++;
+                        }
+                    }
+                }
+
+            } else {
+                // Legacy Text/CSV Import
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                if (lines.length === 0) {
+                    alert('No terms found in file');
+                    return;
+                }
+
+                for (const line of lines) {
+                    try {
+                        const terms = line.split(',').map(t => t.trim()).filter(t => t);
+                        if (terms.length > 0) {
+                            const res = await authenticatedFetch('/api/watchlist', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    term: terms[0], // for compatibility/name fallback
+                                    terms: terms
+                                })
+                            });
+
+                            if (!res.ok) throw new Error(`Status ${res.status}`);
+                            added++;
+                        }
+                    } catch (err) {
+                        console.error(`Failed to add line: ${line}`, err);
+                        errors++;
+                    }
                 }
             }
 
-            alert(`Imported ${added} of ${lines.length} items!`);
+            alert(`Import completed!\nSuccessfully added: ${added} items\nErrors/Duplicates: ${errors}`);
             e.target.value = ''; // Reset file input
+
+            // Refresh data
+            fetchSettings(); // Refresh settings/stats if applicable
+            // If we had parent props to refresh watchlist/blacklist we would call them here, 
+            // but OptionsManager typically manages its own fetches or relies on parent refreshes.
+
         } catch (err) {
-            console.error('Error importing watchlist:', err);
-            alert('Failed to import watchlist');
+            console.error('Error importing file:', err);
+            alert('Failed to import file');
         }
     };
 
@@ -401,40 +529,44 @@ const OptionsManager = ({ authenticatedFetch }) => {
                     <label style={{ display: 'flex', alignItems: 'center' }}>
                         <input
                             type="checkbox"
-                            name="loginEnabled"
-                            checked={settings.loginEnabled}
-                            onChange={handleChange}
+                            checked={settings.loginEnabled || false}
+                            onChange={(e) => handleChange('loginEnabled', e.target.checked)}
                             style={{ marginRight: '10px' }}
                         />
-                        Enable Login Protection (Required on site visit)
+                        Enable Login Protection (Requires saved password)
                     </label>
                 </div>
 
-                {settings.loginEnabled && (
-                    <div className="setting-group" style={{ marginLeft: '1.5rem' }}>
-                        <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '0.5rem' }}>
-                            {settings.hasLoginPassword ? 'Password is currently set.' : 'No password set!'}
-                        </p>
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <input
-                                type={showLoginPassword ? 'text' : 'password'}
-                                name="loginPassword"
-                                value={settings.loginPassword || ''}
-                                onChange={handleChange}
-                                placeholder="Enter new password to change"
-                                className="settings-input"
-                            />
-                            <button
-                                className="icon-btn"
-                                onClick={() => setShowLoginPassword(!showLoginPassword)}
-                                title={showLoginPassword ? "Hide" : "Show"}
-                            >
-                                {showLoginPassword ? '👁️' : '🔒'}
-                            </button>
-                        </div>
-                        <small>Leave blank to keep current password.</small>
+                <div className="setting-group" style={{ marginLeft: '1.5rem', background: '#f5f5f5', padding: '15px', borderRadius: '8px' }}>
+                    <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '0.5rem' }}>
+                        {settings.hasLoginPassword ? '✅ Password is currently set.' : '⚠️ No password set.'}
+                    </p>
+
+                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Set New Password:</label>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <input
+                            type="password"
+                            value={newPassword}
+                            onChange={(e) => {
+                                setNewPassword(e.target.value);
+                                setPasswordError('');
+                            }}
+                            placeholder="Min 5 characters"
+                            className="settings-input"
+                            style={{ flex: '1', minWidth: '200px' }}
+                        />
+                        <button
+                            className="save-btn small"
+                            onClick={savePassword}
+                            disabled={!newPassword || newPassword.length < 5}
+                            style={{ padding: '8px 16px', backgroundColor: '#4a90e2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', opacity: (!newPassword || newPassword.length < 5) ? 0.6 : 1 }}
+                        >
+                            Save Password
+                        </button>
                     </div>
-                )}
+                    {passwordError && <div style={{ color: 'red', marginTop: '5px', fontSize: '0.9rem' }}>{passwordError}</div>}
+                    {passwordSaved && <div style={{ color: 'green', marginTop: '5px', fontSize: '0.9rem' }}>Password Saved Successfully!</div>}
+                </div>
             </div>
 
             <div className="options-section">
