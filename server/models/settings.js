@@ -48,6 +48,26 @@ const Settings = {
 
     update: (newSettings) => {
         const current = Settings.get(); // this returns decrypted
+
+        // Validation: Password length
+        if (newSettings.loginPassword !== undefined) {
+            if (newSettings.loginPassword.length > 0 && newSettings.loginPassword.length < 5) {
+                throw new Error('Password must be at least 5 characters long');
+            }
+        }
+
+        // Validation: Cannot enable login without a password
+        const effectivelyEnabled = newSettings.loginEnabled !== undefined ? newSettings.loginEnabled : current.loginEnabled;
+        const effectivePassword = newSettings.loginPassword !== undefined ? newSettings.loginPassword : current.loginPassword;
+
+        if (effectivelyEnabled && !effectivePassword) {
+            // If trying to enable (or keeping enabled) but no password exists or is being cleared
+            // We force disable it to prevent lockout or insecure state, OR we could throw error.
+            // Requirement: "If there is no valid password saved then the login screen will not be enabled."
+            // So we silently set loginEnabled = false if password is missing.
+            newSettings.loginEnabled = false;
+        }
+
         const updated = { ...current, ...newSettings };
 
         // Encrypt sensitive fields before saving

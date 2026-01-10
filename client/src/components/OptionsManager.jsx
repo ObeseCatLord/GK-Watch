@@ -233,7 +233,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 try {
                     const terms = line.split(',').map(t => t.trim()).filter(t => t);
                     if (terms.length > 0) {
-                        await fetch('/api/watchlist', {
+                        const res = await authenticatedFetch('/api/watchlist', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -241,6 +241,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 terms: terms
                             })
                         });
+
+                        if (!res.ok) throw new Error(`Status ${res.status}`);
                         added++;
                     }
                 } catch (err) {
@@ -293,7 +295,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                             type="checkbox"
                             name="emailEnabled"
                             checked={settings.emailEnabled}
-                            onChange={handleChange}
+                            onChange={(e) => handleChange(e.target.name, e.target.checked)}
                         />
                         Enable email notifications
                     </label>
@@ -305,7 +307,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         type="email"
                         name="email"
                         value={settings.email}
-                        onChange={handleChange}
+                        onChange={(e) => handleChange(e.target.name, e.target.value)}
                         placeholder="your@email.com"
                         className="option-input"
                     />

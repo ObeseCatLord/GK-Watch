@@ -21,8 +21,10 @@ const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
 const requireAuth = (req, res, next) => {
     // Check if login is enabled in settings
     const settings = Settings.get();
-    if (!settings.loginEnabled) {
-        return next(); // Pass through if login is disabled
+
+    // If login is disabled OR no password is set, bypass auth
+    if (!settings.loginEnabled || !settings.loginPassword) {
+        return next();
     }
 
     const token = req.header('x-auth-token');
