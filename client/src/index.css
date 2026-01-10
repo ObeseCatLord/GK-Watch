@@ -1282,22 +1282,46 @@ h1 {
 @media (max-width: 767px) {
   #root {
     max-width: 100%;
-    padding: 1rem;
+    padding: 0.5rem;
   }
 
   h1 {
-    font-size: 1.8rem;
-    margin-bottom: 1rem;
+    font-size: 1.4rem;
+    margin-bottom: 0.5rem;
   }
 
   .main-nav {
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.3rem;
+    justify-content: center;
   }
 
   .main-nav button {
-    padding: 0.6rem 1rem;
-    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    flex: 1;
+    white-space: nowrap;
+  }
+
+  .clock-display {
+    font-size: 0.7rem;
+    padding: 0.3rem 0;
+    margin: 0.3rem 0;
+    gap: 0.5rem;
+  }
+
+  .clock-display .clock-zone {
+    padding: 0.2rem 0.4rem;
+  }
+
+  .card-image {
+    height: 80px;
+    margin-top: 5px;
+  }
+
+  .result-card {
+    padding-top: 5px;
   }
 
   /* Mobile slide-out sidebar */
