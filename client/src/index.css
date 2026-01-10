@@ -1305,38 +1305,53 @@ h1 {
   }
 
   .clock-display {
-    font-size: 0.7rem;
-    padding: 0.3rem 0;
-    margin: 0.3rem 0;
-    gap: 0.5rem;
+    order: -1;
+    font-size: 0.65rem;
+    padding: 0.15rem 0;
+    margin: 0 0 0.3rem 0;
+    gap: 0.3rem;
   }
 
   .clock-display .clock-zone {
-    padding: 0.2rem 0.4rem;
+    padding: 0.15rem 0.3rem;
+  }
+
+  /* Make App flex column so clock can go first */
+  .App>.main-nav,
+  .App>.clock-display {
+    width: 100%;
   }
 
   .card-image {
-    height: 80px;
-    margin-top: 5px;
+    height: auto;
+    min-height: 100px;
+    aspect-ratio: 1;
+    object-fit: contain;
+    background: #222;
+  }
+
+  .card-image-container {
+    aspect-ratio: 1;
+    height: auto;
   }
 
   .result-card {
-    padding-top: 5px;
+    padding-top: 0;
   }
 
   /* Mobile slide-out sidebar */
   .mobile-sidebar-toggle {
     display: flex;
     position: fixed;
-    bottom: 20px;
-    left: 20px;
+    bottom: 80px;
+    left: 15px;
     z-index: 1000;
     background: var(--accent-color);
     color: white;
     border: none;
-    border-radius: 30px;
-    padding: 12px 20px;
-    font-size: 0.9rem;
+    border-radius: 25px;
+    padding: 10px 16px;
+    font-size: 0.8rem;
     font-weight: bold;
     cursor: pointer;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
