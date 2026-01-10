@@ -494,9 +494,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         />
                     </div>
 
-                    <div className="setting-group" style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginTop: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>SMTP Password:</label>
-                        <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '10px' }}>
+                    <div className="setting-group" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', marginTop: '10px' }}>
+                        <p style={{ fontSize: '0.85rem', color: '#aaa', marginBottom: '10px' }}>
                             {settings.hasSmtpPass ? '✅ Password is set.' : '⚠️ No password set.'}
                         </p>
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -507,7 +506,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                     setNewSmtpPass(e.target.value);
                                     setSmtpPassError('');
                                 }}
-                                placeholder="Enter SMTP password"
+                                placeholder="Set SMTP Password"
                                 className="settings-input"
                                 style={{ flex: '1', minWidth: '200px' }}
                             />
@@ -580,12 +579,11 @@ const OptionsManager = ({ authenticatedFetch }) => {
                     </label>
                 </div>
 
-                <div className="setting-group" style={{ marginLeft: '1.5rem', background: '#f5f5f5', padding: '15px', borderRadius: '8px' }}>
-                    <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '0.5rem' }}>
+                <div className="setting-group" style={{ marginLeft: '1.5rem', background: '#2a2a2a', padding: '15px', borderRadius: '8px' }}>
+                    <p style={{ fontSize: '0.9rem', color: '#aaa', marginBottom: '0.5rem' }}>
                         {settings.hasLoginPassword ? '✅ Password is currently set.' : '⚠️ No password set.'}
                     </p>
 
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Set New Password:</label>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <input
                             type="password"
@@ -594,7 +592,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 setNewPassword(e.target.value);
                                 setPasswordError('');
                             }}
-                            placeholder="Min 5 characters"
+                            placeholder="Set New Password (Min 5 Characters)"
                             className="settings-input"
                             style={{ flex: '1', minWidth: '200px' }}
                         />
