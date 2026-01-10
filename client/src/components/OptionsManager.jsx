@@ -142,7 +142,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
         }
         saveTimeoutRef.current = setTimeout(async () => {
             try {
-                await fetch('/api/settings', {
+                await authenticatedFetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(newSettings)
