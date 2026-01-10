@@ -1374,36 +1374,35 @@ h1 {
 
 
 
-  /* Compact Header */
+  /* Compact Header - Separated */
   .watchlist-top-row {
     display: flex;
     flex-wrap: nowrap;
-    gap: 0;
+    /* Use gap for spacing instead of fusion */
+    gap: 4px;
     padding: 2px 0;
     margin: 0;
     align-items: center;
   }
 
   .watchlist-top-row .run-now-btn {
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-    margin-right: -1px;
-    /* Fuse with form */
-    z-index: 1;
+    margin: 0;
+    border-radius: 4px;
+    z-index: auto;
   }
 
   .watchlist-top-row .add-watch-form {
     display: flex;
     flex: 1;
     min-width: 0;
-    gap: 0;
+    gap: 2px;
     order: 0;
     margin: 0;
     padding: 0;
   }
 
   .watchlist-top-row .add-watch-form input {
-    border-radius: 0;
+    border-radius: 4px;
     flex: 1;
     min-width: 0;
     padding: 6px;
@@ -1412,12 +1411,11 @@ h1 {
   }
 
   .watchlist-top-row .add-btn {
-    border-radius: 0;
+    border-radius: 4px;
   }
 
   .watchlist-top-row .gk-btn {
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
+    border-radius: 4px;
   }
 
   .watchlist-top-row .run-now-btn {
