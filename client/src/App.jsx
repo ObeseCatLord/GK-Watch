@@ -288,10 +288,8 @@ function App() {
 
       {view === 'search' && (
         <>
-          <h1>GKWatch Aggregator</h1>
-
-          <div className="search-container">
-            <form onSubmit={search} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div className="search-container" style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem', marginTop: '1rem' }}>
+            <form onSubmit={search} style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%', maxWidth: '800px' }}>
               <input
                 type="text"
                 className="search-input"
