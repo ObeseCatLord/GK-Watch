@@ -22,6 +22,3 @@ npm run build
 cd ..
 
 echo "✅ Update complete!"
-echo ""
-echo "If you're using PM2, restart the backend with:"
-echo "  pm2 restart gkwatch-api"
