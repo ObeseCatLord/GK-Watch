@@ -47,7 +47,7 @@ async function search(query) {
                     const priceSpan = priceEl.find('span[data-content]:not([data-content="JPY"])');
                     if (priceSpan.length) {
                         const priceValue = priceSpan.attr('data-content');
-                        price = '¥' + Number(priceValue).toLocaleString();
+                        price = Number(priceValue).toLocaleString() + '円';
                     } else {
                         // Fallback to text content
                         price = priceEl.text().trim();
