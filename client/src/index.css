@@ -1350,7 +1350,9 @@ h1 {
   }
 
   .card-image-container {
-    height: 150px;
+    height: auto;
+    width: 100%;
+    aspect-ratio: 3/4;
     overflow: hidden;
     background: #1a1a1a;
   }
