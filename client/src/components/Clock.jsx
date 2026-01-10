@@ -73,7 +73,7 @@ const Clock = () => {
     }, []);
 
     return (
-        <div className="clock-container">
+        <div className="clock-display">
             <div className="clock-item">
                 <span className="clock-label">JST</span>
                 <span className="clock-time">{jstTime}</span>
