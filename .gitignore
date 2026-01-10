@@ -1,0 +1,32 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+.nyc_output
+
+# Production
+build
+dist
+
+# Misc
+.DS_Store
+.env
+.npm
+*.log
+
+# Project specific
+# We probably want to keep data/ structure but maybe ignore large caches if any?
+# For now, we will track data/watchlist.json so the user has a starter file, 
+# but ignore resume.json as it is ephemeral.
+server/data/resume.json
+server/mercari_cookies.json
+server/screenshots/
+
+# Security (DO NOT COMMIT)
+# Security (DO NOT COMMIT)
+*.key
+data/
+server/data/
