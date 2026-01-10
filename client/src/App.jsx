@@ -206,7 +206,6 @@ function App() {
 
   return (
     <div className="App">
-      <Clock />
       <nav className="main-nav">
         <button
           className={view === 'search' ? 'active' : ''}
@@ -232,6 +231,7 @@ function App() {
         >
           ⚙️ Options
         </button>
+        <Clock />
       </nav>
 
       {view === 'search' && (

@@ -1292,7 +1292,7 @@ h1 {
 
   .main-nav {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 0.3rem;
     justify-content: center;
   }
@@ -1306,6 +1306,7 @@ h1 {
 
   .clock-display {
     order: -1;
+    width: 100%;
     font-size: 0.65rem;
     padding: 0.15rem 0;
     margin: 0 0 0.3rem 0;
@@ -1316,11 +1317,7 @@ h1 {
     padding: 0.15rem 0.3rem;
   }
 
-  /* Make App flex column so clock can go first */
-  .App>.main-nav,
-  .App>.clock-display {
-    width: 100%;
-  }
+
 
   .card-image {
     height: auto;
