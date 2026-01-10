@@ -1388,7 +1388,34 @@ h1 {
   }
 
   .watchlist-top-row .run-now-btn,
-  .watchlist-top-row .add-btn,
+  /* Compact Results Actions */
+  .results-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    border-bottom: 1px solid #333;
+  }
+
+  .results-actions .action-btn {
+    flex: 1;
+    border-radius: 0;
+    border-left: 1px solid #333;
+    /* Separator */
+    margin: 0;
+    padding: 6px 2px;
+    font-size: 0.7rem;
+    white-space: nowrap;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .results-actions .action-btn:first-child {
+    border-left: none;
+  }
+
   .watchlist-top-row .add-btn.gk-btn {
     width: auto;
     padding: 6px 6px;
@@ -1411,13 +1438,16 @@ h1 {
   /* Compact Grid & Overlay Cards */
   .results-grid {
     grid-template-columns: repeat(3, 1fr);
-    gap: 0;
+    gap: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
   .result-card {
     position: relative;
     border-radius: 0;
-    margin: 0;
+    margin: 0 !important;
+    padding: 0 !important;
     overflow: hidden;
   }
 
@@ -1425,16 +1455,20 @@ h1 {
     width: 100%;
     aspect-ratio: 4/5;
     background: #000;
+    margin: 0 !important;
   }
 
   .card-image {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100%;
     object-fit: cover;
     object-position: top;
+    display: block;
+    margin: 0 !important;
   }
 
   .card-content {
