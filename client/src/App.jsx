@@ -171,6 +171,58 @@ function App() {
     }
   };
 
+  const searchGK = async (e) => {
+    if (e) e.preventDefault();
+    if (!query.trim()) return;
+
+    setLoading(true);
+    setError(null);
+    setResults([]);
+    setCurrentPage(1); // Reset page on new search
+
+    // Save to history (save the base term)
+    saveToHistory(query);
+
+    const terms = [
+      `${query} ガレージキット`,
+      `${query} レジンキット`,
+      `${query} レジンキャストキット`
+    ];
+
+    try {
+      // Run searches in parallel
+      const promises = terms.map(term =>
+        authenticatedFetch(`/api/search?q=${encodeURIComponent(term)}`)
+          .then(res => res.json())
+          .catch(err => {
+            console.error(`Error searching ${term}:`, err);
+            return [];
+          })
+      );
+
+      const allResults = await Promise.all(promises);
+      const flatResults = allResults.flat();
+
+      // Deduplicate by link
+      const uniqueResults = [];
+      const seenLinks = new Set();
+
+      flatResults.forEach(item => {
+        if (!seenLinks.has(item.link)) {
+          seenLinks.add(item.link);
+          uniqueResults.push(item);
+        }
+      });
+
+      setResults(uniqueResults);
+    } catch (err) {
+      setError('Failed to fetch GK results. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Show loading while checking auth
   if (checkingAuth) {
     return (
@@ -239,14 +291,24 @@ function App() {
           <h1>GKWatch Aggregator</h1>
 
           <div className="search-container">
-            <form onSubmit={search}>
+            <form onSubmit={search} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <input
                 type="text"
                 className="search-input"
                 placeholder="Search for resin crack..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                style={{ flex: 1 }}
               />
+              <button type="submit" className="add-btn">Search</button>
+              <button
+                type="button"
+                className="add-btn gk-btn"
+                onClick={searchGK}
+                title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
+              >
+                Search GK
+              </button>
             </form>
           </div>
 
@@ -297,6 +359,13 @@ function App() {
                   ✕ Clear
                 </button>
               )}
+              <button
+                className="action-btn surugaya-btn"
+                onClick={() => window.open(`https://www.suruga-ya.jp/search?category=&search_word=${encodeURIComponent(query)}`, '_blank')}
+                style={{ marginLeft: 'auto', padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+              >
+                🔍 Search Suruga-ya
+              </button>
             </div>
           )}
 
