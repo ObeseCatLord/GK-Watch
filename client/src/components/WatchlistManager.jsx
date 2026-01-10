@@ -21,10 +21,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
 
     // Search queue for sequential single searches
     const [searchQueue, setSearchQueue] = useState([]);  // Array of {id, name}
+
     const [currentQueueItem, setCurrentQueueItem] = useState(null);  // Currently processing item
     const isProcessingRef = React.useRef(false);
     const [sourceFilter, setSourceFilter] = useState('All');
     const [schedulerProgress, setSchedulerProgress] = useState(null);
+
 
     // Track previous running state to detect completion
     const wasRunningRef = React.useRef(false);

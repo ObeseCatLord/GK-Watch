@@ -49,12 +49,12 @@ const ResultCard = ({ item, onBlock, isNew }) => {
                     {item.bidPrice && item.binPrice ? (
                         // Yahoo item with both auction and buy-it-now prices
                         <>
-                            <span className="price-bid" title="Current Bid">🔨 {item.bidPrice}</span>
-                            <span className="price-bin" title="Buy It Now">🛒 {item.binPrice}</span>
+                            <span className="price-bid" title="Current Bid">{item.bidPrice} 🔨</span>
+                            <span className="price-bin" title="Buy It Now">{item.binPrice} 🛒</span>
                         </>
                     ) : source && source.toLowerCase().includes('yahoo') ? (
                         // Yahoo item - show gavel for auction price
-                        <span className="price-bid" title="Current Bid">🔨 {price}</span>
+                        <span className="price-bid" title="Current Bid">{price} 🔨</span>
                     ) : (
                         // Other sources - simple price
                         <span>{price}</span>
