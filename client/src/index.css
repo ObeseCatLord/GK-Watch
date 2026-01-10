@@ -1339,6 +1339,63 @@ h1 {
 
 
 
+
+
+  /* Compact Header */
+  .watchlist-top-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 2px;
+    align-items: center;
+  }
+
+  .watchlist-top-row .run-now-btn,
+  .watchlist-top-row .add-btn,
+  .watchlist-top-row .add-btn.gk-btn {
+    width: auto;
+    padding: 6px 8px;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+    white-space: nowrap;
+    order: 0;
+    margin: 0;
+  }
+
+  .watchlist-top-row .add-watch-form {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 2px;
+    order: 0;
+  }
+
+  .watchlist-top-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px;
+    font-size: 0.75rem;
+  }
+
+  /* Compact Grid & Overlay Cards */
+  .results-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+  }
+
+  .result-card {
+    position: relative;
+    border-radius: 0;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .card-image-container {
+    width: 100%;
+    aspect-ratio: 1;
+    background: #000;
+  }
+
   .card-image {
     position: absolute;
     top: 0;
@@ -1347,63 +1404,45 @@ h1 {
     height: 100%;
     object-fit: cover;
     object-position: top;
-    margin: 0;
-    padding: 0;
-    display: block;
   }
 
-  .card-image-container {
-    position: relative;
+  .card-content {
+    position: absolute;
+    bottom: 0;
+    left: 0;
     width: 100%;
-    height: auto;
-    aspect-ratio: 1;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 50%, rgba(0, 0, 0, 0) 100%);
+    padding: 2.5rem 0.3rem 0.3rem;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .card-title {
+    font-size: 0.7rem;
+    color: #fff;
+    white-space: nowrap;
     overflow: hidden;
-    background: #1a1a1a;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 2px #000;
   }
 
-  .result-card {
-    padding: 0;
-  }
-
-  .card-info {
-    padding: 0.3rem;
-  }
-
-  .empty-results-message {
-    margin-left: 80px;
-    text-align: center;
-  }
-
-  /* Watchlist top row - inline on mobile */
-  .watchlist-top-row {
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: 0.5rem;
-  }
-
-  .watchlist-top-row .run-now-btn {
-    order: 0;
-    padding: 0.4rem 0.8rem;
+  .card-price {
     font-size: 0.8rem;
+    font-weight: bold;
+    color: #4CAF50;
+    text-shadow: 0 1px 2px #000;
   }
 
-  .watchlist-top-row .add-watch-form {
-    flex: 1;
-    order: 0;
+  /* Compact Stored Results Header */
+  .results-controls {
+    margin-top: 2px;
+    margin-bottom: 2px;
   }
 
-  .watchlist-top-row .add-watch-form input {
-    font-size: 0.85rem;
-    padding: 0.4rem;
-  }
-
-  .watchlist-top-row .add-watch-form input::placeholder {
-    font-size: 0.75rem;
-  }
-
-  .watchlist-top-row .add-btn {
-    padding: 0.4rem 0.6rem;
-    font-size: 0.8rem;
+  h2,
+  .section-title {
+    margin-top: 2px;
+    margin-bottom: 2px;
   }
 
   .mark-all-seen-btn {
