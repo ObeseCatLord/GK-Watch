@@ -31,3 +31,5 @@ server/screenshots/
 data/
 server/data/
 deployment_guide.md
+stop_server.sh
+
