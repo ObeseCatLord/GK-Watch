@@ -1351,8 +1351,9 @@ h1 {
   }
 
   .card-image-container {
-    height: 200px;
+    height: auto;
     width: 100%;
+    aspect-ratio: 3/4;
     overflow: hidden;
     background: #1a1a1a;
   }
@@ -1563,9 +1564,7 @@ h1 {
     grid-template-columns: repeat(3, 1fr);
   }
 
-  .card-image {
-    height: 70px;
-  }
+
 
   .card-title {
     font-size: 0.65rem;
