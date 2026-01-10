@@ -14,6 +14,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [resultFilter, setResultFilter] = useState('');
     const [emailSettings, setEmailSettings] = useState({});
+    const [prioritySettings, setPrioritySettings] = useState({});
     const [activeSettings, setActiveSettings] = useState({});
     const [singleSearching, setSingleSearching] = useState(false);
     const [draggedItem, setDraggedItem] = useState(null);
@@ -96,14 +97,17 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
             const res = await authenticatedFetch('/api/watchlist');
             const data = await res.json();
             setWatchlist(data);
-            // Build email settings map
+            // Build email/priority settings map
             const emailMap = {};
+            const priorityMap = {};
             const activeMap = {};
             data.forEach(item => {
                 emailMap[item.id] = item.emailNotify !== false;
+                priorityMap[item.id] = item.priority === true;
                 activeMap[item.id] = item.active !== false;
             });
             setEmailSettings(emailMap);
+            setPrioritySettings(priorityMap);
             setActiveSettings(activeMap);
         } catch (err) {
             console.error('Error fetching watchlist:', err);
@@ -732,6 +736,25 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                                     title={emailSettings[selectedId] ? 'Email notifications ON' : 'Email notifications OFF'}
                                 >
                                     {emailSettings[selectedId] ? '🔔 Emails On' : '🔕 Emails Off'}
+                                </button>
+                                <button
+                                    className={`action-btn priority-toggle-btn ${prioritySettings[selectedId] ? 'priority-on' : 'priority-off'}`}
+                                    onClick={async () => {
+                                        if (!selectedId) return;
+                                        try {
+                                            const res = await authenticatedFetch(`/api/watchlist/${selectedId}/toggle-priority`, {
+                                                method: 'POST'
+                                            });
+                                            const data = await res.json();
+                                            setPrioritySettings(prev => ({ ...prev, [selectedId]: data.priority }));
+                                        } catch (err) {
+                                            console.error('Error toggling priority:', err);
+                                        }
+                                    }}
+                                    title={prioritySettings[selectedId] ? 'Priority Alerts ON (Ntfy)' : 'Priority Alerts OFF'}
+                                    style={prioritySettings[selectedId] ? { background: '#d32f2f', color: 'white' } : {}}
+                                >
+                                    {prioritySettings[selectedId] ? '🚨 Priority ON' : '💤 Priority Off'}
                                 </button>
                                 <button
                                     className={`action-btn active-toggle-btn ${activeSettings[selectedId] ? 'active-on' : 'active-off'}`}

@@ -12,6 +12,7 @@ app.use(express.json());
 
 // API Endpoint
 const crypto = require('crypto');
+const NtfyService = require('./utils/ntfyService');
 
 // Simple in-memory session store
 // Map<token, { timestamp }>
@@ -173,11 +174,24 @@ app.get('/api/watchlist/newcounts', requireAuth, (req, res) => {
 
 // Toggle email notifications for a watchlist item
 app.post('/api/watchlist/:id/toggle-email', requireAuth, (req, res) => {
-    const newState = Watchlist.toggleEmailNotify(req.params.id);
-    if (newState === null) {
-        return res.status(404).json({ error: 'Watchlist item not found' });
-    }
+    const { id } = req.params;
+    const item = Watchlist.get(id);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    const newState = item.emailNotify === false ? true : false;
+    Watchlist.update(id, { emailNotify: newState });
     res.json({ emailNotify: newState });
+});
+
+app.post('/api/watchlist/:id/toggle-priority', requireAuth, (req, res) => {
+    const { id } = req.params;
+    const item = Watchlist.get(id);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    // Default to false if undefined
+    const newState = !item.priority;
+    Watchlist.update(id, { priority: newState });
+    res.json({ priority: newState });
 });
 
 // Toggle active status for a watchlist item
@@ -336,33 +350,17 @@ app.post('/api/settings', requireAuth, (req, res) => {
 
 // Test Ntfy Notification
 app.post('/api/settings/test-ntfy', requireAuth, async (req, res) => {
-    const settings = Settings.get();
-
-    if (!settings.ntfyTopic) {
-        return res.status(400).json({ error: 'Ntfy Topic is required' });
-    }
-
-    const serverUrl = settings.ntfyServer || 'https://ntfy.sh';
-    const topic = settings.ntfyTopic;
-    const url = `${serverUrl}/${topic}`;
-
-    console.log(`[Ntfy] Sending test notification to ${url}`);
-
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            body: 'Test Notification from GK Watcher! 🚀',
-            headers: {
-                'Title': 'GK Watcher Test',
-                'Priority': '5',
-                'Tags': 'warning,skull'
-            }
-        });
+        const success = await NtfyService.send(
+            'GK Watcher Test',
+            'Test Notification from GK Watcher! 🚀',
+            '5',
+            ['warning', 'skull']
+        );
 
-        if (!response.ok) {
-            throw new Error(`Ntfy returned status ${response.status}`);
+        if (!success) {
+            return res.status(500).json({ error: 'Failed to send Ntfy notification' });
         }
-
         res.json({ success: true });
     } catch (error) {
         console.error('Ntfy test failed:', error);

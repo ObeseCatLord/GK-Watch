@@ -4,6 +4,7 @@ const BlockedItems = require('./models/blocked_items');
 const Blacklist = require('./models/blacklist');
 const ScheduleSettings = require('./models/schedule');
 const EmailService = require('./emailService');
+const NtfyService = require('./utils/ntfyService');
 const searchAggregator = require('./scrapers');
 const fs = require('fs');
 const path = require('path');
@@ -174,8 +175,14 @@ const Scheduler = {
 
                     const newItems = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
 
-                    if (newItems && newItems.length > 0 && item.emailNotify !== false) {
-                        allNewItems[item.name] = newItems;
+                    if (newItems && newItems.length > 0) {
+                        if (item.emailNotify !== false) {
+                            allNewItems[item.name] = newItems;
+                        }
+                        if (item.priority === true) {
+                            // Trigger Ntfy Priority Alert IMMEDIATELY
+                            await NtfyService.sendPriorityAlert(item.name || item.term, newItems);
+                        }
                     }
                     Watchlist.updateLastRun(item.id);
                 } catch (err) {
