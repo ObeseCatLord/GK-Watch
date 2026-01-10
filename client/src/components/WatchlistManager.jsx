@@ -27,6 +27,14 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
     const [sourceFilter, setSourceFilter] = useState('All');
     const [schedulerProgress, setSchedulerProgress] = useState(null);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+    const [isMobile, setIsMobile] = useState(window.innerWidth <= 767);
+
+    // Track window resize for responsive placeholder
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth <= 767);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
 
     // Track previous running state to detect completion
@@ -442,7 +450,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                         type="text"
                         value={newTerm}
                         onChange={(e) => setNewTerm(e.target.value)}
-                        placeholder="Add new term to watch..."
+                        placeholder={isMobile ? "Add watch..." : "Add new term to watch..."}
                         className="search-input"
                         style={{ maxWidth: '400px', fontSize: '1rem' }}
                     />

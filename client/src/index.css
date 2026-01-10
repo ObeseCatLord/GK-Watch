@@ -1321,7 +1321,6 @@ h1 {
 
   .card-image {
     height: auto;
-    min-height: 100px;
     aspect-ratio: 1;
     object-fit: contain;
     background: #222;
@@ -1330,10 +1329,48 @@ h1 {
   .card-image-container {
     aspect-ratio: 1;
     height: auto;
+    overflow: hidden;
   }
 
   .result-card {
-    padding-top: 0;
+    padding: 0;
+  }
+
+  /* Watchlist top row - inline on mobile */
+  .watchlist-top-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .watchlist-top-row .run-now-btn {
+    order: 0;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+  }
+
+  .watchlist-top-row .add-watch-form {
+    flex: 1;
+    order: 0;
+  }
+
+  .watchlist-top-row .add-watch-form input {
+    font-size: 0.85rem;
+    padding: 0.4rem;
+  }
+
+  .watchlist-top-row .add-watch-form input::placeholder {
+    font-size: 0.75rem;
+  }
+
+  .watchlist-top-row .add-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .mark-all-seen-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
   }
 
   /* Mobile slide-out sidebar */
