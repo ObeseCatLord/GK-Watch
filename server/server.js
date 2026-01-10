@@ -334,6 +334,42 @@ app.post('/api/settings', requireAuth, (req, res) => {
     res.json(updated);
 });
 
+// Test Ntfy Notification
+app.post('/api/settings/test-ntfy', requireAuth, async (req, res) => {
+    const settings = Settings.get();
+
+    if (!settings.ntfyTopic) {
+        return res.status(400).json({ error: 'Ntfy Topic is required' });
+    }
+
+    const serverUrl = settings.ntfyServer || 'https://ntfy.sh';
+    const topic = settings.ntfyTopic;
+    const url = `${serverUrl}/${topic}`;
+
+    console.log(`[Ntfy] Sending test notification to ${url}`);
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            body: 'Test Notification from GK Watcher! 🚀',
+            headers: {
+                'Title': 'GK Watcher Test',
+                'Priority': '5',
+                'Tags': 'warning,skull'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ntfy returned status ${response.status}`);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Ntfy test failed:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Abort scheduled search
 app.post('/api/abort-scheduled', (req, res) => {
     Scheduler.abort();

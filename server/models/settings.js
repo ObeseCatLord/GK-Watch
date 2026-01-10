@@ -12,7 +12,10 @@ const DEFAULT_SETTINGS = {
     smtpUser: '',
     smtpPass: '',
     loginEnabled: false,
-    loginPassword: ''
+    loginPassword: '',
+    ntfyEnabled: false,
+    ntfyTopic: '',
+    ntfyServer: 'https://ntfy.sh'
 };
 
 // Ensure data directory exists

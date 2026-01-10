@@ -13,6 +13,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
     });
     const [saved, setSaved] = useState(false);
     const [testStatus, setTestStatus] = useState('');
+    const [ntfyTestStatus, setNtfyTestStatus] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showLoginPassword, setShowLoginPassword] = useState(false);
     const [enabledHours, setEnabledHours] = useState([]);
@@ -210,6 +211,34 @@ const OptionsManager = ({ authenticatedFetch }) => {
             setTestStatus('error');
             alert('Failed to send test email: ' + err.message);
             setTimeout(() => setTestStatus(''), 3000);
+        }
+    };
+
+    const sendTestNtfy = async () => {
+        if (!settings.ntfyTopic) {
+            alert('Please enter a Topic first');
+            return;
+        }
+
+        setNtfyTestStatus('sending');
+        try {
+            const res = await authenticatedFetch('/api/settings/test-ntfy', {
+                method: 'POST'
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            setNtfyTestStatus('success');
+            alert('Test notification sent!');
+            setTimeout(() => setNtfyTestStatus(''), 3000);
+        } catch (err) {
+            console.error('Error sending test ntfy:', err);
+            setNtfyTestStatus('error');
+            alert('Failed to send Ntfy notification: ' + err.message);
+            setTimeout(() => setNtfyTestStatus(''), 3000);
         }
     };
 
@@ -556,6 +585,66 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         testStatus === 'success' ? '✅ Sent!' :
                             testStatus === 'error' ? '❌ Failed' :
                                 '📧 Send Test Email'}
+                </button>
+            </div>
+
+            {/* Ntfy Notifications */}
+            <div className="options-section">
+                <h3>🔔 Ntfy Notifications (Priority Alerts)</h3>
+                <p className="options-description">
+                    Receive high-priority alerts on your phone using the free <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" style={{ color: '#4a90e2' }}>ntfy app</a>.
+                    Set a unique topic name below and subscribe to it in the app.
+                </p>
+
+                <div className="option-row">
+                    <label>
+                        <input
+                            type="checkbox"
+                            name="ntfyEnabled"
+                            checked={settings.ntfyEnabled || false}
+                            onChange={handleChange}
+                        />
+                        Enable Ntfy notifications
+                    </label>
+                </div>
+
+                <div className="option-row">
+                    <label>Topic Name:</label>
+                    <input
+                        type="text"
+                        name="ntfyTopic"
+                        value={settings.ntfyTopic || ''}
+                        onChange={handleChange}
+                        placeholder="e.g. secret-gkwatch-alerts"
+                        className="option-input"
+                    />
+                </div>
+                <p style={{ fontSize: '0.8rem', color: '#888', marginTop: '-5px', marginBottom: '10px' }}>
+                    Subscribe to <code>ntfy.sh/your-topic-name</code> in the app. Keep this secret!
+                </p>
+
+                <div className="option-row">
+                    <label>Server URL:</label>
+                    <input
+                        type="text"
+                        name="ntfyServer"
+                        value={settings.ntfyServer || 'https://ntfy.sh'}
+                        onChange={handleChange}
+                        placeholder="https://ntfy.sh"
+                        className="option-input"
+                    />
+                </div>
+
+                <button
+                    className={`test-email-btn ${ntfyTestStatus}`}
+                    onClick={sendTestNtfy}
+                    disabled={ntfyTestStatus === 'sending' || !settings.ntfyTopic}
+                    style={{ marginTop: '10px' }}
+                >
+                    {ntfyTestStatus === 'sending' ? '📤 Sending...' :
+                        ntfyTestStatus === 'success' ? '✅ Sent!' :
+                            ntfyTestStatus === 'error' ? '❌ Failed' :
+                                '🔔 Send Test Notification (Priority 5)'}
                 </button>
             </div>
 
