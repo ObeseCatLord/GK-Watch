@@ -24,9 +24,15 @@ async function search(query) {
         // Add status=on_sale to filter out sold items
         const searchUrl = `https://jp.mercari.com/search?keyword=${encodeURIComponent(query)}&status=on_sale`;
 
+        // Use system Chromium on ARM/Linux servers where bundled Chrome may not work
+        const executablePath = process.platform === 'linux'
+            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
+            : undefined;
+
         browser = await puppeteer.launch({
             headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            executablePath,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
         const page = await browser.newPage();
 
