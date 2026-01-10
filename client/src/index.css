@@ -1356,7 +1356,7 @@ h1 {
     position: relative;
     width: 100%;
     height: auto;
-    aspect-ratio: 3/4;
+    aspect-ratio: 1;
     overflow: hidden;
     background: #1a1a1a;
   }
@@ -1468,7 +1468,7 @@ h1 {
   }
 
   .results-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 0.5rem;
   }
 
