@@ -35,7 +35,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
     useEffect(() => {
         const checkStatus = async () => {
             try {
-                const res = await authenticatedFetch('http://localhost:3000/api/status');
+                const res = await authenticatedFetch('/api/status');
                 const data = await res.json();
 
                 // Detect transition: was running -> now stopped
@@ -84,7 +84,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
 
     const fetchWatchlist = async () => {
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/watchlist');
+            const res = await authenticatedFetch('/api/watchlist');
             const data = await res.json();
             setWatchlist(data);
             // Build email settings map
@@ -103,7 +103,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
 
     const fetchNewCounts = async () => {
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/watchlist/newcounts');
+            const res = await authenticatedFetch('/api/watchlist/newcounts');
             const data = await res.json();
             setNewCounts(data);
         } catch (err) {
@@ -136,7 +136,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                         const watchItem = itemsToProcess[i];
                         setCurrentQueueItem({ ...item, progress: `${i + 1}/${itemsToProcess.length}: ${watchItem.name}` });
                         try {
-                            await authenticatedFetch(`http://localhost:3000/api/run-single/${watchItem.id}`, { method: 'POST' });
+                            await authenticatedFetch(`/api/run-single/${watchItem.id}`, { method: 'POST' });
                         } catch (err) {
                             console.error(`Queue: ${watchItem.name} failed`, err);
                         }
@@ -144,7 +144,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                 } else {
                     // Single item search
                     if (!abortRef.current) {
-                        const res = await authenticatedFetch(`http://localhost:3000/api/run-single/${item.id}`, { method: 'POST' });
+                        const res = await authenticatedFetch(`/api/run-single/${item.id}`, { method: 'POST' });
                         const data = await res.json();
                         console.log(`Queue: ${item.name} completed - ${data.resultCount} results`);
 
@@ -191,7 +191,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
 
     const runNow = async () => {
         try {
-            await authenticatedFetch('http://localhost:3000/api/run-now', { method: 'POST' });
+            await authenticatedFetch('/api/run-now', { method: 'POST' });
         } catch (err) {
             console.error('Error starting batch run:', err);
             alert('Failed to start run');
@@ -203,7 +203,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         if (!newTerm.trim()) return;
 
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/watchlist', {
+            const res = await authenticatedFetch('/api/watchlist', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ term: newTerm })
@@ -226,7 +226,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         ];
 
         try {
-            await authenticatedFetch('http://localhost:3000/api/watchlist', {
+            await authenticatedFetch('/api/watchlist', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -246,7 +246,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         if (!window.confirm('Are you sure you want to delete this watchlist item?')) return;
 
         try {
-            await authenticatedFetch(`http://localhost:3000/api/watchlist/${id}`, {
+            await authenticatedFetch(`/api/watchlist/${id}`, {
                 method: 'DELETE'
             });
             fetchWatchlist();
@@ -284,7 +284,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
 
         // Save the new order to the server
         try {
-            await authenticatedFetch('http://localhost:3000/api/watchlist/reorder', {
+            await authenticatedFetch('/api/watchlist/reorder', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ orderedIds: watchlist.map(i => i.id) })
@@ -312,7 +312,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         const name = firstItem ? (firstItem.name || firstItem.term) : 'Merged Watch';
 
         try {
-            await authenticatedFetch('http://localhost:3000/api/watchlist/merge', {
+            await authenticatedFetch('/api/watchlist/merge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ids: Array.from(checkedItems), newName: name })
@@ -349,7 +349,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         const filters = editFilters.split('\n').map(t => t.trim()).filter(t => t);
 
         try {
-            await authenticatedFetch(`http://localhost:3000/api/watchlist/${editingItem.id}`, {
+            await authenticatedFetch(`/api/watchlist/${editingItem.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: editName, terms, filters })
@@ -371,13 +371,13 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         setSelectedResults(null); // Clear previous
         setCurrentPage(1); // Reset pagination
         try {
-            const res = await authenticatedFetch(`http://localhost:3000/api/results/${id}`);
+            const res = await authenticatedFetch(`/api/results/${id}`);
             const data = await res.json();
             setSelectedResults(data.items || []);
 
             // Mark as seen if there are new items
             if (newCounts[id] && newCounts[id] > 0) {
-                await authenticatedFetch(`http://localhost:3000/api/results/${id}/seen`, {
+                await authenticatedFetch(`/api/results/${id}/seen`, {
                     method: 'POST'
                 });
                 // Update local newCounts
@@ -392,7 +392,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
     const refreshSelectedResults = async () => {
         if (!selectedId) return;
         try {
-            const res = await authenticatedFetch(`http://localhost:3000/api/results/${selectedId}`);
+            const res = await authenticatedFetch(`/api/results/${selectedId}`);
             const data = await res.json();
             setSelectedResults(data.items || []);
         } catch (err) {

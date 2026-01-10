@@ -30,7 +30,7 @@ function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/settings');
+        const res = await fetch('/api/settings');
         const data = await res.json();
         if (data.loginEnabled) {
           // Check if already authenticated in session
@@ -55,7 +55,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://localhost:3000/api/login', {
+      const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: loginPassword })
@@ -130,7 +130,7 @@ function App() {
 
   const handleBlock = async (item) => {
     try {
-      await authenticatedFetch('http://localhost:3000/api/blocked', {
+      await authenticatedFetch('/api/blocked', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: item.link, title: item.title })
@@ -157,7 +157,7 @@ function App() {
     if (overrideQuery) setQuery(overrideQuery);
 
     try {
-      const response = await authenticatedFetch(`http://localhost:3000/api/search?q=${encodeURIComponent(searchTerm)}`);
+      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(searchTerm)}`);
       if (!response.ok) {
         throw new Error('Network response was not ok');
       }

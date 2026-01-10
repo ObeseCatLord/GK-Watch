@@ -12,7 +12,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
 
     const fetchBlockedItems = async () => {
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/blocked');
+            const res = await authenticatedFetch('/api/blocked');
             const data = await res.json();
             setBlockedItems(data);
         } catch (err) {
@@ -22,7 +22,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
 
     const fetchBlacklist = async () => {
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/blacklist');
+            const res = await authenticatedFetch('/api/blacklist');
             const data = await res.json();
             setBlacklist(data);
         } catch (err) {
@@ -32,7 +32,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
 
     const unblockItem = async (id) => {
         try {
-            await authenticatedFetch(`http://localhost:3000/api/blocked/${id}`, {
+            await authenticatedFetch(`/api/blocked/${id}`, {
                 method: 'DELETE'
             });
             fetchBlockedItems();
@@ -46,7 +46,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
         if (!newTerm.trim()) return;
 
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/blacklist', {
+            const res = await authenticatedFetch('/api/blacklist', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ term: newTerm })
@@ -65,7 +65,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
 
     const removeFromBlacklist = async (id) => {
         try {
-            await authenticatedFetch(`http://localhost:3000/api/blacklist/${id}`, {
+            await authenticatedFetch(`/api/blacklist/${id}`, {
                 method: 'DELETE'
             });
             fetchBlacklist();

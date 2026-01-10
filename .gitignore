@@ -30,3 +30,4 @@ server/screenshots/
 *.key
 data/
 server/data/
+deployment_guide.md

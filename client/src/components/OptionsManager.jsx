@@ -39,7 +39,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
     const fetchSettings = async () => {
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/settings');
+            const res = await authenticatedFetch('/api/settings');
             const data = await res.json();
             setSettings(data);
         } catch (err) {
@@ -49,7 +49,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
     const fetchSchedule = async () => {
         try {
-            const res = await authenticatedFetch('http://localhost:3000/api/schedule');
+            const res = await authenticatedFetch('/api/schedule');
             const data = await res.json();
             setEnabledHours(data.enabledHours || []);
         } catch (err) {
@@ -65,7 +65,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
         setEnabledHours(newHours);
 
         try {
-            await authenticatedFetch('http://localhost:3000/api/schedule', {
+            await authenticatedFetch('/api/schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabledHours: newHours })
@@ -100,7 +100,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
         }
         saveTimeoutRef.current = setTimeout(async () => {
             try {
-                await fetch('http://localhost:3000/api/settings', {
+                await fetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(newSettings)
@@ -123,7 +123,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
             // The backend should handle this by ignoring empty password fields if they were not explicitly changed.
             // For now, we'll just send the current state. The backend logic will need to be robust.
 
-            await authenticatedFetch('http://localhost:3000/api/settings', {
+            await authenticatedFetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settingsToSave)
@@ -144,7 +144,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
         setTestStatus('sending');
         try {
-            const res = await fetch('http://localhost:3000/api/settings/test-email', {
+            const res = await fetch('/api/settings/test-email', {
                 method: 'POST'
             });
             const data = await res.json();
@@ -175,9 +175,9 @@ const OptionsManager = ({ authenticatedFetch }) => {
         try {
             // Fetch all data
             const [watchlistRes, blacklistRes, blockedRes] = await Promise.all([
-                fetch('http://localhost:3000/api/watchlist'),
-                fetch('http://localhost:3000/api/blacklist'),
-                fetch('http://localhost:3000/api/blocked')
+                fetch('/api/watchlist'),
+                fetch('/api/blacklist'),
+                fetch('/api/blocked')
             ]);
 
             const watchlist = await watchlistRes.json();
@@ -233,7 +233,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 try {
                     const terms = line.split(',').map(t => t.trim()).filter(t => t);
                     if (terms.length > 0) {
-                        await fetch('http://localhost:3000/api/watchlist', {
+                        await fetch('/api/watchlist', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
