@@ -1345,16 +1345,53 @@ h1 {
   .watchlist-top-row {
     display: flex;
     flex-wrap: nowrap;
-    gap: 2px;
-    padding: 2px;
+    gap: 0;
+    padding: 2px 0;
+    margin: 0;
     align-items: center;
+  }
+
+  .watchlist-top-row .run-now-btn {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-right: -1px;
+    /* Fuse with form */
+    z-index: 1;
+  }
+
+  .watchlist-top-row .add-watch-form {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 0;
+    order: 0;
+    margin: 0;
+    padding: 0;
+  }
+
+  .watchlist-top-row .add-watch-form input {
+    border-radius: 0;
+    flex: 1;
+    min-width: 0;
+    padding: 6px;
+    font-size: 0.75rem;
+    margin: 0;
+  }
+
+  .watchlist-top-row .add-btn {
+    border-radius: 0;
+  }
+
+  .watchlist-top-row .gk-btn {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
   }
 
   .watchlist-top-row .run-now-btn,
   .watchlist-top-row .add-btn,
   .watchlist-top-row .add-btn.gk-btn {
     width: auto;
-    padding: 6px 8px;
+    padding: 6px 6px;
     font-size: 0.75rem;
     flex-shrink: 0;
     white-space: nowrap;
@@ -1362,19 +1399,13 @@ h1 {
     margin: 0;
   }
 
-  .watchlist-top-row .add-watch-form {
-    display: flex;
-    flex: 1;
-    min-width: 0;
-    gap: 2px;
-    order: 0;
-  }
-
-  .watchlist-top-row input {
-    flex: 1;
-    min-width: 0;
-    padding: 6px;
-    font-size: 0.75rem;
+  /* Remove blank space on top of watchlist-grid */
+  .watchlist-grid {
+    display: block;
+    padding-top: 0;
+    margin-top: 0;
+    border-top: none;
+    height: auto;
   }
 
   /* Compact Grid & Overlay Cards */
