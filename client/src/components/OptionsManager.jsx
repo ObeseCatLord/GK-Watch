@@ -434,7 +434,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                             type="checkbox"
                             name="emailEnabled"
                             checked={settings.emailEnabled}
-                            onChange={(e) => handleChange(e.target.name, e.target.checked)}
+                            onChange={handleChange}
                         />
                         Enable email notifications
                     </label>
@@ -572,7 +572,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         <input
                             type="checkbox"
                             checked={settings.loginEnabled || false}
-                            onChange={(e) => handleChange('loginEnabled', e.target.checked)}
+                            name="loginEnabled"
+                            onChange={handleChange}
                             style={{ marginRight: '10px' }}
                         />
                         Enable Login Protection (Requires saved password)
