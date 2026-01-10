@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const searchAggregator = require('./scrapers');
+const Settings = require('./models/settings');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -386,31 +387,6 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
     }
 });
 
-// Settings Routes
-const Settings = require('./models/settings');
-
-app.get('/api/settings', (req, res) => {
-    const settings = Settings.get();
-    // Don't send password to frontend
-    res.json({ ...settings, smtpPass: settings.smtpPass ? '********' : '' });
-});
-
-app.post('/api/settings', (req, res) => {
-    const { email, emailEnabled, smtpHost, smtpPort, smtpUser, smtpPass, loginEnabled, loginPassword } = req.body;
-    const updates = {};
-
-    if (email !== undefined) updates.email = email;
-    if (emailEnabled !== undefined) updates.emailEnabled = emailEnabled;
-    if (smtpHost !== undefined) updates.smtpHost = smtpHost;
-    if (smtpPort !== undefined) updates.smtpPort = smtpPort;
-    if (smtpUser !== undefined) updates.smtpUser = smtpUser;
-    if (smtpPass !== undefined && smtpPass !== '********') updates.smtpPass = smtpPass;
-    if (loginEnabled !== undefined) updates.loginEnabled = loginEnabled;
-    if (loginPassword !== undefined) updates.loginPassword = loginPassword;
-
-    const updated = Settings.update(updates);
-    res.json({ success: true, settings: { ...updated, smtpPass: updated.smtpPass ? '********' : '' } });
-});
 
 // Test email endpoint
 const EmailService = require('./emailService');

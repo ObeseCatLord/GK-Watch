@@ -25,6 +25,11 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [passwordError, setPasswordError] = useState('');
     const [passwordSaved, setPasswordSaved] = useState(false);
 
+    // SMTP Password State
+    const [newSmtpPass, setNewSmtpPass] = useState('');
+    const [smtpPassError, setSmtpPassError] = useState('');
+    const [smtpPassSaved, setSmtpPassSaved] = useState(false);
+
     useEffect(() => {
         try {
             const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
@@ -489,26 +494,57 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         />
                     </div>
 
-                    <div className="setting-group">
-                        <label>SMTP Password:</label>
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <div className="setting-group" style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginTop: '10px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>SMTP Password:</label>
+                        <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '10px' }}>
+                            {settings.hasSmtpPass ? '✅ Password is set.' : '⚠️ No password set.'}
+                        </p>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                             <input
-                                type={showPassword ? 'text' : 'password'}
-                                name="smtpPass"
-                                value={settings.smtpPass || ''}
-                                onChange={handleChange}
-                                placeholder={settings.hasSmtpPass ? "Change password..." : "Enter password"}
+                                type="password"
+                                value={newSmtpPass}
+                                onChange={(e) => {
+                                    setNewSmtpPass(e.target.value);
+                                    setSmtpPassError('');
+                                }}
+                                placeholder="Enter SMTP password"
                                 className="settings-input"
+                                style={{ flex: '1', minWidth: '200px' }}
                             />
                             <button
-                                className="icon-btn"
-                                onClick={() => setShowPassword(!showPassword)}
-                                title={showPassword ? "Hide" : "Show"}
+                                className="save-btn small"
+                                onClick={async () => {
+                                    if (!newSmtpPass) {
+                                        setSmtpPassError('Password cannot be empty');
+                                        return;
+                                    }
+                                    try {
+                                        const res = await authenticatedFetch('/api/settings', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ smtpPass: newSmtpPass })
+                                        });
+                                        const data = await res.json();
+                                        if (data.error) throw new Error(data.error);
+
+                                        setNewSmtpPass('');
+                                        setSmtpPassError('');
+                                        setSmtpPassSaved(true);
+                                        setTimeout(() => setSmtpPassSaved(false), 3000);
+                                        fetchSettings();
+                                    } catch (err) {
+                                        console.error('Error saving SMTP password:', err);
+                                        setSmtpPassError(err.message || 'Failed to save');
+                                    }
+                                }}
+                                disabled={!newSmtpPass}
+                                style={{ padding: '8px 16px', backgroundColor: '#4a90e2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', opacity: !newSmtpPass ? 0.6 : 1 }}
                             >
-                                {showPassword ? '👁️' : '🔒'}
+                                Save SMTP Password
                             </button>
                         </div>
-                        {settings.hasSmtpPass && <small>Password is set. Enter new one to change.</small>}
+                        {smtpPassError && <div style={{ color: 'red', marginTop: '5px', fontSize: '0.9rem' }}>{smtpPassError}</div>}
+                        {smtpPassSaved && <div style={{ color: 'green', marginTop: '5px', fontSize: '0.9rem' }}>SMTP Password Saved!</div>}
                     </div>
                 </details>
 
