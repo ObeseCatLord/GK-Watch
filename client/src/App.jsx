@@ -30,9 +30,9 @@ function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/settings');
+        const res = await fetch('/api/auth-status');
         const data = await res.json();
-        if (data.loginEnabled) {
+        if (data.loginRequired) {
           // Check if already authenticated in session
           const token = sessionStorage.getItem('gkwatch_token');
           if (token) {

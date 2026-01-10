@@ -1001,6 +1001,26 @@ h1 {
   max-width: 100px;
 }
 
+/* Password input fields - dark theme */
+.settings-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: white;
+  font-size: 1rem;
+}
+
+.settings-input:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+.settings-input::placeholder {
+  color: #888;
+}
+
 .smtp-details {
   margin-top: 1rem;
   padding: 1rem;

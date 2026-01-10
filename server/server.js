@@ -294,6 +294,14 @@ app.get('/api/status', (req, res) => {
     });
 });
 
+// Check if login is required (unauthenticated endpoint)
+app.get('/api/auth-status', (req, res) => {
+    const settings = Settings.get();
+    res.json({
+        loginRequired: settings.loginEnabled && !!settings.loginPassword
+    });
+});
+
 // Settings Routes
 app.get('/api/settings', requireAuth, (req, res) => {
     const settings = Settings.get();
