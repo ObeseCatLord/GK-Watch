@@ -446,7 +446,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         type="email"
                         name="email"
                         value={settings.email}
-                        onChange={(e) => handleChange(e.target.name, e.target.value)}
+                        onChange={handleChange}
                         placeholder="your@email.com"
                         className="option-input"
                     />
