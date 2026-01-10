@@ -26,6 +26,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
     const isProcessingRef = React.useRef(false);
     const [sourceFilter, setSourceFilter] = useState('All');
     const [schedulerProgress, setSchedulerProgress] = useState(null);
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
 
     // Track previous running state to detect completion
@@ -515,7 +516,23 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
             )}
 
             <div className="watchlist-grid">
-                <div className="watchlist-sidebar">
+                {/* Mobile toggle button */}
+                <button
+                    className="mobile-sidebar-toggle"
+                    onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+                >
+                    {mobileSidebarOpen ? '✕ Close' : '☰ Watches'}
+                </button>
+
+                {/* Overlay for mobile */}
+                {mobileSidebarOpen && (
+                    <div
+                        className="sidebar-overlay"
+                        onClick={() => setMobileSidebarOpen(false)}
+                    />
+                )}
+
+                <div className={`watchlist-sidebar ${mobileSidebarOpen ? 'open' : ''}`}>
                     <div className="sidebar-actions" style={{ marginBottom: '10px' }}>
                         {!isMerging ? (
                             <button className="merge-btn" onClick={() => setIsMerging(true)} disabled={watchlist.length < 2}>

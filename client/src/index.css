@@ -401,6 +401,12 @@ h1 {
   background: linear-gradient(135deg, #c2185b, #7b1fa2);
 }
 
+/* Hide mobile-only elements on desktop */
+.mobile-sidebar-toggle,
+.sidebar-overlay {
+  display: none;
+}
+
 .watchlist-grid {
   display: grid;
   grid-template-columns: 300px 1fr;
@@ -1292,6 +1298,62 @@ h1 {
   .main-nav button {
     padding: 0.6rem 1rem;
     font-size: 0.85rem;
+  }
+
+  /* Mobile slide-out sidebar */
+  .mobile-sidebar-toggle {
+    display: flex;
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 1000;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 30px;
+    padding: 12px 20px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
+  }
+
+  .watchlist-sidebar {
+    position: fixed;
+    top: 0;
+    left: -280px;
+    width: 260px;
+    height: 100vh;
+    background: #1a1a1a;
+    z-index: 999;
+    overflow-y: auto;
+    padding: 1rem;
+    transition: left 0.3s ease;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.3);
+  }
+
+  .watchlist-sidebar.open {
+    left: 0;
+  }
+
+  .watchlist-grid {
+    display: block;
+  }
+
+  .watchlist-results {
+    width: 100%;
+    padding: 0;
   }
 
   .results-grid {
