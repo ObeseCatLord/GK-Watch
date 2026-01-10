@@ -1345,14 +1345,14 @@ h1 {
     height: 100%;
     max-height: none;
     object-fit: cover;
+    object-position: top;
     margin: 0;
     padding: 0;
   }
 
   .card-image-container {
-    height: auto;
+    height: 200px;
     width: 100%;
-    aspect-ratio: 3/4;
     overflow: hidden;
     background: #1a1a1a;
   }
