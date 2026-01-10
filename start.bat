@@ -2,7 +2,7 @@
 REM GK Watcher Launch Script for Windows
 REM This script starts both the backend server and frontend dev server
 
-echo 🚀 Starting GK Watcher...
+echo Starting GK Watcher...
 
 REM Get the directory where this script is located
 cd /d "%~dp0"
@@ -19,7 +19,7 @@ echo Starting frontend...
 start "GK Watcher Frontend" cmd /c "cd client && npm run dev"
 
 echo.
-echo ✅ GK Watcher is running!
+echo GK Watcher is running!
 echo    Backend:  http://localhost:3000
 echo    Frontend: http://localhost:5173
 echo.
