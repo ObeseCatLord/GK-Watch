@@ -1241,6 +1241,29 @@ h1 {
 }
 
 /* ===========================================
+   BLOCKED PAGE - Side by Side Layout
+   =========================================== */
+
+.blocked-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+.blocked-section {
+  background: #1e1e1e;
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid #333;
+}
+
+.blocked-section h2 {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+/* ===========================================
    RESPONSIVE DESIGN - Media Queries
    =========================================== */
 
@@ -1335,6 +1358,11 @@ h1 {
     background: #2a2a2a;
     font-size: 0.75rem;
     margin-bottom: 0.5rem;
+  }
+
+  .blocked-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
   }
 
   .clock-display .clock-item {
