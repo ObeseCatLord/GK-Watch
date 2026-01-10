@@ -1295,8 +1295,8 @@ h1 {
   }
 
   .results-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.75rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
   }
 
   .result-card {
@@ -1314,7 +1314,7 @@ h1 {
   }
 
   .card-image {
-    height: 120px;
+    height: 80px;
   }
 
   .block-btn,
@@ -1352,7 +1352,27 @@ h1 {
   }
 
   .watchlist-item {
-    padding: 0.75rem;
+    padding: 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .watch-term {
+    font-size: 0.85rem;
+  }
+
+  .watch-meta {
+    font-size: 0.7rem;
+  }
+
+  .drag-handle {
+    font-size: 0.8rem;
+    margin-right: 0.3rem;
+  }
+
+  .delete-btn,
+  .edit-btn {
+    font-size: 0.9rem;
+    padding: 0.2rem;
   }
 
   .backup-buttons {
@@ -1363,7 +1383,7 @@ h1 {
 /* Very small mobile (up to 400px) */
 @media (max-width: 400px) {
   .results-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .main-nav {
@@ -1372,5 +1392,17 @@ h1 {
 
   .hour-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .card-image {
+    height: 70px;
+  }
+
+  .card-title {
+    font-size: 0.65rem;
+  }
+
+  .card-price {
+    font-size: 0.75rem;
   }
 }
