@@ -29,6 +29,7 @@ const Watchlist = {
                     term: item.name || terms[0] || item.term,
                     name: item.name || terms[0] || item.term,
                     emailNotify: item.emailNotify !== undefined ? item.emailNotify : true,
+                    priority: item.priority === true, // Ensure boolean
                     filters: item.filters || [] // Per-watch filter terms
                 };
             });
@@ -36,6 +37,10 @@ const Watchlist = {
             console.error('Error reading watchlist:', err);
             return [];
         }
+    },
+
+    get: (id) => {
+        return Watchlist.getAll().find(i => i.id === id) || null;
     },
 
     add: (data) => {
