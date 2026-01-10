@@ -759,7 +759,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                         </>
                     )}
 
-                    {!selectedTerm && <p>Select an item to view stored results.</p>}
+                    {!selectedTerm && <p className="empty-results-message">Select an item to view stored results.</p>}
 
                     {selectedResults && (
                         <>

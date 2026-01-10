@@ -1356,10 +1356,22 @@ h1 {
     padding: 0;
     display: flex;
     flex-direction: column;
+    height: 180px;
   }
 
   .card-info {
     padding: 0.3rem;
+    flex-shrink: 0;
+  }
+
+  .card-image-container {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .empty-results-message {
+    margin-left: 80px;
+    text-align: center;
   }
 
   /* Watchlist top row - inline on mobile */
