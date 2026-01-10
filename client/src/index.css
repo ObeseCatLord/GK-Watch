@@ -322,7 +322,7 @@ h1 {
 }
 
 /* Clock Styles */
-.clock-container {
+.clock-display {
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -1339,6 +1339,7 @@ h1 {
 
   .clock-display .clock-item {
     display: flex;
+    flex-direction: row;
     gap: 0.5rem;
     align-items: center;
   }
@@ -1418,9 +1419,7 @@ h1 {
     border-radius: 4px;
   }
 
-  .watchlist-top-row .run-now-btn {
-    /* Individual styles if needed, otherwise handled by general rule */
-  }
+
 
   /* Compact Results Actions */
   .results-actions {
