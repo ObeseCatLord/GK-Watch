@@ -311,7 +311,18 @@ app.get('/api/settings', requireAuth, (req, res) => {
 });
 
 app.post('/api/settings', requireAuth, (req, res) => {
-    const updated = Settings.update(req.body);
+    // Filter out computed fields that shouldn't be saved
+    const { hasLoginPassword, hasSmtpPass, ...settingsToUpdate } = req.body;
+
+    // Also filter out null values (redacted passwords sent back)
+    const filtered = {};
+    for (const [key, value] of Object.entries(settingsToUpdate)) {
+        if (value !== null && value !== undefined) {
+            filtered[key] = value;
+        }
+    }
+
+    const updated = Settings.update(filtered);
     res.json(updated);
 });
 
