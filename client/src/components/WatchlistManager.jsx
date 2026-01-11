@@ -687,19 +687,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                         <>
                             <h3>Stored Results for "{selectedTerm}" <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '10px' }}>({selectedResults ? selectedResults.filter(r => !r.hidden).length : 0} results)</span></h3>
                             <div className="results-actions">
-                                <button
-                                    className="action-btn surugaya-btn"
-                                    onClick={() => {
-                                        const item = watchlist.find(i => i.id === selectedId);
-                                        if (!item) return;
-                                        const terms = item.terms || [item.term];
-                                        terms.forEach(term => {
-                                            window.open(`https://www.suruga-ya.jp/search?category=&search_word=${encodeURIComponent(term)}`, '_blank');
-                                        });
-                                    }}
-                                >
-                                    🔍 Search Suruga-ya {watchlist.find(i => i.id === selectedId)?.terms?.length > 1 ? `(${watchlist.find(i => i.id === selectedId).terms.length} tabs)` : ''}
-                                </button>
+
                                 <button
                                     className={`action-btn refresh-btn ${currentQueueItem?.id === selectedId ? 'searching' :
                                         searchQueue.some(q => q.id === selectedId) ? 'queued' : ''
