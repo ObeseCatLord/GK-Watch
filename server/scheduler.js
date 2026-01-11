@@ -214,6 +214,8 @@ const Scheduler = {
         let allResults = {};
         let newItems = [];
         const now = new Date().toISOString();
+        const nowMs = Date.now();
+        const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
 
         try {
             if (fs.existsSync(RESULTS_FILE)) {
@@ -236,9 +238,19 @@ const Scheduler = {
             }
         });
 
+        // Track which Yahoo items are in the new results (by title)
+        const newYahooTitles = new Set();
+        newResults.forEach(result => {
+            if (result.source && result.source.toLowerCase().includes('yahoo') && result.title) {
+                newYahooTitles.add(result.title.trim());
+            }
+        });
+
         // Process new results - preserve firstSeen for existing, add for new
+        // Also add lastSeen for Yahoo items
         const processedResults = newResults.map(result => {
             const existing = existingByLink.get(result.link);
+            const isYahoo = result.source && result.source.toLowerCase().includes('yahoo');
 
             let duplicateInfo = null;
             if (result.title && result.source) {
@@ -252,6 +264,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: existing.firstSeen,
+                    lastSeen: isYahoo ? now : existing.lastSeen, // Update lastSeen for Yahoo
                     isNew: false
                 };
             } else if (duplicateInfo) {
@@ -259,6 +272,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: duplicateInfo.firstSeen, // Inherit timestamp
+                    lastSeen: isYahoo ? now : duplicateInfo.lastSeen,
                     isNew: false
                 };
             } else {
@@ -267,6 +281,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: now,
+                    lastSeen: isYahoo ? now : undefined,
                     isNew: true
                 };
             }
@@ -303,6 +318,39 @@ const Scheduler = {
                 isNew: false
             }));
             finalResults = [...processedResults, ...preservedPayPay];
+        }
+
+        // Yahoo Auctions Grace Period: Preserve Yahoo items for 3 days after they disappear
+        // This handles listings that are temporarily taken down and relisted
+        const existingYahooItems = existingItems.filter(item =>
+            item.source && item.source.toLowerCase().includes('yahoo')
+        );
+
+        const yahooToPreserve = existingYahooItems.filter(item => {
+            // Skip if this title is already in new results
+            if (item.title && newYahooTitles.has(item.title.trim())) {
+                return false;
+            }
+
+            // Check if within grace period
+            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
+                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
+            const ageMs = nowMs - lastSeenTime;
+
+            return ageMs < YAHOO_GRACE_PERIOD_MS;
+        });
+
+        if (yahooToPreserve.length > 0) {
+            console.log(`[Scheduler] Yahoo grace period: Preserving ${yahooToPreserve.length} Yahoo items for ${term || watchId}`);
+            // Mark them as not new and preserve their lastSeen (don't update it since they weren't found)
+            const preservedYahoo = yahooToPreserve.map(item => ({
+                ...item,
+                isNew: false
+            }));
+            // Deduplicate by link before adding
+            const existingLinks = new Set(finalResults.map(r => r.link));
+            const uniquePreserved = preservedYahoo.filter(item => !existingLinks.has(item.link));
+            finalResults = [...finalResults, ...uniquePreserved];
         }
 
         // Save results with newCount
