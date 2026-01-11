@@ -69,7 +69,7 @@ async function search(query, strictEnabled = true) {
         // Strict filtering: all search terms must be present in the title
         // Strict filtering with GK Synonym Support
         if (strictEnabled) {
-            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
+            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット'];
 
             const filteredResults = results.filter(item => {
                 const titleLower = item.title.toLowerCase();

@@ -175,7 +175,7 @@ async function search(query, strictEnabled = true) {
         // Strict filtering with GK Synonym Support
         if (strictEnabled) {
             const searchTerms = query.split(/\s+/).filter(term => term.length > 0);
-            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
+            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット'];
 
             const filteredResults = results.filter(item => {
                 const titleLower = item.title.toLowerCase();
