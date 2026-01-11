@@ -339,6 +339,23 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         }
     };
 
+    const handleMarkAllSeen = async () => {
+        if (!window.confirm('Mark all new items as seen?')) return;
+        try {
+            await authenticatedFetch('/api/results/mark-all-seen', { method: 'POST' });
+            fetchNewCounts();
+            if (selectedId) {
+                // If viewing a result, refresh it to clear flags
+                const item = watchlist.find(i => i.id === selectedId);
+                if (item) {
+                    viewResults(selectedId, item.term);
+                }
+            }
+        } catch (err) {
+            console.error('Error marking all seen:', err);
+        }
+    };
+
     const startEdit = (e, item) => {
         e.stopPropagation();
         setEditingItem(item);
@@ -462,24 +479,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                     <button type="button" className="add-btn gk-btn" onClick={addGKEntries}>Add GK</button>
                 </form>
 
-                {Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 && (
-                    <button
-                        className="mark-all-seen-btn"
-                        onClick={async () => {
-                            if (confirm('Mark all new watches as seen?')) {
-                                try {
-                                    await fetch('http://localhost:3000/api/results/mark-all-seen', { method: 'POST' });
-                                    fetchNewCounts();
-                                    setNewCounts({});
-                                } catch (err) {
-                                    console.error('Error marking all seen:', err);
-                                }
-                            }
-                        }}
-                    >
-                        ✓ Mark Seen
-                    </button>
-                )}
+
             </div>
 
             {/* Search Queue Status */}
@@ -547,9 +547,16 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                 <div className={`watchlist-sidebar ${mobileSidebarOpen ? 'open' : ''}`}>
                     <div className="sidebar-actions" style={{ marginBottom: '10px' }}>
                         {!isMerging ? (
-                            <button className="merge-btn" onClick={() => setIsMerging(true)} disabled={watchlist.length < 2}>
-                                🔗 Merge Items
-                            </button>
+                            <>
+                                <button className="merge-btn" onClick={() => setIsMerging(true)} disabled={watchlist.length < 2}>
+                                    🔗 Merge Items
+                                </button>
+                                {Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 && (
+                                    <button className="merge-btn" style={{ marginLeft: '5px', backgroundColor: '#4a90e2' }} onClick={handleMarkAllSeen}>
+                                        ✓ Mark All Seen
+                                    </button>
+                                )}
+                            </>
                         ) : (
                             <div className="merge-controls">
                                 <button className="merge-btn confirm" onClick={handleMerge} disabled={checkedItems.size < 2}>Merge Selected ({checkedItems.size})</button>
