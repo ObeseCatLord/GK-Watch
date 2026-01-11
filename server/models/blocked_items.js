@@ -25,7 +25,7 @@ const BlockedItems = {
         }
     },
 
-    add: (url, title) => {
+    add: (url, title, image) => {
         const list = BlockedItems.getAll();
         // Check if already blocked
         if (list.some(item => item.url === url)) {
@@ -36,6 +36,7 @@ const BlockedItems = {
             id: Date.now().toString(),
             url,
             title,
+            image: image || '',
             blockedAt: new Date().toISOString()
         };
         list.push(newItem);

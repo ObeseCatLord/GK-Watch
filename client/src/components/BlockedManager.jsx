@@ -142,6 +142,23 @@ const BlockedManager = ({ authenticatedFetch }) => {
 
                         {blockedItems.map(item => (
                             <li key={item.id} className="watchlist-item" style={{ cursor: 'default' }}>
+                                {item.image && (
+                                    <div style={{
+                                        width: '50px',
+                                        height: '50px',
+                                        minWidth: '50px',
+                                        borderRadius: '4px',
+                                        overflow: 'hidden',
+                                        marginRight: '12px',
+                                        background: '#333'
+                                    }}>
+                                        <img
+                                            src={item.image}
+                                            alt=""
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    </div>
+                                )}
                                 <div className="watch-info">
                                     <span className="watch-term" style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{item.title}</span>
                                     <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" style={{ textDecoration: 'none', color: '#646cff' }}>

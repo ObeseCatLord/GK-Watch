@@ -133,7 +133,7 @@ function App() {
       await authenticatedFetch('/api/blocked', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: item.link, title: item.title })
+        body: JSON.stringify({ url: item.link, title: item.title, image: item.image })
       });
       // Remove from local results
       setResults(prev => prev.filter(r => r.link !== item.link));

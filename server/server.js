@@ -209,9 +209,9 @@ app.get('/api/blocked', requireAuth, (req, res) => {
 });
 
 app.post('/api/blocked', requireAuth, (req, res) => {
-    const { url, title } = req.body;
+    const { url, title, image } = req.body;
     if (!url) return res.status(400).json({ error: 'URL is required' });
-    const item = BlockedItems.add(url, title);
+    const item = BlockedItems.add(url, title, image);
     res.json(item);
 });
 
