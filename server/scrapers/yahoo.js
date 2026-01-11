@@ -212,7 +212,7 @@ async function searchYahooPuppeteer(query) {
         // Strict matching: split query into terms and filter results
         // Strict matching with GK Synonym Support
         const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
-        const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット'];
+        const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
 
         const strictResults = results.filter(item => {
             const titleLower = item.title.toLowerCase();
@@ -301,7 +301,7 @@ async function search(query) {
         // Strict matching: split query into terms and filter results
         // Strict matching with GK Synonym Support
         const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
-        const GK_VARIANTS_AXIOS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット'];
+        const GK_VARIANTS_AXIOS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
 
         const strictResults = results.filter(item => {
             const titleLower = item.title.toLowerCase();
