@@ -79,24 +79,42 @@ async function searchLegacy(query, strictEnabled = true) {
     }
 }
 
-// Main Search Function - Uses Yahoo Integration Primary
+// Main Search Function - Uses Legacy First (More Reliable)
 async function search(query, strictEnabled = true) {
     try {
-        // Try Yahoo Scraper with targetSource = 'paypay'
-        // This is more reliable as Yahoo search engine indexes PayPay items and has better anti-bot handling
-        const results = await yahoo.search(query, strictEnabled, false, 'paypay');
+        // Try Legacy scraper first (direct PayPay site scraping)
+        // This is more reliable for finding items despite bot protection
+        const results = await searchLegacy(query, strictEnabled);
 
         if (results && results.length > 0) {
-            console.log(`[PayPay] Yahoo Integration found ${results.length} items.`);
-            return results.map(i => ({ ...i, source: 'PayPay Flea Market' }));
+            console.log(`[PayPay] Legacy scraper found ${results.length} items.`);
+            return results;
         }
 
-        console.log("[PayPay] Yahoo Integration found 0 items. Falling back to legacy scraper...");
-        return await searchLegacy(query, strictEnabled);
+        console.log("[PayPay] Legacy scraper found 0 items. Falling back to Yahoo integration...");
+
+        // Fallback to Yahoo Integration
+        const yahooResults = await yahoo.search(query, strictEnabled, false, 'paypay');
+        if (yahooResults && yahooResults.length > 0) {
+            return yahooResults.map(i => ({ ...i, source: 'PayPay Flea Market' }));
+        }
+
+        return [];
 
     } catch (err) {
-        console.warn(`[PayPay] Yahoo Integration failed: ${err.message}. Falling back to legacy scraper.`);
-        return await searchLegacy(query, strictEnabled);
+        console.warn(`[PayPay] Error: ${err.message}. Trying fallback...`);
+
+        // If legacy fails, try Yahoo
+        try {
+            const yahooResults = await yahoo.search(query, strictEnabled, false, 'paypay');
+            if (yahooResults && yahooResults.length > 0) {
+                return yahooResults.map(i => ({ ...i, source: 'PayPay Flea Market' }));
+            }
+        } catch (yahooErr) {
+            console.warn(`[PayPay] Yahoo fallback also failed: ${yahooErr.message}`);
+        }
+
+        return [];
     }
 }
 
