@@ -295,16 +295,9 @@ async function search(query) {
         return results;
     }
 
-    // Fallback: return direct link if scraping fails
-    console.log('Suruga-ya: Scraping failed, returning direct link');
-    const directUrl = `https://www.suruga-ya.jp/search?category=&search_word=${encodeURIComponent(query)}`;
-    return [{
-        title: `Search Suruga-ya for "${query}" (Click to view)`,
-        link: directUrl,
-        image: 'https://www.suruga-ya.jp/img/logo.png',
-        price: 'N/A',
-        source: 'Suruga-ya'
-    }];
+    // If scraping returned empty results (found nothing), return empty
+    // Do NOT return a placeholder "Search Suruga-ya" item as it clutters results
+    return results || [];
 }
 
 module.exports = { search };

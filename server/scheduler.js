@@ -374,6 +374,11 @@ const Scheduler = {
         );
 
         const surugayaToPreserve = existingSurugayaItems.filter(item => {
+            // Exclude placeholder "Search Suruga-ya for" items
+            if (item.title && item.title.startsWith('Search Suruga-ya for')) {
+                return false;
+            }
+
             // Skip if this title is already in new results
             if (item.title && newSurugayaTitles.has(item.title.trim())) {
                 return false;
