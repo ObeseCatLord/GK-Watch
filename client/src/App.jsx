@@ -110,14 +110,19 @@ function App() {
   }, []);
 
   // Save search history to localStorage
-  const saveToHistory = (term) => {
+  const saveToHistory = (term, type = 'normal') => {
     const trimmed = term.trim();
     if (!trimmed) return;
 
     setSearchHistory(prev => {
-      // Remove duplicate if exists, add to front
-      const filtered = prev.filter(h => h.toLowerCase() !== trimmed.toLowerCase());
-      const updated = [trimmed, ...filtered].slice(0, MAX_HISTORY);
+      // Normalize prev items to objects for comparison
+      const normalize = (item) => typeof item === 'string' ? { term: item, type: 'normal' } : item;
+
+      const filtered = prev.filter(h => normalize(h).term.toLowerCase() !== trimmed.toLowerCase());
+
+      const newItem = { term: trimmed, type };
+      const updated = [newItem, ...filtered].slice(0, MAX_HISTORY);
+
       localStorage.setItem('gkwatch_search_history', JSON.stringify(updated));
       return updated;
     });
@@ -153,7 +158,7 @@ function App() {
     setCurrentPage(1); // Reset page on new search
 
     // Save to history
-    saveToHistory(searchTerm);
+    saveToHistory(searchTerm, 'normal');
     if (overrideQuery) setQuery(overrideQuery);
 
     try {
@@ -171,22 +176,25 @@ function App() {
     }
   };
 
-  const searchGK = async (e) => {
+  const searchGK = async (e, overrideQuery = null) => {
     if (e) e.preventDefault();
-    if (!query.trim()) return;
+    const queryTerm = overrideQuery || query;
+    if (!queryTerm.trim()) return;
 
     setLoading(true);
     setError(null);
     setResults([]);
     setCurrentPage(1); // Reset page on new search
 
+    if (overrideQuery) setQuery(overrideQuery);
+
     // Save to history (save the base term)
-    saveToHistory(query);
+    saveToHistory(queryTerm, 'gk');
 
     const terms = [
-      `${query} ガレージキット`,
-      `${query} レジンキット`,
-      `${query} レジンキャストキット`
+      `${queryTerm} ガレージキット`,
+      `${queryTerm} レジンキット`,
+      `${queryTerm} レジンキャストキット`
     ];
 
     try {
@@ -318,15 +326,22 @@ function App() {
                 <button className="clear-history-btn" onClick={clearHistory}>Clear</button>
               </div>
               <div className="search-history-chips">
-                {searchHistory.map((term, i) => (
-                  <button
-                    key={i}
-                    className="history-chip"
-                    onClick={() => search(null, term)}
-                  >
-                    {term}
-                  </button>
-                ))}
+                {searchHistory.map((item, i) => {
+                  // Handle legacy string items
+                  const term = typeof item === 'string' ? item : item.term;
+                  const type = typeof item === 'string' ? 'normal' : item.type;
+
+                  return (
+                    <button
+                      key={i}
+                      className={`history-chip ${type === 'gk' ? 'gk-history' : ''}`}
+                      onClick={() => type === 'gk' ? searchGK(null, term) : search(null, term)}
+                      title={type === 'gk' ? "Re-run GK Search" : "Re-run Search"}
+                    >
+                      {term} {type === 'gk' && <span className="gk-badge">GK</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

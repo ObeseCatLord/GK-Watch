@@ -825,6 +825,36 @@ h1 {
   border-color: var(--accent-color);
 }
 
+.history-chip:hover {
+  background: #444;
+  border-color: #666;
+  transform: translateY(-1px);
+}
+
+.history-chip.gk-history {
+  background: rgba(224, 73, 224, 0.15);
+  /* --gk-color equivalent */
+  border-color: #d633db;
+  /* --gk-color */
+  color: #fff;
+}
+
+.history-chip.gk-history:hover {
+  background: rgba(224, 73, 224, 0.25);
+}
+
+.gk-badge {
+  font-size: 0.7rem;
+  background: #d633db;
+  /* --gk-color */
+  color: white;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-left: 6px;
+  font-weight: bold;
+}
+
+
 .hour-btn.active {
   background: var(--accent-color);
   border-color: var(--accent-color);
