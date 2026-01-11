@@ -1,4 +1,5 @@
 const puppeteer = require('puppeteer');
+const { matchTitle } = require('../utils/queryMatcher');
 
 let consecutiveTimeouts = 0;
 let isDisabled = false;
@@ -171,23 +172,9 @@ async function search(query, strictEnabled = true) {
             return data;
         });
 
-        // Strict filtering: all search terms must be present in the title
-        // Strict filtering with GK Synonym Support
+        // Strict filtering using query matcher (supports | for OR, && for AND)
         if (strictEnabled) {
-            const searchTerms = query.split(/\s+/).filter(term => term.length > 0);
-            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット'];
-
-            const filteredResults = results.filter(item => {
-                const titleLower = item.title.toLowerCase();
-                return searchTerms.every(term => {
-                    const termLower = term.toLowerCase();
-                    if (GK_VARIANTS.includes(termLower)) {
-                        return GK_VARIANTS.some(variant => titleLower.includes(variant));
-                    }
-                    return titleLower.includes(termLower);
-                });
-            });
-
+            const filteredResults = results.filter(item => matchTitle(item.title, query));
             console.log(`Mercari: Found ${results.length} items, ${filteredResults.length} after strict filter`);
             return filteredResults;
         }

@@ -1,13 +1,10 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { matchTitle } = require('../utils/queryMatcher');
 
 async function search(query, strictEnabled = true) {
     console.log(`Searching PayPay Flea Market for ${query}...`);
     const searchUrl = `https://paypayfleamarket.yahoo.co.jp/search/${encodeURIComponent(query)}`;
-
-    // Parse search terms for strict matching
-    const searchTerms = query.split(/\s+/).filter(term => term.length > 0);
-    // console.log(`PayPay strict matching: all terms must match:`, searchTerms);
 
     try {
         const res = await axios.get(searchUrl, {
@@ -65,22 +62,9 @@ async function search(query, strictEnabled = true) {
             }
         });
 
-        // Strict filtering: all search terms must be present in the title
-        // Strict filtering with GK Synonym Support
+        // Strict filtering using query matcher (supports | for OR, && for AND)
         if (strictEnabled) {
-            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット'];
-
-            const filteredResults = results.filter(item => {
-                const titleLower = item.title.toLowerCase();
-                return searchTerms.every(term => {
-                    const termLower = term.toLowerCase();
-                    if (GK_VARIANTS.includes(termLower)) {
-                        return GK_VARIANTS.some(variant => titleLower.includes(variant));
-                    }
-                    return titleLower.includes(termLower);
-                });
-            });
-
+            const filteredResults = results.filter(item => matchTitle(item.title, query));
             console.log(`PayPay Flea Market: Found ${results.length} items, ${filteredResults.length} after strict filter`);
             return filteredResults;
         }

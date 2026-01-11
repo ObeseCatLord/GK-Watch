@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
+const { matchTitle } = require('../utils/queryMatcher');
 
 async function searchJauce(query) {
     console.log(`[Yahoo Fallback] Searching Jauce for ${query}...`);
@@ -209,23 +210,9 @@ async function searchYahooPuppeteer(query, strictEnabled = true) {
             }
         });
 
-        // Strict matching: split query into terms and filter results
-        // Strict matching with GK Synonym Support
+        // Strict filtering using query matcher (supports | for OR, && for AND)
         if (strictEnabled) {
-            const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
-            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット'];
-
-            const strictResults = results.filter(item => {
-                const titleLower = item.title.toLowerCase();
-                return queryTerms.every(term => {
-                    const termLower = term.toLowerCase();
-                    if (GK_VARIANTS.includes(termLower)) {
-                        return GK_VARIANTS.some(variant => titleLower.includes(variant));
-                    }
-                    return titleLower.includes(termLower);
-                });
-            });
-
+            const strictResults = results.filter(item => matchTitle(item.title, query));
             console.log(`[Yahoo Fallback] Found ${results.length} items via Puppeteer, ${strictResults.length} after strict filtering.`);
             return strictResults;
         }
@@ -303,23 +290,9 @@ async function search(query, strictEnabled = true) {
             }
         });
 
-        // Strict matching: split query into terms and filter results
-        // Strict matching with GK Synonym Support
+        // Strict filtering using query matcher (supports | for OR, && for AND)
         if (strictEnabled) {
-            const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
-            const GK_VARIANTS_AXIOS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット'];
-
-            const strictResults = results.filter(item => {
-                const titleLower = item.title.toLowerCase();
-                return queryTerms.every(term => {
-                    const termLower = term.toLowerCase();
-                    if (GK_VARIANTS_AXIOS.includes(termLower)) {
-                        return GK_VARIANTS_AXIOS.some(variant => titleLower.includes(variant));
-                    }
-                    return titleLower.includes(termLower);
-                });
-            });
-
+            const strictResults = results.filter(item => matchTitle(item.title, query));
             // Return results even if empty after strict filtering - 0 is OK if no error
             console.log(`Yahoo (Axios) found ${results.length} items, ${strictResults.length} after strict filtering.`);
             return strictResults;
