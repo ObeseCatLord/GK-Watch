@@ -17,7 +17,7 @@ function App() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sourceFilter, setSourceFilter] = useState('All');
-  const ITEMS_PER_PAGE = 24;
+  const ITEMS_PER_PAGE = 25;
 
   // Login protection state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -350,9 +350,13 @@ function App() {
 
           {error && <div className="error">{error}</div>}
 
-          {/* Source Filter */}
+          {/* Results Count & Source Filter */}
           {results.length > 0 && (
             <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontWeight: '500', color: '#888' }}>
+                {results.length} result{results.length !== 1 ? 's' : ''} found
+              </span>
+              <span style={{ color: '#555' }}>|</span>
               <select
                 value={sourceFilter}
                 onChange={(e) => setSourceFilter(e.target.value)}
