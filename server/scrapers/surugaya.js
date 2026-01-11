@@ -2,6 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const queryMatcher = require('../utils/queryMatcher');
 
 puppeteer.use(StealthPlugin());
 
@@ -278,7 +279,7 @@ async function searchWithPuppeteer(query) {
 /**
  * Main search function - tries Axios first, falls back to Puppeteer
  */
-async function search(query) {
+async function search(query, strict = true) {
     console.log(`Searching Suruga-ya for ${query}...`);
 
     // Try Axios first (faster)
@@ -288,6 +289,14 @@ async function search(query) {
     if (results === null) {
         console.log('Suruga-ya: Falling back to Puppeteer...');
         results = await searchWithPuppeteer(query);
+    }
+
+    // Filter results if strict mode is on
+    if (strict && results && results.length > 0) {
+        console.log(`[Suruga-ya] Strict filtering enabled. Checking ${results.length} items against query: "${query}"`);
+        const initialCount = results.length;
+        results = results.filter(item => queryMatcher.matchTitle(item.title, query));
+        console.log(`[Suruga-ya] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
     }
 
     // If we got results, return them

@@ -103,16 +103,25 @@ function matchesQuery(title, parsedQuery) {
 
     switch (parsedQuery.type) {
         case 'TERM': {
-            const termLower = parsedQuery.value.toLowerCase();
+            let termLower = parsedQuery.value.toLowerCase();
+            let isNegated = false;
 
-            // Check for GK synonym match
-            if (GK_VARIANTS.some(v => v.toLowerCase() === termLower)) {
-                return GK_VARIANTS.some(variant =>
-                    titleLower.includes(variant.toLowerCase())
-                );
+            if (termLower.startsWith('-') && termLower.length > 1) {
+                isNegated = true;
+                termLower = termLower.slice(1);
             }
 
-            return titleLower.includes(termLower);
+            // Check for GK synonym match (only if not negated? Or negated synonyms too?)
+            // If negated, we want to ensure NONE of the variants are present
+            if (GK_VARIANTS.some(v => v.toLowerCase() === termLower)) {
+                const hasVariant = GK_VARIANTS.some(variant =>
+                    titleLower.includes(variant.toLowerCase())
+                );
+                return isNegated ? !hasVariant : hasVariant;
+            }
+
+            const hasTerm = titleLower.includes(termLower);
+            return isNegated ? !hasTerm : hasTerm;
         }
 
         case 'AND': {

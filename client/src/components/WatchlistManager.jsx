@@ -233,9 +233,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         if (!newTerm.trim()) return;
 
         const terms = [
-            `${newTerm} ガレージキット`,
-            `${newTerm} レジンキット`,
-            `${newTerm} レジンキャストキット`
+            `${newTerm} ガレージキット -プラモデル`,
+            `${newTerm} レジンキット -プラモデル`,
+            `${newTerm} レジンキャストキット -プラモデル`
         ];
 
         try {

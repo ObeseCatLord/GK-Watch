@@ -37,7 +37,7 @@ async function searchAll(query) {
     }
 
     if (enabled.surugaya !== false) {
-        promises.push(surugaya.search(query).then(res => res.map(i => ({ ...i, source: 'Suruga-ya' }))));
+        promises.push(surugaya.search(query, strict.surugaya ?? true).then(res => res.map(i => ({ ...i, source: 'Suruga-ya' }))));
     }
 
     const results = await Promise.allSettled(promises);
