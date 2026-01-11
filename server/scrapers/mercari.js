@@ -9,7 +9,7 @@ function reset() {
     console.log('Mercari Scraper state reset.');
 }
 
-async function search(query) {
+async function search(query, strictEnabled = true) {
     if (isDisabled) {
         console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
         return [];
@@ -173,26 +173,27 @@ async function search(query) {
 
         // Strict filtering: all search terms must be present in the title
         // Strict filtering with GK Synonym Support
-        const searchTerms = query.split(/\s+/).filter(term => term.length > 0);
-        const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
+        if (strictEnabled) {
+            const searchTerms = query.split(/\s+/).filter(term => term.length > 0);
+            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
 
-        const filteredResults = results.filter(item => {
-            const titleLower = item.title.toLowerCase();
-            return searchTerms.every(term => {
-                const termLower = term.toLowerCase();
-                if (GK_VARIANTS.includes(termLower)) {
-                    return GK_VARIANTS.some(variant => titleLower.includes(variant));
-                }
-                return titleLower.includes(termLower);
+            const filteredResults = results.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return searchTerms.every(term => {
+                    const termLower = term.toLowerCase();
+                    if (GK_VARIANTS.includes(termLower)) {
+                        return GK_VARIANTS.some(variant => titleLower.includes(variant));
+                    }
+                    return titleLower.includes(termLower);
+                });
             });
-        });
 
-        console.log(`Mercari: Found ${results.length} items, ${filteredResults.length} after strict filter`);
+            console.log(`Mercari: Found ${results.length} items, ${filteredResults.length} after strict filter`);
+            return filteredResults;
+        }
 
-        // Success: Reset consecutive timeouts (if we finish, assume healthy)
-        consecutiveTimeouts = 0;
-
-        return filteredResults;
+        console.log(`Mercari: Found ${results.length} items (Strict filtering disabled)`);
+        return results;
     };
 
     // Timeout Promise (1 min 30 sec)

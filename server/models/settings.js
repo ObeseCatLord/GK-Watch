@@ -14,8 +14,21 @@ const DEFAULT_SETTINGS = {
     loginEnabled: false,
     loginPassword: '',
     ntfyEnabled: false,
+
     ntfyTopic: '',
-    ntfyServer: 'https://ntfy.sh'
+    ntfyServer: 'https://ntfy.sh',
+    enabledSites: {
+        mercari: true,
+        yahoo: true,
+        paypay: true,
+        fril: true
+    },
+    strictFiltering: {
+        mercari: true,
+        yahoo: true,
+        paypay: true,
+        fril: true
+    }
 };
 
 // Ensure data directory exists

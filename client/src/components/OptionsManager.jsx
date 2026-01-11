@@ -136,8 +136,17 @@ const OptionsManager = ({ authenticatedFetch }) => {
             [name]: type === 'checkbox' ? checked : value
         };
         setSettings(newSettings);
+        triggerAutoSave(newSettings);
+    };
 
-        // Auto-save with debounce
+    const handleNestedChange = (category, key, value) => {
+        const newCategory = { ...settings[category] || {}, [key]: value };
+        const newSettings = { ...settings, [category]: newCategory };
+        setSettings(newSettings);
+        triggerAutoSave(newSettings);
+    };
+
+    const triggerAutoSave = (newSettings) => {
         if (saveTimeoutRef.current) {
             clearTimeout(saveTimeoutRef.current);
         }
@@ -448,6 +457,56 @@ const OptionsManager = ({ authenticatedFetch }) => {
                             <span className="cst-hour">{jstToLocal(i)}:00 {timeZoneName}</span>
                         </button>
                     ))}
+                </div>
+            </div>
+
+            {/* Site & Scraper Settings */}
+            <div className="options-section">
+                <h3>🌍 Site & Scraper Settings</h3>
+                <p className="options-description">
+                    Control which sites to search and how strict the keyword matching should be.
+                </p>
+
+                <div className="sites-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px', marginTop: '15px' }}>
+                    {['mercari', 'yahoo', 'paypay', 'fril'].map(site => {
+                        const siteName = site === 'yahoo' ? 'Yahoo Auctions' : site === 'fril' ? 'Rakuma (Fril)' : site === 'paypay' ? 'PayPay Flea Market' : 'Mercari';
+                        return (
+                            <div key={site} className="site-card" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
+                                <h4 style={{ textTransform: 'capitalize', marginTop: 0, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {siteName}
+                                </h4>
+
+                                <div style={{ marginBottom: '8px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={settings.enabledSites?.[site] !== false}
+                                            onChange={(e) => handleNestedChange('enabledSites', site, e.target.checked)}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        Enable Search
+                                    </label>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={settings.strictFiltering?.[site] !== false}
+                                            onChange={(e) => handleNestedChange('strictFiltering', site, e.target.checked)}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        Strict Filtering
+                                    </label>
+                                    <div style={{ fontSize: '0.75rem', color: '#888', marginLeft: '24px', marginTop: '2px' }}>
+                                        {settings.strictFiltering?.[site] !== false
+                                            ? 'Only matches exact title keywords (or synonyms).'
+                                            : 'Accepts all search results from site.'}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 

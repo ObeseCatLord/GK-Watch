@@ -1,7 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-async function search(query) {
+async function search(query, strictEnabled = true) {
     console.log(`Searching Fril for ${query}...`);
     const searchUrl = `https://fril.jp/s?query=${encodeURIComponent(query)}`;
 
@@ -68,21 +68,26 @@ async function search(query) {
 
         // Strict filtering: all search terms must be present in the title
         // Strict filtering with GK Synonym Support
-        const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
+        if (strictEnabled) {
+            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
 
-        const filteredResults = results.filter(item => {
-            const titleLower = item.title.toLowerCase();
-            return searchTerms.every(term => {
-                const termLower = term.toLowerCase();
-                if (GK_VARIANTS.includes(termLower)) {
-                    return GK_VARIANTS.some(variant => titleLower.includes(variant));
-                }
-                return titleLower.includes(termLower);
+            const filteredResults = results.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return searchTerms.every(term => {
+                    const termLower = term.toLowerCase();
+                    if (GK_VARIANTS.includes(termLower)) {
+                        return GK_VARIANTS.some(variant => titleLower.includes(variant));
+                    }
+                    return titleLower.includes(termLower);
+                });
             });
-        });
 
-        console.log(`Fril: Found ${results.length} items, ${filteredResults.length} after strict filter`);
-        return filteredResults;
+            console.log(`Fril: Found ${results.length} items, ${filteredResults.length} after strict filter`);
+            return filteredResults;
+        }
+
+        console.log(`Fril: Found ${results.length} items (Strict filter disabled)`);
+        return results;
 
     } catch (error) {
         console.error('Fril Scraper Error:', error.message);

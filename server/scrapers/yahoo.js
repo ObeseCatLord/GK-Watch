@@ -155,7 +155,7 @@ async function searchNeokyo(query) {
 }
 
 // Puppeteer-based Yahoo Auctions scraper (fallback for when Axios fails)
-async function searchYahooPuppeteer(query) {
+async function searchYahooPuppeteer(query, strictEnabled = true) {
     console.log(`[Yahoo Fallback] Searching Yahoo Auctions via Puppeteer for ${query}...`);
     let browser;
     try {
@@ -211,22 +211,27 @@ async function searchYahooPuppeteer(query) {
 
         // Strict matching: split query into terms and filter results
         // Strict matching with GK Synonym Support
-        const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
-        const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
+        if (strictEnabled) {
+            const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
+            const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
 
-        const strictResults = results.filter(item => {
-            const titleLower = item.title.toLowerCase();
-            return queryTerms.every(term => {
-                const termLower = term.toLowerCase();
-                if (GK_VARIANTS.includes(termLower)) {
-                    return GK_VARIANTS.some(variant => titleLower.includes(variant));
-                }
-                return titleLower.includes(termLower);
+            const strictResults = results.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return queryTerms.every(term => {
+                    const termLower = term.toLowerCase();
+                    if (GK_VARIANTS.includes(termLower)) {
+                        return GK_VARIANTS.some(variant => titleLower.includes(variant));
+                    }
+                    return titleLower.includes(termLower);
+                });
             });
-        });
 
-        console.log(`[Yahoo Fallback] Found ${results.length} items via Puppeteer, ${strictResults.length} after strict filtering.`);
-        return strictResults;
+            console.log(`[Yahoo Fallback] Found ${results.length} items via Puppeteer, ${strictResults.length} after strict filtering.`);
+            return strictResults;
+        }
+
+        console.log(`[Yahoo Fallback] Found ${results.length} items via Puppeteer (Strict filtering disabled).`);
+        return results;
 
     } catch (err) {
         console.error('Yahoo Puppeteer Fallback Error:', err.message);
@@ -236,7 +241,7 @@ async function searchYahooPuppeteer(query) {
     }
 }
 
-async function search(query) {
+async function search(query, strictEnabled = true) {
     console.log(`Searching Yahoo Auctions for ${query}...`);
     try {
         const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}`;
@@ -300,29 +305,34 @@ async function search(query) {
 
         // Strict matching: split query into terms and filter results
         // Strict matching with GK Synonym Support
-        const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
-        const GK_VARIANTS_AXIOS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
+        if (strictEnabled) {
+            const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
+            const GK_VARIANTS_AXIOS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット', 'ガレキ', 'キャストキット', 'レジン'];
 
-        const strictResults = results.filter(item => {
-            const titleLower = item.title.toLowerCase();
-            return queryTerms.every(term => {
-                const termLower = term.toLowerCase();
-                if (GK_VARIANTS_AXIOS.includes(termLower)) {
-                    return GK_VARIANTS_AXIOS.some(variant => titleLower.includes(variant));
-                }
-                return titleLower.includes(termLower);
+            const strictResults = results.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return queryTerms.every(term => {
+                    const termLower = term.toLowerCase();
+                    if (GK_VARIANTS_AXIOS.includes(termLower)) {
+                        return GK_VARIANTS_AXIOS.some(variant => titleLower.includes(variant));
+                    }
+                    return titleLower.includes(termLower);
+                });
             });
-        });
 
-        // Return results even if empty after strict filtering - 0 is OK if no error
-        console.log(`Yahoo (Axios) found ${results.length} items, ${strictResults.length} after strict filtering.`);
-        return strictResults;
+            // Return results even if empty after strict filtering - 0 is OK if no error
+            console.log(`Yahoo (Axios) found ${results.length} items, ${strictResults.length} after strict filtering.`);
+            return strictResults;
+        }
+
+        console.log(`Yahoo (Axios) found ${results.length} items (Strict filtering disabled).`);
+        return results;
     } catch (error) {
         console.warn(`Yahoo Axios Scraper failed (${error.message}), attempting Puppeteer fallback...`);
 
         // Chain 1: Yahoo via Puppeteer (direct scraping with headless browser)
         try {
-            const yahooPuppeteerResults = await searchYahooPuppeteer(query);
+            const yahooPuppeteerResults = await searchYahooPuppeteer(query, strictEnabled);
             // Return even if empty - 0 results is OK if no error
             return yahooPuppeteerResults;
         } catch (puppeteerError) {
