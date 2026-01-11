@@ -238,11 +238,37 @@ async function search(query, strict = true) {
 
             // If it doesn't match, check for truncation
             // Neokyo truncates long titles ending with "..."
-            // If truncated, we can't be sure, so valid strict filtering is impossible.
-            // We favor false positives (showing item) over false negatives (hiding valid item).
+            // Only allow if the truncated part plausibly contains the missing terms
             if (item.title.trim().endsWith('...')) {
-                console.log(`[Suruga-ya] Allowing truncated title: "${item.title}"`);
-                return true;
+                const missingTerms = queryMatcher.getMissingTerms(item.title, query);
+                const titleWithoutDots = item.title.replace(/\.\.\.$/, '').trim();
+
+                // Check if any missing term (or its synonym variants) overlaps with the end of the truncated title
+                const hasOverlap = missingTerms.some(term => {
+                    let candidates = [term];
+                    // If term is a GK variant, include all variants
+                    if (queryMatcher.GK_VARIANTS.some(v => v.toLowerCase() === term.toLowerCase())) {
+                        candidates = queryMatcher.GK_VARIANTS;
+                    }
+
+                    return candidates.some(candidate => {
+                        const maxLen = Math.min(candidate.length - 1, titleWithoutDots.length);
+                        // Minimum overlap length 2
+                        for (let len = maxLen; len >= 2; len--) {
+                            const prefix = candidate.substring(0, len);
+                            // Start of term matches End of title
+                            if (titleWithoutDots.toLowerCase().endsWith(prefix.toLowerCase())) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                });
+
+                if (hasOverlap) {
+                    console.log(`[Suruga-ya] Allowing truncated title: "${item.title}" (Matched implicit term)`);
+                    return true;
+                }
             }
 
             return false;

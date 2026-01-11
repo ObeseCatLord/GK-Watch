@@ -178,5 +178,72 @@ module.exports = {
     matchesQuery,
     matchTitle,
     getSearchTerms,
+    getMissingTerms,
     GK_VARIANTS
 };
+
+/**
+ * Identify which terms in the query are NOT present in the title.
+ * Returns a flat array of missing terms.
+ * 
+ * @param {string} title 
+ * @param {string} query 
+ * @returns {string[]} Array of missing terms
+ */
+function getMissingTerms(title, query) {
+    const parsed = parseQuery(query);
+    return findMissing(title, parsed);
+}
+
+function findMissing(title, node) {
+    if (!title || !node) return [];
+    const titleLower = title.toLowerCase();
+
+    switch (node.type) {
+        case 'TERM': {
+            // Check logic identical to matchesQuery
+            let termLower = node.value.toLowerCase();
+            let isNegated = false;
+
+            if (termLower.startsWith('-') && termLower.length > 1) {
+                isNegated = true;
+                termLower = termLower.slice(1);
+            }
+
+            let hasMatch = false;
+            if (GK_VARIANTS.some(v => v.toLowerCase() === termLower)) {
+                hasMatch = GK_VARIANTS.some(variant => titleLower.includes(variant.toLowerCase()));
+            } else {
+                hasMatch = titleLower.includes(termLower);
+            }
+
+            // If negated, failure means "term IS present" -> return term?
+            // Usually we care about POSITIVE terms missing. 
+            // If "-foo" fails (meaning "foo" IS present), we arguably "missed" the condition.
+            // But for truncation logic, we likely only care about POSITIVE terms that were cut off.
+            // So ignore negated terms here.
+            if (isNegated) return [];
+
+            return hasMatch ? [] : [node.value];
+        }
+
+        case 'AND': {
+            // Return failures from ALL children
+            if (!node.children) return [];
+            return node.children.flatMap(child => findMissing(title, child));
+        }
+
+        case 'OR': {
+            // If ANY child matches, then nothing is missing.
+            // If ALL fail, then effectively all options equivalent to specific terms are missing.
+            // But we return all of them to check if ANY of them are truncated.
+            // E.g. "Saber|Altria". Title "... Sab". 
+            // Missing: [Saber, Altria]. "Saber" starts with "Sab". -> Match.
+            if (matchesQuery(title, node)) return [];
+            return node.children.flatMap(child => findMissing(title, child));
+        }
+
+        default:
+            return [];
+    }
+}
