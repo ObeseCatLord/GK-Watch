@@ -172,10 +172,19 @@ async function search(query) {
         });
 
         // Strict filtering: all search terms must be present in the title
+        // Strict filtering with GK Synonym Support
         const searchTerms = query.split(/\s+/).filter(term => term.length > 0);
+        const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット'];
+
         const filteredResults = results.filter(item => {
             const titleLower = item.title.toLowerCase();
-            return searchTerms.every(term => titleLower.includes(term.toLowerCase()));
+            return searchTerms.every(term => {
+                const termLower = term.toLowerCase();
+                if (GK_VARIANTS.includes(termLower)) {
+                    return GK_VARIANTS.some(variant => titleLower.includes(variant));
+                }
+                return titleLower.includes(termLower);
+            });
         });
 
         console.log(`Mercari: Found ${results.length} items, ${filteredResults.length} after strict filter`);

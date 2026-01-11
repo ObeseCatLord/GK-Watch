@@ -210,10 +210,19 @@ async function searchYahooPuppeteer(query) {
         });
 
         // Strict matching: split query into terms and filter results
+        // Strict matching with GK Synonym Support
         const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
+        const GK_VARIANTS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット'];
+
         const strictResults = results.filter(item => {
             const titleLower = item.title.toLowerCase();
-            return queryTerms.every(term => titleLower.includes(term.toLowerCase()));
+            return queryTerms.every(term => {
+                const termLower = term.toLowerCase();
+                if (GK_VARIANTS.includes(termLower)) {
+                    return GK_VARIANTS.some(variant => titleLower.includes(variant));
+                }
+                return titleLower.includes(termLower);
+            });
         });
 
         console.log(`[Yahoo Fallback] Found ${results.length} items via Puppeteer, ${strictResults.length} after strict filtering.`);
@@ -290,10 +299,19 @@ async function search(query) {
         });
 
         // Strict matching: split query into terms and filter results
+        // Strict matching with GK Synonym Support
         const queryTerms = query.split(/\s+/).filter(t => t.length > 0);
+        const GK_VARIANTS_AXIOS = ['ガレージキット', 'レジンキット', 'レジンキャスト', 'レジンキャストキット'];
+
         const strictResults = results.filter(item => {
             const titleLower = item.title.toLowerCase();
-            return queryTerms.every(term => titleLower.includes(term.toLowerCase()));
+            return queryTerms.every(term => {
+                const termLower = term.toLowerCase();
+                if (GK_VARIANTS_AXIOS.includes(termLower)) {
+                    return GK_VARIANTS_AXIOS.some(variant => titleLower.includes(variant));
+                }
+                return titleLower.includes(termLower);
+            });
         });
 
         // Return results even if empty after strict filtering - 0 is OK if no error
