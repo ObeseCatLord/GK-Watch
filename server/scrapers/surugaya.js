@@ -74,9 +74,13 @@ function parseResults($) {
                 price = `¥${priceNum}`;
             }
 
+            // Store both Neokyo link (for detail fetch) and Suruga-ya link (for display)
+            const neokyoLink = link.startsWith('http') ? link : `https://neokyo.com${link}`;
+
             results.push({
                 title: title,
                 link: convertToSurugayaLink(link),
+                neokyoLink: neokyoLink,
                 image: image ? image.trim() : 'https://www.suruga-ya.jp/img/logo.png',
                 price: price,
                 source: 'Suruga-ya'
@@ -85,6 +89,38 @@ function parseResults($) {
     });
 
     return results;
+}
+
+/**
+ * Fetch the full title from a Neokyo product detail page
+ * Used to verify truncated titles before filtering
+ */
+async function fetchFullTitle(neokyoLink) {
+    try {
+        const response = await axios.get(neokyoLink, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+            },
+            timeout: 10000
+        });
+
+        const $ = cheerio.load(response.data);
+        // The full title is in h6 with classes font-gothamRounded translate
+        let fullTitle = $('h6.font-gothamRounded.translate').first().text().trim();
+        if (!fullTitle) {
+            // Fallback selectors
+            fullTitle = $('h6.translate').first().text().trim();
+        }
+        if (!fullTitle) {
+            fullTitle = $('title').text().replace(' - Neokyo', '').replace('Item Details', '').trim();
+        }
+        return fullTitle || null;
+    } catch (error) {
+        console.log(`[Suruga-ya] Failed to fetch full title from ${neokyoLink}: ${error.message}`);
+        return null;
+    }
 }
 
 /**
@@ -228,57 +264,49 @@ async function search(query, strict = true) {
     if (strict && results && results.length > 0) {
         console.log(`[Suruga-ya] Strict filtering enabled. Checking ${results.length} items against query: "${query}"`);
         const initialCount = results.length;
+        const filteredResults = [];
 
-        results = results.filter(item => {
+        for (const item of results) {
             // Check if title matches query strictly
             const matches = queryMatcher.matchTitle(item.title, query);
 
             // If it matches, keep it
-            if (matches) return true;
+            if (matches) {
+                filteredResults.push(item);
+                continue;
+            }
 
-            // If it doesn't match, check for truncation
-            // Neokyo truncates long titles ending with "..."
-            // Only allow if the truncated part plausibly contains the missing terms
-            if (item.title.trim().endsWith('...')) {
-                const missingTerms = queryMatcher.getMissingTerms(item.title, query);
-                const titleWithoutDots = item.title.replace(/\.\.\.$/, '').trim();
-
-                // Check if any missing term (or its synonym variants) overlaps with the end of the truncated title
-                const hasOverlap = missingTerms.some(term => {
-                    let candidates = [term];
-                    // If term is a GK variant, include all variants
-                    if (queryMatcher.GK_VARIANTS.some(v => v.toLowerCase() === term.toLowerCase())) {
-                        candidates = queryMatcher.GK_VARIANTS;
+            // If it doesn't match, try fetching the full title from detail page
+            // This handles truncation AND cases where search results show partial info
+            if (item.neokyoLink) {
+                const fullTitle = await fetchFullTitle(item.neokyoLink);
+                if (fullTitle) {
+                    const fullMatches = queryMatcher.matchTitle(fullTitle, query);
+                    if (fullMatches) {
+                        console.log(`[Suruga-ya] Keeping item after full title check: "${fullTitle.substring(0, 60)}..."`);
+                        // Update the item's title to the full version for display
+                        item.title = fullTitle;
+                        filteredResults.push(item);
+                        continue;
                     }
-
-                    return candidates.some(candidate => {
-                        const maxLen = Math.min(candidate.length - 1, titleWithoutDots.length);
-                        // Minimum overlap length 2
-                        for (let len = maxLen; len >= 2; len--) {
-                            const prefix = candidate.substring(0, len);
-                            // Start of term matches End of title
-                            if (titleWithoutDots.toLowerCase().endsWith(prefix.toLowerCase())) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    });
-                });
-
-                if (hasOverlap) {
-                    console.log(`[Suruga-ya] Allowing truncated title: "${item.title}" (Matched implicit term)`);
-                    return true;
                 }
             }
 
-            return false;
-        });
+            // Item doesn't match after all checks - filter it out
+        }
 
+        results = filteredResults;
         console.log(`[Suruga-ya] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
     }
 
+    // Remove neokyoLink from final results (internal use only)
+    results = (results || []).map(item => {
+        const { neokyoLink, ...rest } = item;
+        return rest;
+    });
+
     // Return results (or empty if none)
-    return results || [];
+    return results;
 }
 
 module.exports = { search };
