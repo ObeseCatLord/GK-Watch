@@ -350,6 +350,12 @@ app.post('/api/settings', requireAuth, (req, res) => {
 
 // Test Ntfy Notification
 app.post('/api/settings/test-ntfy', requireAuth, async (req, res) => {
+    // Check if enabled first to give specific error
+    const settings = Settings.get();
+    if (!settings.ntfyEnabled) {
+        return res.status(500).json({ error: 'Failed to send Ntfy notification: Ntfy notifications not enabled' });
+    }
+
     try {
         const success = await NtfyService.send(
             'GK Watcher Test',
