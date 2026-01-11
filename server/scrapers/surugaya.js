@@ -1,10 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const queryMatcher = require('../utils/queryMatcher');
-
-puppeteer.use(StealthPlugin());
 
 /**
  * Suruga-ya scraper using Neokyo as a proxy
@@ -172,8 +168,20 @@ async function searchWithAxios(query) {
     const firstPageData = await fetchPageWithAxios(firstPageUrl);
 
     if (!firstPageData || firstPageData.results.length === 0) {
-        console.log('Suruga-ya (Neokyo): No products found with Axios, page may need JS rendering');
-        return null;
+        // Check for specific "no results" message to confirm successful (empty) scrape
+        if (firstPageData && firstPageData.$) {
+            const $ = firstPageData.$;
+            const hasNoResultsMsg = $('.container.no-result-container').length > 0
+                || $('body').text().includes('Sorry, we found no results');
+
+            if (hasNoResultsMsg) {
+                console.log('Suruga-ya (Neokyo): Confirmed no results found.');
+                return [];
+            }
+        }
+
+        console.log('Suruga-ya (Neokyo): No products found (Axios). Returning empty as fallback removed.');
+        return [];
     }
 
     allResults.push(...firstPageData.results);
@@ -205,76 +213,7 @@ async function searchWithAxios(query) {
     return allResults;
 }
 
-/**
- * Fallback to Puppeteer for JS-rendered pages (single page only)
- */
-async function searchWithPuppeteer(query) {
-    const searchUrl = buildSearchUrl(query, 1);
-    let browser;
 
-    try {
-        browser = await puppeteer.launch({
-            headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        });
-
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-        await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-        // Wait for product cards to load
-        await page.waitForSelector('.product-card', { timeout: 15000 });
-
-        // Extract data
-        const results = await page.evaluate(() => {
-            const cards = document.querySelectorAll('.product-card');
-            const items = [];
-
-            cards.forEach(card => {
-                const titleLink = card.querySelector('a.product-link');
-                const priceEl = card.querySelector('.price b');
-                const imgEl = card.querySelector('img.card-img-top');
-
-                if (titleLink) {
-                    const title = titleLink.textContent.trim();
-                    const link = titleLink.href;
-                    const priceText = priceEl ? priceEl.textContent.trim() : 'N/A';
-                    const image = imgEl ? imgEl.src : '';
-
-                    // Extract price number
-                    const priceMatch = priceText.match(/(\d+)/);
-                    const price = priceMatch ? `¥${priceMatch[1]}` : priceText;
-
-                    items.push({
-                        title,
-                        link,
-                        image: image || 'https://www.suruga-ya.jp/img/logo.png',
-                        price,
-                        source: 'Suruga-ya'
-                    });
-                }
-            });
-
-            return items;
-        });
-
-        // Convert Neokyo links to Suruga-ya links
-        const convertedResults = results.map(item => ({
-            ...item,
-            link: convertToSurugayaLink(item.link)
-        }));
-
-        console.log(`Suruga-ya (Neokyo/Puppeteer): Found ${convertedResults.length} items`);
-        return convertedResults;
-
-    } catch (error) {
-        console.error(`Suruga-ya (Puppeteer) failed: ${error.message}`);
-        return [];
-    } finally {
-        if (browser) await browser.close();
-    }
-}
 
 /**
  * Main search function - tries Axios first, falls back to Puppeteer
@@ -282,14 +221,8 @@ async function searchWithPuppeteer(query) {
 async function search(query, strict = true) {
     console.log(`Searching Suruga-ya for ${query}...`);
 
-    // Try Axios first (faster)
+    // Try Axios (only)
     let results = await searchWithAxios(query);
-
-    // Fall back to Puppeteer if Axios didn't work
-    if (results === null) {
-        console.log('Suruga-ya: Falling back to Puppeteer...');
-        results = await searchWithPuppeteer(query);
-    }
 
     // Filter results if strict mode is on
     if (strict && results && results.length > 0) {
@@ -299,13 +232,7 @@ async function search(query, strict = true) {
         console.log(`[Suruga-ya] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
     }
 
-    // If we got results, return them
-    if (results && results.length > 0) {
-        return results;
-    }
-
-    // If scraping returned empty results (found nothing), return empty
-    // Do NOT return a placeholder "Search Suruga-ya" item as it clutters results
+    // Return results (or empty if none)
     return results || [];
 }
 
