@@ -233,9 +233,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         if (!newTerm.trim()) return;
 
         const terms = [
-            `${newTerm} ガレージキット -プラモデル`,
-            `${newTerm} レジンキット -プラモデル`,
-            `${newTerm} レジンキャストキット -プラモデル`
+            `${newTerm} ガレージキット`,
+            `${newTerm} レジンキット`,
+            `${newTerm} レジンキャストキット`
         ];
 
         try {
@@ -244,7 +244,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     terms,
-                    name: terms[0] // Set name explicitly to first term
+                    name: terms[0], // Set name explicitly to first term
+                    filters: ['プラモデル']
                 })
             });
             setNewTerm('');
