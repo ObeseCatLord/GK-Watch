@@ -40,6 +40,10 @@ function parseQuery(query) {
         return { type: 'AND', children: [] };
     }
 
+    // IMPORTANT: Normalize spaces around | operator BEFORE splitting by spaces
+    // This converts "term1 | term2" to "term1|term2"
+    query = query.replace(/\s*\|\s*/g, '|');
+
     // Split by && first (explicit AND, lowest precedence)
     // Also treat multiple spaces as AND separators
     const andParts = query.split(/\s*&&\s*|\s+/).filter(part => part.length > 0);
