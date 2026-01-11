@@ -504,6 +504,23 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                             : 'Accepts all search results from site.'}
                                     </div>
                                 </div>
+
+                                {site === 'yahoo' && (
+                                    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #444' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={settings.allowYahooInternationalShipping || false}
+                                                onChange={(e) => handleChange({ target: { name: 'allowYahooInternationalShipping', type: 'checkbox', checked: e.target.checked } })}
+                                                style={{ marginRight: '8px' }}
+                                            />
+                                            Allow International Shipping
+                                        </label>
+                                        <div style={{ fontSize: '0.75rem', color: '#888', marginLeft: '24px', marginTop: '2px' }}>
+                                            Include items marked as "International Shipping" (国際便).
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         );
                     })}

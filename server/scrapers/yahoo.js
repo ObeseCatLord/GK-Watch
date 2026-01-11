@@ -156,7 +156,7 @@ async function searchNeokyo(query) {
 }
 
 // Puppeteer-based Yahoo Auctions scraper (fallback for when Axios fails)
-async function searchYahooPuppeteer(query, strictEnabled = true) {
+async function searchYahooPuppeteer(query, strictEnabled = true, allowInternationalShipping = false) {
     console.log(`[Yahoo Fallback] Searching Yahoo Auctions via Puppeteer for ${query}...`);
     let browser;
     try {
@@ -188,6 +188,14 @@ async function searchYahooPuppeteer(query, strictEnabled = true) {
 
         $('.Products__items li.Product').each((i, element) => {
             try {
+                // International Shipping Filter
+                if (!allowInternationalShipping) {
+                    const fullText = $(element).text();
+                    if (fullText.includes('国際便') || fullText.includes('海外発送')) {
+                        return; // Skip this item
+                    }
+                }
+
                 const titleEl = $(element).find('.Product__titleLink');
                 const title = titleEl.text().trim();
                 const link = titleEl.attr('href');
@@ -228,7 +236,7 @@ async function searchYahooPuppeteer(query, strictEnabled = true) {
     }
 }
 
-async function search(query, strictEnabled = true) {
+async function search(query, strictEnabled = true, allowInternationalShipping = false) {
     console.log(`Searching Yahoo Auctions for ${query}...`);
     try {
         const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}`;
@@ -251,6 +259,14 @@ async function search(query, strictEnabled = true) {
 
         $('.Products__items li.Product').each((i, element) => {
             try {
+                // International Shipping Filter
+                if (!allowInternationalShipping) {
+                    const fullText = $(element).text();
+                    if (fullText.includes('国際便') || fullText.includes('海外発送')) {
+                        return; // Skip this item
+                    }
+                }
+
                 const titleEl = $(element).find('.Product__titleLink');
                 const title = titleEl.text().trim();
                 const link = titleEl.attr('href');
@@ -305,7 +321,7 @@ async function search(query, strictEnabled = true) {
 
         // Chain 1: Yahoo via Puppeteer (direct scraping with headless browser)
         try {
-            const yahooPuppeteerResults = await searchYahooPuppeteer(query, strictEnabled);
+            const yahooPuppeteerResults = await searchYahooPuppeteer(query, strictEnabled, allowInternationalShipping);
             // Return even if empty - 0 results is OK if no error
             return yahooPuppeteerResults;
         } catch (puppeteerError) {

@@ -30,7 +30,8 @@ const DEFAULT_SETTINGS = {
         paypay: true,
         fril: true,
         surugaya: true
-    }
+    },
+    allowYahooInternationalShipping: false // Default to filtering out international shipping
 };
 
 // Ensure data directory exists

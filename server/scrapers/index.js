@@ -25,7 +25,7 @@ async function searchAll(query) {
     }
 
     if (enabled.yahoo !== false) {
-        promises.push(yahoo.search(query, strict.yahoo ?? true).then(res => res.map(i => ({ ...i, source: 'Yahoo Auctions' }))));
+        promises.push(yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false).then(res => res.map(i => ({ ...i, source: 'Yahoo' }))));
     }
 
     if (enabled.paypay !== false) {
