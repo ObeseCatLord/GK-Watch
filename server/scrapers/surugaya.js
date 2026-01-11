@@ -11,7 +11,8 @@ puppeteer.use(StealthPlugin());
  */
 
 const NEOKYO_SEARCH_URL = 'https://neokyo.com/en/search/surugaya';
-const MAX_PAGES = 3; // Number of pages to scrape (24 items per page)
+const MAX_PAGES_LIMIT = 200; // Safety limit to prevent infinite loops
+const DELAY_BETWEEN_PAGES = 300; // ms delay between page requests
 
 /**
  * Build the search URL for a given page
@@ -74,6 +75,49 @@ function parseResults($) {
 }
 
 /**
+ * Get total pages from pagination element
+ * Looks for: class="pagination pagination-sm justify-content-center"
+ */
+function getTotalPages($) {
+    // Find the pagination element
+    const pagination = $('.pagination.pagination-sm.justify-content-center');
+
+    if (pagination.length === 0) {
+        // Try alternative pagination selectors
+        const altPagination = $('.pagination');
+        if (altPagination.length === 0) {
+            return 1; // No pagination found, assume single page
+        }
+    }
+
+    // Find the highest page number in pagination links
+    let maxPage = 1;
+
+    // Look for page links that contain just numbers
+    $('a[href*="page="]').each((i, link) => {
+        const href = $(link).attr('href');
+        const pageMatch = href.match(/page=(\d+)/);
+        if (pageMatch) {
+            const pageNum = parseInt(pageMatch[1], 10);
+            if (pageNum > maxPage) {
+                maxPage = pageNum;
+            }
+        }
+    });
+
+    // Also check link text for page numbers (e.g., the last page link)
+    $('.pagination a, .pagination li').each((i, el) => {
+        const text = $(el).text().trim();
+        const num = parseInt(text, 10);
+        if (!isNaN(num) && num > maxPage) {
+            maxPage = num;
+        }
+    });
+
+    return Math.min(maxPage, MAX_PAGES_LIMIT);
+}
+
+/**
  * Fetch a single page with Axios
  */
 async function fetchPageWithAxios(url) {
@@ -89,8 +133,9 @@ async function fetchPageWithAxios(url) {
 
         const $ = cheerio.load(response.data);
         const results = parseResults($);
+        const totalPages = getTotalPages($);
 
-        return results.length > 0 ? results : null;
+        return { results, totalPages, $ };
     } catch (error) {
         console.log(`Suruga-ya (Axios) page fetch failed: ${error.message}`);
         return null;
@@ -98,43 +143,49 @@ async function fetchPageWithAxios(url) {
 }
 
 /**
- * Try to scrape multiple pages with Axios
+ * Try to scrape all pages with Axios
  */
 async function searchWithAxios(query) {
     const allResults = [];
 
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    // Fetch first page to get total pages
+    const firstPageUrl = buildSearchUrl(query, 1);
+    console.log(`Suruga-ya: Fetching page 1...`);
+
+    const firstPageData = await fetchPageWithAxios(firstPageUrl);
+
+    if (!firstPageData || firstPageData.results.length === 0) {
+        console.log('Suruga-ya (Neokyo): No products found with Axios, page may need JS rendering');
+        return null;
+    }
+
+    allResults.push(...firstPageData.results);
+    const totalPages = firstPageData.totalPages;
+
+    console.log(`Suruga-ya: Found ${totalPages} total pages`);
+
+    // Fetch remaining pages
+    for (let page = 2; page <= totalPages; page++) {
+        await new Promise(r => setTimeout(r, DELAY_BETWEEN_PAGES));
+
         const searchUrl = buildSearchUrl(query, page);
-        console.log(`Suruga-ya: Fetching page ${page}...`);
 
-        const results = await fetchPageWithAxios(searchUrl);
-
-        if (results === null) {
-            if (page === 1) {
-                // First page failed, need to fall back to Puppeteer
-                console.log('Suruga-ya (Neokyo): No products found with Axios, page may need JS rendering');
-                return null;
-            } else {
-                // Subsequent page failed, just stop pagination
-                console.log(`Suruga-ya: Page ${page} empty, stopping pagination`);
-                break;
-            }
+        if (page % 10 === 0 || page === totalPages) {
+            console.log(`Suruga-ya: Fetching page ${page}/${totalPages}...`);
         }
 
-        allResults.push(...results);
+        const pageData = await fetchPageWithAxios(searchUrl);
 
-        // Small delay between pages to be respectful
-        if (page < MAX_PAGES) {
-            await new Promise(r => setTimeout(r, 500));
+        if (!pageData || pageData.results.length === 0) {
+            console.log(`Suruga-ya: Page ${page} empty, stopping pagination`);
+            break;
         }
+
+        allResults.push(...pageData.results);
     }
 
-    if (allResults.length > 0) {
-        console.log(`Suruga-ya (Neokyo/Axios): Found ${allResults.length} items across ${MAX_PAGES} pages`);
-        return allResults;
-    }
-
-    return null;
+    console.log(`Suruga-ya (Neokyo/Axios): Found ${allResults.length} items across ${totalPages} pages`);
+    return allResults;
 }
 
 /**
