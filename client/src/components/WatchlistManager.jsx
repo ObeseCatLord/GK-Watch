@@ -685,7 +685,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                 <div className="watchlist-results">
                     {selectedTerm && (
                         <>
-                            <h3>Stored Results for "{selectedTerm}" <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '10px' }}>({selectedResults ? selectedResults.length : 0} results)</span></h3>
+                            <h3>Stored Results for "{selectedTerm}" <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '10px' }}>({selectedResults ? selectedResults.filter(r => !r.hidden).length : 0} results)</span></h3>
                             <div className="results-actions">
                                 <button
                                     className="action-btn surugaya-btn"
@@ -804,7 +804,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                                     style={{ maxWidth: '200px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem' }}
                                 >
                                     <option value="All">All Websites</option>
-                                    {[...new Set(selectedResults.map(item => item.source))].sort().map(source => (
+                                    {[...new Set(selectedResults.filter(item => !item.hidden).map(item => item.source))].sort().map(source => (
                                         <option key={source} value={source}>{source}</option>
                                     ))}
                                 </select>
@@ -822,6 +822,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                             <div className="results-grid">
                                 {(() => {
                                     const filteredResults = selectedResults.filter(item => {
+                                        if (item.hidden) return false; // Hide items in Yahoo grace period
                                         const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
                                         const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
                                         return matchesTitle && matchesSource;
@@ -847,6 +848,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                             </div>
                             {(() => {
                                 const filteredResults = selectedResults.filter(item => {
+                                    if (item.hidden) return false; // Hide items in Yahoo grace period
                                     const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
                                     const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
                                     return matchesTitle && matchesSource;

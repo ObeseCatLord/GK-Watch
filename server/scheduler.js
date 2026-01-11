@@ -265,7 +265,8 @@ const Scheduler = {
                     ...result,
                     firstSeen: existing.firstSeen,
                     lastSeen: isYahoo ? now : existing.lastSeen, // Update lastSeen for Yahoo
-                    isNew: false
+                    isNew: false,
+                    hidden: false // Clear hidden flag - item is visible again
                 };
             } else if (duplicateInfo) {
                 // Same Name + Same Source exists = Treated as NOT NEW
@@ -273,7 +274,8 @@ const Scheduler = {
                     ...result,
                     firstSeen: duplicateInfo.firstSeen, // Inherit timestamp
                     lastSeen: isYahoo ? now : duplicateInfo.lastSeen,
-                    isNew: false
+                    isNew: false,
+                    hidden: false // Clear hidden flag - item is visible again
                 };
             } else {
                 // New item
@@ -282,7 +284,8 @@ const Scheduler = {
                     ...result,
                     firstSeen: now,
                     lastSeen: isYahoo ? now : undefined,
-                    isNew: true
+                    isNew: true,
+                    hidden: false
                 };
             }
         });
@@ -341,11 +344,12 @@ const Scheduler = {
         });
 
         if (yahooToPreserve.length > 0) {
-            console.log(`[Scheduler] Yahoo grace period: Preserving ${yahooToPreserve.length} Yahoo items for ${term || watchId}`);
-            // Mark them as not new and preserve their lastSeen (don't update it since they weren't found)
+            console.log(`[Scheduler] Yahoo grace period: Preserving ${yahooToPreserve.length} hidden Yahoo items for ${term || watchId}`);
+            // Mark them as not new, hidden, and preserve their lastSeen (don't update it since they weren't found)
             const preservedYahoo = yahooToPreserve.map(item => ({
                 ...item,
-                isNew: false
+                isNew: false,
+                hidden: true // Hide until found again
             }));
             // Deduplicate by link before adding
             const existingLinks = new Set(finalResults.map(r => r.link));
