@@ -228,7 +228,26 @@ async function search(query, strict = true) {
     if (strict && results && results.length > 0) {
         console.log(`[Suruga-ya] Strict filtering enabled. Checking ${results.length} items against query: "${query}"`);
         const initialCount = results.length;
-        results = results.filter(item => queryMatcher.matchTitle(item.title, query));
+
+        results = results.filter(item => {
+            // Check if title matches query strictly
+            const matches = queryMatcher.matchTitle(item.title, query);
+
+            // If it matches, keep it
+            if (matches) return true;
+
+            // If it doesn't match, check for truncation
+            // Neokyo truncates long titles ending with "..."
+            // If truncated, we can't be sure, so valid strict filtering is impossible.
+            // We favor false positives (showing item) over false negatives (hiding valid item).
+            if (item.title.trim().endsWith('...')) {
+                console.log(`[Suruga-ya] Allowing truncated title: "${item.title}"`);
+                return true;
+            }
+
+            return false;
+        });
+
         console.log(`[Suruga-ya] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
     }
 
