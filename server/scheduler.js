@@ -216,6 +216,7 @@ const Scheduler = {
         const now = new Date().toISOString();
         const nowMs = Date.now();
         const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
+        const SURUGAYA_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
 
         try {
             if (fs.existsSync(RESULTS_FILE)) {
@@ -246,11 +247,20 @@ const Scheduler = {
             }
         });
 
+        // Track which Suruga-ya items are in the new results (by title)
+        const newSurugayaTitles = new Set();
+        newResults.forEach(result => {
+            if (result.source && result.source.toLowerCase().includes('suruga') && result.title) {
+                newSurugayaTitles.add(result.title.trim());
+            }
+        });
+
         // Process new results - preserve firstSeen for existing, add for new
-        // Also add lastSeen for Yahoo items
+        // Also add lastSeen for Yahoo and Suruga-ya items
         const processedResults = newResults.map(result => {
             const existing = existingByLink.get(result.link);
             const isYahoo = result.source && result.source.toLowerCase().includes('yahoo');
+            const isSurugaya = result.source && result.source.toLowerCase().includes('suruga');
 
             let duplicateInfo = null;
             if (result.title && result.source) {
@@ -264,7 +274,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: existing.firstSeen,
-                    lastSeen: isYahoo ? now : existing.lastSeen, // Update lastSeen for Yahoo
+                    lastSeen: (isYahoo || isSurugaya) ? now : existing.lastSeen, // Update lastSeen for Yahoo/Suruga-ya
                     isNew: false,
                     hidden: false // Clear hidden flag - item is visible again
                 };
@@ -273,7 +283,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: duplicateInfo.firstSeen, // Inherit timestamp
-                    lastSeen: isYahoo ? now : duplicateInfo.lastSeen,
+                    lastSeen: (isYahoo || isSurugaya) ? now : duplicateInfo.lastSeen,
                     isNew: false,
                     hidden: false // Clear hidden flag - item is visible again
                 };
@@ -283,7 +293,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: now,
-                    lastSeen: isYahoo ? now : undefined,
+                    lastSeen: (isYahoo || isSurugaya) ? now : undefined,
                     isNew: true,
                     hidden: false
                 };
@@ -355,6 +365,40 @@ const Scheduler = {
             const existingLinks = new Set(finalResults.map(r => r.link));
             const uniquePreserved = preservedYahoo.filter(item => !existingLinks.has(item.link));
             finalResults = [...finalResults, ...uniquePreserved];
+        }
+
+        // Suruga-ya Grace Period: Preserve Suruga-ya items for 2 days after they disappear
+        // Similar to Yahoo but NOT hidden - items remain visible during grace period
+        const existingSurugayaItems = existingItems.filter(item =>
+            item.source && item.source.toLowerCase().includes('suruga')
+        );
+
+        const surugayaToPreserve = existingSurugayaItems.filter(item => {
+            // Skip if this title is already in new results
+            if (item.title && newSurugayaTitles.has(item.title.trim())) {
+                return false;
+            }
+
+            // Check if within grace period
+            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
+                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
+            const ageMs = nowMs - lastSeenTime;
+
+            return ageMs < SURUGAYA_GRACE_PERIOD_MS;
+        });
+
+        if (surugayaToPreserve.length > 0) {
+            console.log(`[Scheduler] Suruga-ya grace period: Preserving ${surugayaToPreserve.length} Suruga-ya items for ${term || watchId}`);
+            // Mark them as not new, but NOT hidden (visible during grace period)
+            const preservedSurugaya = surugayaToPreserve.map(item => ({
+                ...item,
+                isNew: false,
+                hidden: false // Keep visible unlike Yahoo
+            }));
+            // Deduplicate by link before adding
+            const existingLinksAfterYahoo = new Set(finalResults.map(r => r.link));
+            const uniquePreservedSurugaya = preservedSurugaya.filter(item => !existingLinksAfterYahoo.has(item.link));
+            finalResults = [...finalResults, ...uniquePreservedSurugaya];
         }
 
         // Save results with newCount

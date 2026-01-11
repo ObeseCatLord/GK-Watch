@@ -468,8 +468,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 </p>
 
                 <div className="sites-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px', marginTop: '15px' }}>
-                    {['mercari', 'yahoo', 'paypay', 'fril'].map(site => {
-                        const siteName = site === 'yahoo' ? 'Yahoo Auctions' : site === 'fril' ? 'Rakuma (Fril)' : site === 'paypay' ? 'PayPay Flea Market' : 'Mercari';
+                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya'].map(site => {
+                        const siteName = site === 'yahoo' ? 'Yahoo Auctions' : site === 'fril' ? 'Rakuma (Fril)' : site === 'paypay' ? 'PayPay Flea Market' : site === 'surugaya' ? 'Suruga-ya' : 'Mercari';
                         return (
                             <div key={site} className="site-card" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
                                 <h4 style={{ textTransform: 'capitalize', marginTop: 0, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>

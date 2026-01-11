@@ -21,13 +21,15 @@ const DEFAULT_SETTINGS = {
         mercari: true,
         yahoo: true,
         paypay: true,
-        fril: true
+        fril: true,
+        surugaya: true
     },
     strictFiltering: {
         mercari: true,
         yahoo: true,
         paypay: true,
-        fril: true
+        fril: true,
+        surugaya: true
     }
 };
 

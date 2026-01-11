@@ -15,15 +15,15 @@ const MAX_PAGES_LIMIT = 200; // Safety limit to prevent infinite loops
 const DELAY_BETWEEN_PAGES = 300; // ms delay between page requests
 
 /**
- * Build the search URL for a given page
+ * Build the search URL for a given page (sorted by modification date, newest first)
  */
 function buildSearchUrl(query, page = 1) {
     const encodedQuery = encodeURIComponent(query);
     if (page === 1) {
-        return `${NEOKYO_SEARCH_URL}?keyword=${encodedQuery}&provider=surugaya&spid=`;
+        return `${NEOKYO_SEARCH_URL}?provider=surugaya&translate=0&order-tag=modificationTime%3Adescending&order-direction=&keyword=${encodedQuery}`;
     }
-    // Pagination URL format with empty category parameters
-    return `${NEOKYO_SEARCH_URL}?page=${page}&keyword=${encodedQuery}&translate=&google_translate=&category[level_1]=&category[level_2]=&category[level_3]=&category[level_4]=&category[level_5]=&category[level_6]=&category[level_7]=`;
+    // Pagination URL format with date sorting
+    return `${NEOKYO_SEARCH_URL}?page=${page}&keyword=${encodedQuery}&translate=0&order-tag=modificationTime%3Adescending&google_translate=&category[level_1]=&category[level_2]=&category[level_3]=&category[level_4]=&category[level_5]=&category[level_6]=&category[level_7]=`;
 }
 
 /**
@@ -53,13 +53,29 @@ function parseResults($) {
         const titleLink = $card.find('a.product-link').first();
         const title = titleLink.text().trim();
         const link = titleLink.attr('href');
-        const priceText = $card.find('.price b').first().text().trim();
+
+        // Try main price first, then fall back to marketplace price
+        let priceText = $card.find('.price b').first().text().trim();
+        if (!priceText || priceText === 'N/A') {
+            // Check for marketplace-only listings (class mt-1 mb-0 marketplace)
+            priceText = $card.find('.mt-1.mb-0.marketplace').text().trim();
+            // Also try alternative marketplace selectors
+            if (!priceText) {
+                priceText = $card.find('.marketplace').first().text().trim();
+            }
+        }
+
         const image = $card.find('img.card-img-top').attr('src');
 
         if (title && link) {
-            // Extract price number
-            const priceMatch = priceText.match(/(\d+)/);
-            const price = priceMatch ? `¥${priceMatch[1]}` : priceText || 'N/A';
+            // Extract price number from text like "Marketplace: from ¥900 ~" or "990 Yen"
+            const priceMatch = priceText.match(/(\d[\d,]*)/);
+            let price = 'N/A';
+            if (priceMatch) {
+                // Remove commas and format
+                const priceNum = priceMatch[1].replace(/,/g, '');
+                price = `¥${priceNum}`;
+            }
 
             results.push({
                 title: title,
