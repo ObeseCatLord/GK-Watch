@@ -17,7 +17,7 @@ function App() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sourceFilter, setSourceFilter] = useState('All');
-  const ITEMS_PER_PAGE = 25;
+  const ITEMS_PER_PAGE = 24;
 
   // Login protection state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -162,12 +162,46 @@ function App() {
     if (overrideQuery) setQuery(overrideQuery);
 
     try {
-      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(searchTerm)}`);
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
+      // Check if query contains | operator for multi-search
+      const hasOrOperator = searchTerm.includes('|');
+
+      if (hasOrOperator) {
+        // Split by | and run parallel searches, similar to GK search
+        const terms = searchTerm.split(/\s*\|\s*/).filter(t => t.trim());
+
+        const promises = terms.map(term =>
+          authenticatedFetch(`/api/search?q=${encodeURIComponent(term.trim())}`)
+            .then(res => res.json())
+            .catch(err => {
+              console.error(`Error searching ${term}:`, err);
+              return [];
+            })
+        );
+
+        const allResults = await Promise.all(promises);
+        const flatResults = allResults.flat();
+
+        // Deduplicate by link
+        const uniqueResults = [];
+        const seenLinks = new Set();
+
+        flatResults.forEach(item => {
+          if (!seenLinks.has(item.link)) {
+            seenLinks.add(item.link);
+            uniqueResults.push(item);
+          }
+        });
+
+        setResults(uniqueResults);
+      } else {
+        // Single search (original behavior)
+        const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(searchTerm)}`);
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+        setResults(data);
       }
-      const data = await response.json();
-      setResults(data);
     } catch (err) {
       setError('Failed to fetch results. Please try again.');
       console.error(err);
