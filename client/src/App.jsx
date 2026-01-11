@@ -226,9 +226,9 @@ function App() {
     saveToHistory(queryTerm, 'gk');
 
     const terms = [
-      `${queryTerm} ガレージキット -プラモデル`,
-      `${queryTerm} レジンキット -プラモデル`,
-      `${queryTerm} レジンキャストキット -プラモデル`
+      `${queryTerm} ガレージキット`,
+      `${queryTerm} レジンキット`,
+      `${queryTerm} レジンキャストキット`
     ];
 
     try {
