@@ -111,7 +111,7 @@ function matchesQuery(title, parsedQuery) {
                 termLower = termLower.slice(1);
             }
 
-            // Check for GK synonym match (only if not negated? Or negated synonyms too?)
+            // Check for GK synonym match
             // If negated, we want to ensure NONE of the variants are present
             if (GK_VARIANTS.some(v => v.toLowerCase() === termLower)) {
                 const hasVariant = GK_VARIANTS.some(variant =>

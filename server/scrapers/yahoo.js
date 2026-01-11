@@ -315,14 +315,20 @@ async function search(query, strictEnabled = true) {
         // Chain 2: Neokyo (only if Puppeteer threw an error)
         try {
             const neokyoResults = await searchNeokyo(query);
-            // Return even if empty - 0 results is OK if no error
+            if (strictEnabled) {
+                return neokyoResults.filter(item => matchTitle(item.title, query));
+            }
             return neokyoResults;
         } catch (neokyoError) {
             console.warn(`Neokyo failed (${neokyoError.message}), attempting Jauce fallback...`);
         }
 
         // Chain 3: Jauce (only if both Puppeteer and Neokyo threw errors)
-        return await searchJauce(query);
+        const jauceResults = await searchJauce(query);
+        if (strictEnabled) {
+            return jauceResults.filter(item => matchTitle(item.title, query));
+        }
+        return jauceResults;
     }
 }
 
