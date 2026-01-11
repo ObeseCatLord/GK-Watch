@@ -410,13 +410,7 @@ function App() {
                   ✕ Clear
                 </button>
               )}
-              <button
-                className="action-btn surugaya-btn"
-                onClick={() => window.open(`https://www.suruga-ya.jp/search?category=&search_word=${encodeURIComponent(query)}`, '_blank')}
-                style={{ marginLeft: 'auto', padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-              >
-                🔍 Search Suruga-ya
-              </button>
+
             </div>
           )}
 

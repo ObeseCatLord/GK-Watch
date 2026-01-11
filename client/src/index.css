@@ -608,13 +608,7 @@ h1 {
   border-color: var(--accent-color);
 }
 
-.surugaya-btn {
-  border-color: var(--surugaya-color);
-}
 
-.surugaya-btn:hover {
-  background: var(--surugaya-color);
-}
 
 .refresh-btn {
   border-color: #4CAF50;
