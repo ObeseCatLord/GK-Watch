@@ -1,9 +1,11 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { matchTitle } = require('../utils/queryMatcher');
+const yahoo = require('./yahoo');
 
-async function search(query, strictEnabled = true) {
-    console.log(`Searching PayPay Flea Market for ${query}...`);
+// Legacy scraper (Direct PayPay site scraping) - Unreliable due to bot protection
+async function searchLegacy(query, strictEnabled = true) {
+    console.log(`[PayPay Legacy] Searching PayPay Flea Market for ${query}...`);
     const searchUrl = `https://paypayfleamarket.yahoo.co.jp/search/${encodeURIComponent(query)}`;
 
     try {
@@ -19,7 +21,6 @@ async function search(query, strictEnabled = true) {
         const results = [];
         const seen = new Set();
 
-        // Find all anchor tags that link to items
         const links = $('a[href^="/item/"]');
 
         links.each((i, el) => {
@@ -28,7 +29,6 @@ async function search(query, strictEnabled = true) {
                 if (!href || seen.has(href)) return;
                 seen.add(href);
 
-                // Find image with alt text (title)
                 const img = $(el).find('img');
                 if (!img.length) return;
 
@@ -38,9 +38,7 @@ async function search(query, strictEnabled = true) {
                 const image = img.attr('src');
                 const itemLink = 'https://paypayfleamarket.yahoo.co.jp' + href;
 
-                // Find price - look inside the link element for a p tag with price
                 let price = 'N/A';
-                // The price structure in PayPay can vary, assuming generic p tag match from original logic
                 const priceElement = $(el).find('p');
                 if (priceElement.length) {
                     const priceText = priceElement.text();
@@ -62,26 +60,43 @@ async function search(query, strictEnabled = true) {
             }
         });
 
-        // Strict filtering using query matcher (supports | for OR, && for AND)
         if (strictEnabled) {
             const filteredResults = results.filter(item => matchTitle(item.title, query));
-            console.log(`PayPay Flea Market: Found ${results.length} items, ${filteredResults.length} after strict filter`);
+            console.log(`[PayPay Legacy] Found ${results.length} items, ${filteredResults.length} after strict filter`);
             return filteredResults;
         }
 
-        console.log(`PayPay Flea Market: Found ${results.length} items (Strict filter disabled)`);
+        console.log(`[PayPay Legacy] Found ${results.length} items (Strict filter disabled)`);
         return results;
 
     } catch (error) {
         if (error.response && (error.response.status === 403 || error.response.status === 500)) {
-            console.warn('PayPay Flea Market access blocked (Status ' + error.response.status + '). Likely bot detection.');
-            return { error: true, status: error.response.status, items: [] };
+            console.warn('[PayPay Legacy] Access blocked (Status ' + error.response.status + '). Likely bot detection.');
+            return []; // Return empty array to allow other scrapers (or main Yahoo) to succeed
         }
-        console.error('PayPay Flea Market Scraper Error:', error.message);
-        if (error.response && error.response.status === 404) {
-            return [];
+        console.error('[PayPay Legacy] Scraper Error:', error.message);
+        return [];
+    }
+}
+
+// Main Search Function - Uses Yahoo Integration Primary
+async function search(query, strictEnabled = true) {
+    try {
+        // Try Yahoo Scraper with targetSource = 'paypay'
+        // This is more reliable as Yahoo search engine indexes PayPay items and has better anti-bot handling
+        const results = await yahoo.search(query, strictEnabled, false, 'paypay');
+
+        if (results && results.length > 0) {
+            console.log(`[PayPay] Yahoo Integration found ${results.length} items.`);
+            return results.map(i => ({ ...i, source: 'PayPay Flea Market' }));
         }
-        return { error: true, status: 0, items: [] };
+
+        console.log("[PayPay] Yahoo Integration found 0 items. Falling back to legacy scraper...");
+        return await searchLegacy(query, strictEnabled);
+
+    } catch (err) {
+        console.warn(`[PayPay] Yahoo Integration failed: ${err.message}. Falling back to legacy scraper.`);
+        return await searchLegacy(query, strictEnabled);
     }
 }
 

@@ -156,8 +156,8 @@ async function searchNeokyo(query) {
 }
 
 // Puppeteer-based Yahoo Auctions scraper (fallback for when Axios fails)
-async function searchYahooPuppeteer(query, strictEnabled = true, allowInternationalShipping = false) {
-    console.log(`[Yahoo Fallback] Searching Yahoo Auctions via Puppeteer for ${query}...`);
+async function searchYahooPuppeteer(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all') {
+    console.log(`[Yahoo Fallback] Searching Yahoo Auctions via Puppeteer for ${query} (Target: ${targetSource})...`);
     let browser;
     try {
         browser = await puppeteer.launch({
@@ -188,10 +188,10 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
 
         $('.Products__items li.Product').each((i, element) => {
             try {
-                // International Shipping Filter
+                // International Shipping Filter (Updated to use correct term '海外から発送')
                 if (!allowInternationalShipping) {
                     const fullText = $(element).text();
-                    if (fullText.includes('国際便') || fullText.includes('海外発送')) {
+                    if (fullText.includes('海外から発送')) {
                         return; // Skip this item
                     }
                 }
@@ -204,13 +204,23 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
                 const priceEl = $(element).find('.Product__priceValue');
                 const price = priceEl.text().trim();
 
+                // Check for PayPay Flea Market indicator
+                // Icon text: "Yahoo!フリマ" or URL contains paypayfleamarket
+                const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
+
+                // Source Filtering
+                if (targetSource === 'yahoo' && isPayPay) return;
+                if (targetSource === 'paypay' && !isPayPay) return;
+
+                const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
+
                 if (title && link) {
                     results.push({
                         title,
                         link,
                         image: image || '',
                         price: price || 'N/A',
-                        source: 'Yahoo (Puppeteer)'
+                        source: itemSource
                     });
                 }
             } catch (err) {
@@ -236,8 +246,8 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
     }
 }
 
-async function search(query, strictEnabled = true, allowInternationalShipping = false) {
-    console.log(`Searching Yahoo Auctions for ${query}...`);
+async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all') {
+    console.log(`Searching Yahoo Auctions for ${query} (Target: ${targetSource})...`);
     try {
         const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}`;
         const { data } = await axios.get(url, {
@@ -259,10 +269,10 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 
         $('.Products__items li.Product').each((i, element) => {
             try {
-                // International Shipping Filter
+                // International Shipping Filter (Updated to use correct term '海外から発送')
                 if (!allowInternationalShipping) {
                     const fullText = $(element).text();
-                    if (fullText.includes('国際便') || fullText.includes('海外発送')) {
+                    if (fullText.includes('海外から発送')) {
                         return; // Skip this item
                     }
                 }
@@ -272,6 +282,16 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                 const link = titleEl.attr('href');
                 const imageEl = $(element).find('.Product__imageData');
                 const image = imageEl.attr('src');
+
+                // Check for PayPay Flea Market indicator
+                // Icon text: "Yahoo!フリマ" or URL contains paypayfleamarket
+                const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
+                
+                // Source Filtering
+                if (targetSource === 'yahoo' && isPayPay) return;
+                if (targetSource === 'paypay' && !isPayPay) return;
+
+                const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
 
                 // Yahoo has multiple price elements - bid price and buy-it-now
                 const priceElements = $(element).find('.Product__priceValue');
@@ -298,7 +318,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                         price,
                         bidPrice: bidPrice || null,
                         binPrice: binPrice || null,
-                        source: 'Yahoo'
+                        source: itemSource
                     });
                 }
             } catch (err) {
@@ -320,8 +340,9 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         console.warn(`Yahoo Axios Scraper failed (${error.message}), attempting Puppeteer fallback...`);
 
         // Chain 1: Yahoo via Puppeteer (direct scraping with headless browser)
+        // Only if targetSource is 'all' or 'yahoo' or 'paypay' (Puppeteer can handle paypay too)
         try {
-            const yahooPuppeteerResults = await searchYahooPuppeteer(query, strictEnabled, allowInternationalShipping);
+            const yahooPuppeteerResults = await searchYahooPuppeteer(query, strictEnabled, allowInternationalShipping, targetSource);
             // Return even if empty - 0 results is OK if no error
             return yahooPuppeteerResults;
         } catch (puppeteerError) {
