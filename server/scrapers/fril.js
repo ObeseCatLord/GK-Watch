@@ -44,10 +44,14 @@ async function search(query, strictEnabled = true) {
                     const priceSpan = priceEl.find('span[data-content]:not([data-content="JPY"])');
                     if (priceSpan.length) {
                         const priceValue = priceSpan.attr('data-content');
-                        price = Number(priceValue).toLocaleString() + '円';
+                        price = `¥${Number(priceValue).toLocaleString()}`;
                     } else {
-                        // Fallback to text content
-                        price = priceEl.text().trim();
+                        // Fallback to text content, try to extract number
+                        const priceText = priceEl.text().trim();
+                        const priceMatch = priceText.match(/(\d{1,3}(,\d{3})*)/);
+                        if (priceMatch) {
+                            price = `¥${priceMatch[1]}`;
+                        }
                     }
                 }
 

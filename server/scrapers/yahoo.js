@@ -3,6 +3,18 @@ const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
 const { matchTitle } = require('../utils/queryMatcher');
 
+// Helper to format price with ¥ prefix
+function formatYahooPrice(priceText) {
+    if (!priceText || priceText === 'N/A') return 'N/A';
+    // Remove existing ¥, 円, commas, spaces and extract number
+    const cleaned = priceText.replace(/[¥円,\s]/g, '').trim();
+    const match = cleaned.match(/\d+/);
+    if (match) {
+        return `¥${Number(match[0]).toLocaleString()}`;
+    }
+    return 'N/A';
+}
+
 async function searchJauce(query) {
     console.log(`[Yahoo Fallback] Searching Jauce for ${query}...`);
     try {
@@ -49,7 +61,7 @@ async function searchJauce(query) {
                         title: title.trim(),
                         link,
                         image: image || '',
-                        price,
+                        price: formatYahooPrice(price),
                         source: 'Yahoo (Jauce)'
                     });
                 }
@@ -136,7 +148,7 @@ async function searchNeokyo(query) {
                     title,
                     link: fullLink,
                     image: img,
-                    price: price !== 'N/A' ? `¥${price}` : price,
+                    price: formatYahooPrice(price),
                     source: 'Yahoo (Neokyo)'
                 });
             }
@@ -219,7 +231,7 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
                         title,
                         link,
                         image: image || '',
-                        price: price || 'N/A',
+                        price: formatYahooPrice(price),
                         source: itemSource
                     });
                 }
@@ -286,7 +298,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                 // Check for PayPay Flea Market indicator
                 // Icon text: "Yahoo!フリマ" or URL contains paypayfleamarket
                 const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
-                
+
                 // Source Filtering
                 if (targetSource === 'yahoo' && isPayPay) return;
                 if (targetSource === 'paypay' && !isPayPay) return;
@@ -315,9 +327,9 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                         title,
                         link,
                         image: image || '',
-                        price,
-                        bidPrice: bidPrice || null,
-                        binPrice: binPrice || null,
+                        price: formatYahooPrice(price),
+                        bidPrice: formatYahooPrice(bidPrice),
+                        binPrice: formatYahooPrice(binPrice),
                         source: itemSource
                     });
                 }

@@ -17,6 +17,7 @@ function App() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sourceFilter, setSourceFilter] = useState('All');
+  const [sortBy, setSortBy] = useState('time'); // 'time', 'name', 'priceHigh', 'priceLow'
   const ITEMS_PER_PAGE = 24;
 
   // Login protection state
@@ -104,7 +105,7 @@ function App() {
   // Reset page when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [sourceFilter]);
+  }, [sourceFilter, sortBy]);
 
   // Load search history from localStorage on mount
   useEffect(() => {
@@ -140,6 +141,71 @@ function App() {
   const clearHistory = () => {
     setSearchHistory([]);
     localStorage.removeItem('gkwatch_search_history');
+  };
+
+  // Export results to HTML file with 5-column grid
+  const exportToHtml = (items, filename = 'search_results') => {
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${filename} - GK Watch Export</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a1a; color: #eee; padding: 20px; }
+    h1 { text-align: center; margin-bottom: 20px; color: #fff; }
+    .info { text-align: center; margin-bottom: 20px; color: #888; }
+    .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
+    .card { background: #2a2a2a; border-radius: 8px; overflow: hidden; transition: transform 0.2s; border: 1px solid #333; }
+    .card:hover { transform: translateY(-3px); border-color: #555; }
+    .card a { text-decoration: none; color: inherit; display: block; }
+    .card img { width: 100%; height: 280px; object-fit: cover; background: #333; }
+    .card-body { padding: 10px; }
+    .card-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; height: 2.6em; }
+    .card-price { font-size: 0.9rem; font-weight: bold; color: #fff; }
+    .card-source { font-size: 0.7rem; color: #888; margin-top: 3px; }
+    @media (max-width: 1200px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <h1>🔍 ${filename}</h1>
+  <p class="info">${items.length} items exported on ${new Date().toLocaleString()}</p>
+  <div class="grid">
+    ${items.map(item => `
+    <div class="card">
+      <a href="${item.link}" target="_blank" rel="noopener">
+        <img src="${item.image || 'https://via.placeholder.com/200x280?text=No+Image'}" alt="${(item.title || '').replace(/"/g, '&quot;')}" loading="lazy" onerror="this.src='https://via.placeholder.com/200x280?text=No+Image'">
+        <div class="card-body">
+          <div class="card-title">${item.title || 'Unknown'}</div>
+          <div class="card-price">${item.price || 'N/A'}</div>
+          <div class="card-source">${item.source || ''}</div>
+        </div>
+      </a>
+    </div>`).join('')}
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // Sanitize filename but preserve spaces and harmless punctuation
+    const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, '_');
+
+    // Add date/time to filename
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-').slice(0, 5); // HH-MM
+
+    a.download = `${safeFilename} - ${dateStr} ${timeStr}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleBlock = async (item) => {
@@ -466,14 +532,49 @@ function App() {
                   ✕ Clear
                 </button>
               )}
-
+              <span style={{ color: '#555' }}>|</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="search-input"
+                style={{ maxWidth: '180px', fontSize: '0.9rem', padding: '0.5rem' }}
+              >
+                <option value="time">Sort: Time Scraped</option>
+                <option value="name">Sort: Name</option>
+                <option value="priceHigh">Sort: Price High→Low</option>
+                <option value="priceLow">Sort: Price Low→High</option>
+              </select>
             </div>
           )}
 
           {(() => {
-            const filteredResults = sourceFilter === 'All'
+            // Parse price string to number for sorting
+            const parsePrice = (priceStr) => {
+              if (!priceStr) return 0;
+              const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
+              return match ? parseFloat(match[0]) : 0;
+            };
+
+            let filteredResults = sourceFilter === 'All'
               ? results
               : results.filter(item => item.source === sourceFilter);
+
+            // Apply sorting
+            if (sortBy === 'name') {
+              filteredResults = [...filteredResults].sort((a, b) =>
+                (a.title || '').localeCompare(b.title || '', 'ja')
+              );
+            } else if (sortBy === 'priceHigh') {
+              filteredResults = [...filteredResults].sort((a, b) =>
+                parsePrice(b.price) - parsePrice(a.price)
+              );
+            } else if (sortBy === 'priceLow') {
+              filteredResults = [...filteredResults].sort((a, b) =>
+                parsePrice(a.price) - parsePrice(b.price)
+              );
+            }
+            // 'time' is default order from server
+
             const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
             const safePage = Math.min(currentPage, Math.max(1, totalPages));
 
@@ -547,11 +648,32 @@ function App() {
                     >
                       Next →
                     </button>
+
+                    <button
+                      className="page-btn"
+                      onClick={() => exportToHtml(filteredResults, query || 'search_results')}
+                      style={{ marginLeft: 'auto', backgroundColor: '#333', border: '1px solid #555' }}
+                    >
+                      📥 Export HTML
+                    </button>
                   </div>
                 )}
               </>
             );
           })()}
+
+          {/* Export Button (shown when no pagination) */}
+          {results.length > 0 && results.length <= ITEMS_PER_PAGE && (
+            <div style={{ textAlign: 'right', marginTop: '1rem' }}>
+              <button
+                className="page-btn"
+                onClick={() => exportToHtml(results, query || 'search_results')}
+                style={{ backgroundColor: '#333', border: '1px solid #555' }}
+              >
+                📥 Export HTML ({results.length} items)
+              </button>
+            </div>
+          )}
 
           {!loading && results.length === 0 && query && !error && (
             <p style={{ marginTop: '2rem', color: '#666' }}>No results found or search not started.</p>

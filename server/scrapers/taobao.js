@@ -1,5 +1,3 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
@@ -120,7 +118,7 @@ function parseResults($) {
                 const priceMatch = priceText.match(/[\d,]+\.?\d*/);
                 if (priceMatch) {
                     const priceNum = priceMatch[0].replace(/,/g, '');
-                    price = `¥${priceNum}`;
+                    price = `${priceNum} RMB`;
                 }
             }
 
@@ -316,7 +314,7 @@ async function searchWithPuppeteer(query, cookies) {
                     if (priceEl) {
                         const priceText = priceEl.textContent.trim();
                         if (priceText) {
-                            price = `¥${priceText}`;
+                            price = `${priceText} RMB`;
                         }
                     }
 
@@ -387,15 +385,8 @@ async function search(query, strict = true) {
         return [];
     }
 
-    // Try Axios first (faster)
-    let results = await searchWithAxios(query, cookies);
-
-    // If Axios fails or returns null, try Puppeteer
-    if (results === null) {
-        console.log('[Taobao] Falling back to Puppeteer...');
-        await new Promise(r => setTimeout(r, DELAY_BETWEEN_REQUESTS));
-        results = await searchWithPuppeteer(query, cookies);
-    }
+    // Use Puppeteer only (more reliable)
+    let results = await searchWithPuppeteer(query, cookies);
 
     if (!results || results.length === 0) {
         console.log('[Taobao] No results found');

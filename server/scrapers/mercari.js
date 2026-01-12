@@ -160,11 +160,18 @@ async function search(query, strictEnabled = true) {
                         title = title.split('の画像')[0];
                     }
 
+                    // Format price with ¥ prefix
+                    let formattedPrice = 'N/A';
+                    if (price && price !== 'N/A') {
+                        const priceNum = price.replace(/[円,]/g, '').trim();
+                        if (priceNum) formattedPrice = `¥${Number(priceNum).toLocaleString()}`;
+                    }
+
                     data.push({
                         title: title || 'Unknown Item',
                         link,
                         image,
-                        price: price || 'N/A',
+                        price: formattedPrice,
                         source: 'Mercari'
                     });
                 } catch (err) { }

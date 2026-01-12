@@ -14,7 +14,8 @@ async function searchAll(query, enabledOverride = null) {
     const settings = Settings.get();
 
     // Defaults (safe fallback) or use override
-    const enabled = enabledOverride || settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
+    // Taobao defaults to false - only enabled when explicitly requested (e.g., Search Taobao button)
+    const enabled = enabledOverride || settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false };
     const strict = settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
 
     // Enforce global disable for Taobao (Master Switch)

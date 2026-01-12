@@ -26,6 +26,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
     const [currentQueueItem, setCurrentQueueItem] = useState(null);  // Currently processing item
     const isProcessingRef = React.useRef(false);
     const [sourceFilter, setSourceFilter] = useState('All');
+    const [sortBy, setSortBy] = useState('time'); // 'time', 'name', 'priceHigh', 'priceLow'
     const [schedulerProgress, setSchedulerProgress] = useState(null);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 767);
@@ -88,7 +89,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
     // Reset to page 1 when filters change
     useEffect(() => {
         setCurrentPage(1);
-    }, [resultFilter, sourceFilter]);
+    }, [resultFilter, sourceFilter, sortBy]);
 
     useEffect(() => {
         fetchWatchlist();
@@ -460,6 +461,71 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
         setSelectedResults(prev =>
             prev ? prev.filter(r => r.link !== item.link) : null
         );
+    };
+
+    // Export results to HTML file with 5-column grid
+    const exportToHtml = (items, filename = 'watchlist_results') => {
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${filename} - GK Watch Export</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a1a; color: #eee; padding: 20px; }
+    h1 { text-align: center; margin-bottom: 20px; color: #fff; }
+    .info { text-align: center; margin-bottom: 20px; color: #888; }
+    .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
+    .card { background: #2a2a2a; border-radius: 8px; overflow: hidden; transition: transform 0.2s; border: 1px solid #333; }
+    .card:hover { transform: translateY(-3px); border-color: #555; }
+    .card a { text-decoration: none; color: inherit; display: block; }
+    .card img { width: 100%; height: 280px; object-fit: cover; background: #333; }
+    .card-body { padding: 10px; }
+    .card-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; height: 2.6em; }
+    .card-price { font-size: 0.9rem; font-weight: bold; color: #fff; }
+    .card-source { font-size: 0.7rem; color: #888; margin-top: 3px; }
+    @media (max-width: 1200px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <h1>🔍 ${filename}</h1>
+  <p class="info">${items.length} items exported on ${new Date().toLocaleString()}</p>
+  <div class="grid">
+    ${items.map(item => `
+    <div class="card">
+      <a href="${item.link}" target="_blank" rel="noopener">
+        <img src="${item.image || 'https://via.placeholder.com/200x280?text=No+Image'}" alt="${(item.title || '').replace(/"/g, '&quot;')}" loading="lazy" onerror="this.src='https://via.placeholder.com/200x280?text=No+Image'">
+        <div class="card-body">
+          <div class="card-title">${item.title || 'Unknown'}</div>
+          <div class="card-price">${item.price || 'N/A'}</div>
+          <div class="card-source">${item.source || ''}</div>
+        </div>
+      </a>
+    </div>`).join('')}
+  </div>
+</body>
+</html>`;
+
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Sanitize filename but preserve spaces and harmless punctuation
+        const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, '_');
+
+        // Add date/time to filename
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-').slice(0, 5); // HH-MM
+
+        a.download = `${safeFilename} - ${dateStr} ${timeStr}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
     const addTaobaoWatch = async () => {
@@ -900,15 +966,49 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
                                         ✕ Clear
                                     </button>
                                 )}
+                                <select
+                                    value={sortBy}
+                                    onChange={(e) => setSortBy(e.target.value)}
+                                    className="search-input"
+                                    style={{ maxWidth: '180px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem', marginLeft: '10px' }}
+                                >
+                                    <option value="time">Sort: Time Scraped</option>
+                                    <option value="name">Sort: Name</option>
+                                    <option value="priceHigh">Sort: Price High→Low</option>
+                                    <option value="priceLow">Sort: Price Low→High</option>
+                                </select>
                             </div>
                             <div className="results-grid">
                                 {(() => {
-                                    const filteredResults = selectedResults.filter(item => {
-                                        if (item.hidden) return false; // Hide items in Yahoo grace period
+                                    // Parse price string to number for sorting
+                                    const parsePrice = (priceStr) => {
+                                        if (!priceStr) return 0;
+                                        const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
+                                        return match ? parseFloat(match[0]) : 0;
+                                    };
+
+                                    let filteredResults = selectedResults.filter(item => {
+                                        if (item.hidden) return false; // Hide items in grace period
                                         const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
                                         const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
                                         return matchesTitle && matchesSource;
                                     });
+
+                                    // Apply sorting
+                                    if (sortBy === 'name') {
+                                        filteredResults = [...filteredResults].sort((a, b) =>
+                                            (a.title || '').localeCompare(b.title || '', 'ja')
+                                        );
+                                    } else if (sortBy === 'priceHigh') {
+                                        filteredResults = [...filteredResults].sort((a, b) =>
+                                            parsePrice(b.price) - parsePrice(a.price)
+                                        );
+                                    } else if (sortBy === 'priceLow') {
+                                        filteredResults = [...filteredResults].sort((a, b) =>
+                                            parsePrice(a.price) - parsePrice(b.price)
+                                        );
+                                    }
+                                    // 'time' is default order from server
 
                                     if (filteredResults.length === 0) {
                                         return <p>{resultFilter || sourceFilter !== 'All' ? 'No results match your filter.' : 'No results found in last run (or run hasn\'t happened yet).'}</p>;
@@ -929,12 +1029,36 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
                                 })()}
                             </div>
                             {(() => {
-                                const filteredResults = selectedResults.filter(item => {
-                                    if (item.hidden) return false; // Hide items in Yahoo grace period
+                                // Parse price string to number for sorting
+                                const parsePrice = (priceStr) => {
+                                    if (!priceStr) return 0;
+                                    const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
+                                    return match ? parseFloat(match[0]) : 0;
+                                };
+
+                                let filteredResults = selectedResults.filter(item => {
+                                    if (item.hidden) return false; // Hide items in grace period
                                     const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
                                     const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
                                     return matchesTitle && matchesSource;
                                 });
+
+                                // Apply sorting
+                                if (sortBy === 'name') {
+                                    filteredResults = [...filteredResults].sort((a, b) =>
+                                        (a.title || '').localeCompare(b.title || '', 'ja')
+                                    );
+                                } else if (sortBy === 'priceHigh') {
+                                    filteredResults = [...filteredResults].sort((a, b) =>
+                                        parsePrice(b.price) - parsePrice(a.price)
+                                    );
+                                } else if (sortBy === 'priceLow') {
+                                    filteredResults = [...filteredResults].sort((a, b) =>
+                                        parsePrice(a.price) - parsePrice(b.price)
+                                    );
+                                }
+                                // 'time' is default order from server
+
                                 const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
 
                                 if (filteredResults.length <= ITEMS_PER_PAGE) return null;
@@ -998,9 +1122,36 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
                                         >
                                             Next →
                                         </button>
+
+                                        <button
+                                            className="page-btn"
+                                            onClick={() => exportToHtml(
+                                                selectedResults.filter(r => !r.hidden),
+                                                selectedTerm || 'watchlist_results'
+                                            )}
+                                            style={{ marginLeft: 'auto', backgroundColor: '#333', border: '1px solid #555' }}
+                                        >
+                                            📥 Export HTML
+                                        </button>
                                     </div>
                                 );
                             })()}
+
+                            {/* Export Button (shown when no pagination) */}
+                            {selectedResults && selectedResults.filter(r => !r.hidden).length > 0 && totalPages <= 1 && (
+                                <div style={{ textAlign: 'right', marginTop: '1rem' }}>
+                                    <button
+                                        className="page-btn"
+                                        onClick={() => exportToHtml(
+                                            selectedResults.filter(r => !r.hidden),
+                                            selectedTerm || 'watchlist_results'
+                                        )}
+                                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
+                                    >
+                                        📥 Export HTML ({selectedResults.filter(r => !r.hidden).length} items)
+                                    </button>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>

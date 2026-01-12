@@ -44,7 +44,8 @@ async function searchLegacy(query, strictEnabled = true) {
                     const priceText = priceElement.text();
                     const priceMatch = priceText.match(/(\d{1,3}(,\d{3})*)円/);
                     if (priceMatch) {
-                        price = priceMatch[0];
+                        const priceNum = priceMatch[1]; // Just the number part
+                        price = `¥${priceNum}`;
                     }
                 }
 

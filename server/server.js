@@ -408,6 +408,34 @@ app.post('/api/abort-scheduled', (req, res) => {
     res.json({ success: true });
 });
 
+// Cleanup utility for managing disk space
+const Cleanup = require('./utils/cleanup');
+
+// Run cleanup manually (log rotation + expired results)
+app.post('/api/cleanup', requireAuth, (req, res) => {
+    try {
+        const stats = Cleanup.runFullCleanup();
+        res.json({
+            success: true,
+            message: 'Cleanup completed',
+            stats
+        });
+    } catch (err) {
+        console.error('[API] Cleanup failed:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get/update cleanup configuration
+app.get('/api/cleanup/config', requireAuth, (req, res) => {
+    res.json(Cleanup.getConfig());
+});
+
+app.post('/api/cleanup/config', requireAuth, (req, res) => {
+    const updated = Cleanup.updateConfig(req.body);
+    res.json({ success: true, config: updated });
+});
+
 // Manual Run - Trigger all watchlist searches now
 app.post('/api/run-now', requireAuth, async (req, res) => {
     if (Scheduler.isRunning) {

@@ -5,6 +5,7 @@ const Blacklist = require('./models/blacklist');
 const ScheduleSettings = require('./models/schedule');
 const EmailService = require('./emailService');
 const NtfyService = require('./utils/ntfyService');
+const Cleanup = require('./utils/cleanup');
 const searchAggregator = require('./scrapers');
 const fs = require('fs');
 const path = require('path');
@@ -44,6 +45,13 @@ const Scheduler = {
             if (!ScheduleSettings.isCurrentHourEnabled()) {
                 console.log('[Scheduler] Current hour not in schedule, skipping.');
                 return;
+            }
+
+            // Run cleanup before scheduled searches (log rotation + expired results)
+            try {
+                Cleanup.runFullCleanup();
+            } catch (err) {
+                console.error('[Scheduler] Cleanup failed:', err.message);
             }
 
             console.log('Running scheduled searches...');
@@ -219,6 +227,9 @@ const Scheduler = {
         const nowMs = Date.now();
         const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
         const SURUGAYA_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
+        const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
+        const PAYPAY_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
+        const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
 
         try {
             if (fs.existsSync(RESULTS_FILE)) {
@@ -257,12 +268,39 @@ const Scheduler = {
             }
         });
 
+        // Track which Mercari items are in the new results (by title)
+        const newMercariTitles = new Set();
+        newResults.forEach(result => {
+            if (result.source && result.source.toLowerCase().includes('mercari') && result.title) {
+                newMercariTitles.add(result.title.trim());
+            }
+        });
+
+        // Track which PayPay items are in the new results (by title)
+        const newPayPayTitles = new Set();
+        newResults.forEach(result => {
+            if (result.source && result.source.toLowerCase().includes('paypay') && result.title) {
+                newPayPayTitles.add(result.title.trim());
+            }
+        });
+
+        // Track which Taobao items are in the new results (by title)
+        const newTaobaoTitles = new Set();
+        newResults.forEach(result => {
+            if (result.source && result.source.toLowerCase() === 'taobao' && result.title) {
+                newTaobaoTitles.add(result.title.trim());
+            }
+        });
+
         // Process new results - preserve firstSeen for existing, add for new
         // Also add lastSeen for Yahoo and Suruga-ya items
         const processedResults = newResults.map(result => {
             const existing = existingByLink.get(result.link);
             const isYahoo = result.source && result.source.toLowerCase().includes('yahoo');
             const isSurugaya = result.source && result.source.toLowerCase().includes('suruga');
+            const isMercari = result.source && result.source.toLowerCase().includes('mercari');
+            const isPayPay = result.source && result.source.toLowerCase().includes('paypay');
+            const isTaobao = result.source && result.source.toLowerCase() === 'taobao';
 
             let duplicateInfo = null;
             if (result.title && result.source) {
@@ -276,7 +314,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: existing.firstSeen,
-                    lastSeen: (isYahoo || isSurugaya) ? now : existing.lastSeen, // Update lastSeen for Yahoo/Suruga-ya
+                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao) ? now : existing.lastSeen,
                     isNew: false,
                     hidden: false // Clear hidden flag - item is visible again
                 };
@@ -285,7 +323,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: duplicateInfo.firstSeen, // Inherit timestamp
-                    lastSeen: (isYahoo || isSurugaya) ? now : duplicateInfo.lastSeen,
+                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao) ? now : duplicateInfo.lastSeen,
                     isNew: false,
                     hidden: false // Clear hidden flag - item is visible again
                 };
@@ -295,7 +333,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: now,
-                    lastSeen: (isYahoo || isSurugaya) ? now : undefined,
+                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao) ? now : undefined,
                     isNew: true,
                     hidden: false
                 };
@@ -315,25 +353,7 @@ const Scheduler = {
             return new Date(b.firstSeen) - new Date(a.firstSeen);
         });
 
-        // PayPay Failsafe: If no PayPay items in new results, preserve existing PayPay items
-        // This prevents items being marked as "new" when the flaky scraper works again
-        const hasPayPayInNew = processedResults.some(item =>
-            item.source && item.source.toLowerCase().includes('paypay')
-        );
-        const existingPayPayItems = existingItems.filter(item =>
-            item.source && item.source.toLowerCase().includes('paypay')
-        );
-
         let finalResults = processedResults;
-        if (!hasPayPayInNew && existingPayPayItems.length > 0) {
-            console.log(`[Scheduler] PayPay failsafe: Preserving ${existingPayPayItems.length} existing PayPay items for ${term || watchId}`);
-            // Mark them as not new and add to results
-            const preservedPayPay = existingPayPayItems.map(item => ({
-                ...item,
-                isNew: false
-            }));
-            finalResults = [...processedResults, ...preservedPayPay];
-        }
 
         // Yahoo Auctions Grace Period: Preserve Yahoo items for 3 days after they disappear
         // This handles listings that are temporarily taken down and relisted
@@ -406,6 +426,108 @@ const Scheduler = {
             const existingLinksAfterYahoo = new Set(finalResults.map(r => r.link));
             const uniquePreservedSurugaya = preservedSurugaya.filter(item => !existingLinksAfterYahoo.has(item.link));
             finalResults = [...finalResults, ...uniquePreservedSurugaya];
+        }
+
+        // Mercari Grace Period: Preserve Mercari items for 2 days after they disappear
+        // Similar to Yahoo - items are HIDDEN during grace period
+        const existingMercariItems = existingItems.filter(item =>
+            item.source && item.source.toLowerCase().includes('mercari')
+        );
+
+        const mercariToPreserve = existingMercariItems.filter(item => {
+            // Skip if this title is already in new results
+            if (item.title && newMercariTitles.has(item.title.trim())) {
+                return false;
+            }
+
+            // Check if within grace period
+            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
+                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
+            const ageMs = nowMs - lastSeenTime;
+
+            return ageMs < MERCARI_GRACE_PERIOD_MS;
+        });
+
+        if (mercariToPreserve.length > 0) {
+            console.log(`[Scheduler] Mercari grace period: Preserving ${mercariToPreserve.length} hidden Mercari items for ${term || watchId}`);
+            // Mark them as not new, hidden (like Yahoo)
+            const preservedMercari = mercariToPreserve.map(item => ({
+                ...item,
+                isNew: false,
+                hidden: true // Hide during grace period like Yahoo
+            }));
+            // Deduplicate by link before adding
+            const existingLinksAfterSurugaya = new Set(finalResults.map(r => r.link));
+            const uniquePreservedMercari = preservedMercari.filter(item => !existingLinksAfterSurugaya.has(item.link));
+            finalResults = [...finalResults, ...uniquePreservedMercari];
+        }
+
+        // PayPay Grace Period: Preserve PayPay items for 2 days after they disappear
+        // Similar to Suruga-ya - items remain VISIBLE during grace period
+        const existingPayPayItems = existingItems.filter(item =>
+            item.source && item.source.toLowerCase().includes('paypay')
+        );
+
+        const paypayToPreserve = existingPayPayItems.filter(item => {
+            // Skip if this title is already in new results
+            if (item.title && newPayPayTitles.has(item.title.trim())) {
+                return false;
+            }
+
+            // Check if within grace period
+            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
+                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
+            const ageMs = nowMs - lastSeenTime;
+
+            return ageMs < PAYPAY_GRACE_PERIOD_MS;
+        });
+
+        if (paypayToPreserve.length > 0) {
+            console.log(`[Scheduler] PayPay grace period: Preserving ${paypayToPreserve.length} PayPay items for ${term || watchId}`);
+            // Mark them as not new, but NOT hidden (visible during grace period like Suruga-ya)
+            const preservedPayPay = paypayToPreserve.map(item => ({
+                ...item,
+                isNew: false,
+                hidden: false // Keep visible like Suruga-ya
+            }));
+            // Deduplicate by link before adding
+            const existingLinksAfterMercari = new Set(finalResults.map(r => r.link));
+            const uniquePreservedPayPay = preservedPayPay.filter(item => !existingLinksAfterMercari.has(item.link));
+            finalResults = [...finalResults, ...uniquePreservedPayPay];
+        }
+
+        // Taobao Grace Period: Preserve Taobao items for 3 days after they disappear
+        // Similar to Yahoo/Mercari - items are HIDDEN during grace period
+        const existingTaobaoItems = existingItems.filter(item =>
+            item.source && item.source.toLowerCase() === 'taobao'
+        );
+
+        const taobaoToPreserve = existingTaobaoItems.filter(item => {
+            // Skip if this title is already in new results
+            if (item.title && newTaobaoTitles.has(item.title.trim())) {
+                return false;
+            }
+
+            // Check if within grace period
+            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
+                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
+            const ageMs = nowMs - lastSeenTime;
+
+            return ageMs < TAOBAO_GRACE_PERIOD_MS;
+        });
+
+        if (taobaoToPreserve.length > 0) {
+            console.log(`[Scheduler] Taobao grace period: Preserving ${taobaoToPreserve.length} hidden Taobao items for ${term || watchId}`);
+            // Mark them as not new, hidden (like Yahoo/Mercari)
+            const preservedTaobao = taobaoToPreserve.map(item => ({
+                ...item,
+                isNew: false,
+                hidden: true // Hide during grace period like Yahoo/Mercari
+            }));
+            // Deduplicate by link before adding
+            const existingLinksAfterPayPay = new Set(finalResults.map(r => r.link));
+            const uniquePreservedTaobao = preservedTaobao.filter(item => !existingLinksAfterPayPay.has(item.link));
+            finalResults = [...finalResults, ...uniquePreservedTaobao];
         }
 
         // Save results with newCount
