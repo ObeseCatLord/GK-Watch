@@ -97,7 +97,8 @@ app.get('/api/search', requireAuth, async (req, res) => {
                 paypay: false,
                 fril: false,
                 surugaya: false,
-                taobao: false
+                taobao: false,
+                goofish: false
             };
             requestedSites.forEach(site => {
                 if (enabledOverride.hasOwnProperty(site)) {
@@ -400,6 +401,53 @@ app.post('/api/settings/test-ntfy', requireAuth, async (req, res) => {
 const taobaoScraper = require('./scrapers/taobao');
 app.get('/api/taobao/status', (req, res) => {
     res.json({ hasCookies: taobaoScraper.hasValidCookies() });
+});
+
+const goofishScraper = require('./scrapers/goofish');
+app.get('/api/goofish/status', (req, res) => {
+    res.json({ hasCookies: goofishScraper.hasValidCookies() });
+});
+
+// Update Cookies
+app.post('/api/cookies/:site', requireAuth, (req, res) => {
+    try {
+        const { site } = req.params;
+        const { cookies } = req.body;
+
+        if (!['taobao', 'goofish'].includes(site)) {
+            return res.status(400).json({ error: 'Invalid site' });
+        }
+
+        if (!cookies) {
+            return res.status(400).json({ error: 'No cookies provided' });
+        }
+
+        let cookieJson;
+        try {
+            // Parse if string, otherwise use as is
+            cookieJson = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
+        } catch (e) {
+            return res.status(400).json({ error: 'Invalid JSON format' });
+        }
+
+        if (!Array.isArray(cookieJson)) {
+            return res.status(400).json({ error: 'Cookies must be an array' });
+        }
+
+        // Write to file
+        const fs = require('fs');
+        const path = require('path');
+        const filePath = path.join(__dirname, 'data', `${site}_cookies.json`);
+
+        fs.writeFileSync(filePath, JSON.stringify(cookieJson, null, 2));
+        console.log(`[API] Updated cookies for ${site}`);
+
+        res.json({ success: true, message: 'Cookies saved successfully' });
+
+    } catch (err) {
+        console.error('[API] Error saving cookies:', err);
+        res.status(500).json({ error: 'Failed to save cookies' });
+    }
 });
 
 // Abort scheduled search

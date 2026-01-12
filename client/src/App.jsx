@@ -27,6 +27,7 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [taobaoEnabled, setTaobaoEnabled] = useState(false);
+  const [goofishEnabled, setGoofishEnabled] = useState(false);
 
   // Check if login is required on mount
   useEffect(() => {
@@ -51,6 +52,13 @@ function App() {
         if (tbRes.ok) {
           const tbData = await tbRes.json();
           setTaobaoEnabled(tbData.hasCookies);
+        }
+
+        // Check Goofish status
+        const gfRes = await fetch('/api/goofish/status', { headers: getAuthHeaders() });
+        if (gfRes.ok) {
+          const gfData = await gfRes.json();
+          setGoofishEnabled(gfData.hasCookies);
         }
 
       } catch (err) {
@@ -222,6 +230,31 @@ function App() {
     }
   };
 
+  // Explicitly define standard sites to exclude CN ones
+  const STANDARD_SITES = ['mercari', 'yahoo', 'paypay', 'fril', 'surugaya'];
+
+  const [cookieErrors, setCookieErrors] = useState([]);
+
+  // Helper to separate errors from valid results
+  const processResults = (rawResults) => {
+    if (!Array.isArray(rawResults)) return [];
+
+    // Find errors
+    const errors = rawResults.filter(item => item.error === 'Cookie Error');
+    const validItems = rawResults.filter(item => !item.error);
+
+    if (errors.length > 0) {
+      setCookieErrors(prev => {
+        // Merge unique sources
+        const newSources = errors.map(e => e.source);
+        const unique = [...new Set([...prev, ...newSources])];
+        return unique;
+      });
+    }
+
+    return validItems;
+  };
+
   const search = async (e, overrideQuery = null) => {
     if (e) e.preventDefault();
     const searchTerm = overrideQuery || query;
@@ -231,6 +264,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1); // Reset page on new search
+    setCookieErrors([]); // Clear previous errors
 
     // Save to history
     saveToHistory(searchTerm, 'normal');
@@ -239,13 +273,14 @@ function App() {
     try {
       // Check if query contains | operator for multi-search
       const hasOrOperator = searchTerm.includes('|');
+      const sitesParam = `&sites=${STANDARD_SITES.join(',')}`;
 
       if (hasOrOperator) {
         // Split by | and run parallel searches, similar to GK search
         const terms = searchTerm.split(/\s*\|\s*/).filter(t => t.trim());
 
         const promises = terms.map(term =>
-          authenticatedFetch(`/api/search?q=${encodeURIComponent(term.trim())}`)
+          authenticatedFetch(`/api/search?q=${encodeURIComponent(term.trim())}${sitesParam}`)
             .then(res => res.json())
             .catch(err => {
               console.error(`Error searching ${term}:`, err);
@@ -256,11 +291,14 @@ function App() {
         const allResults = await Promise.all(promises);
         const flatResults = allResults.flat();
 
+        // Process errors
+        const cleanResults = processResults(flatResults);
+
         // Deduplicate by link
         const uniqueResults = [];
         const seenLinks = new Set();
 
-        flatResults.forEach(item => {
+        cleanResults.forEach(item => {
           if (!seenLinks.has(item.link)) {
             seenLinks.add(item.link);
             uniqueResults.push(item);
@@ -270,12 +308,13 @@ function App() {
         setResults(uniqueResults);
       } else {
         // Single search (original behavior)
-        const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(searchTerm)}`);
+        const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(searchTerm)}${sitesParam}`);
         if (!response.ok) {
           throw new Error('Network response was not ok');
         }
         const data = await response.json();
-        setResults(data);
+        const cleanData = processResults(data);
+        setResults(cleanData);
       }
     } catch (err) {
       setError('Failed to fetch results. Please try again.');
@@ -294,6 +333,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1); // Reset page on new search
+    setCookieErrors([]);
 
     if (overrideQuery) setQuery(overrideQuery);
 
@@ -306,10 +346,12 @@ function App() {
       `${queryTerm} レジンキャストキット`
     ];
 
+    const sitesParam = `&sites=${STANDARD_SITES.join(',')}`;
+
     try {
       // Run searches in parallel
       const promises = terms.map(term =>
-        authenticatedFetch(`/api/search?q=${encodeURIComponent(term)}`)
+        authenticatedFetch(`/api/search?q=${encodeURIComponent(term)}${sitesParam}`)
           .then(res => res.json())
           .catch(err => {
             console.error(`Error searching ${term}:`, err);
@@ -320,11 +362,13 @@ function App() {
       const allResults = await Promise.all(promises);
       const flatResults = allResults.flat();
 
+      const cleanResults = processResults(flatResults);
+
       // Deduplicate by link
       const uniqueResults = [];
       const seenLinks = new Set();
 
-      flatResults.forEach(item => {
+      cleanResults.forEach(item => {
         if (!seenLinks.has(item.link)) {
           seenLinks.add(item.link);
           uniqueResults.push(item);
@@ -340,7 +384,7 @@ function App() {
     }
   };
 
-  const searchTaobao = async (e, overrideQuery = null) => {
+  const searchCN = async (e, overrideQuery = null) => {
     if (e) e.preventDefault();
     const queryTerm = overrideQuery || query;
     if (!queryTerm.trim()) return;
@@ -349,17 +393,24 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1);
+    setCookieErrors([]);
 
     if (overrideQuery) setQuery(overrideQuery);
-    saveToHistory(queryTerm, 'taobao');
+    saveToHistory(queryTerm, 'cn'); // 'cn' for both
 
     try {
-      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=taobao`);
+      // Build sites parameter
+      const sites = [];
+      if (taobaoEnabled) sites.push('taobao');
+      if (goofishEnabled) sites.push('goofish');
+
+      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=${sites.join(',')}`);
       if (!response.ok) throw new Error('Network response was not ok');
       const data = await response.json();
-      setResults(data);
+      const cleanData = processResults(data);
+      setResults(cleanData);
     } catch (err) {
-      setError('Failed to fetch Taobao results.');
+      setError('Failed to fetch CN results.');
       console.error(err);
     } finally {
       setLoading(false);
@@ -431,7 +482,7 @@ function App() {
 
       {view === 'search' && (
         <>
-          <div className="search-container" style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem', marginTop: '1rem' }}>
+          <div className="search-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem', marginTop: '1rem' }}>
             <form onSubmit={search} style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%', maxWidth: '800px' }}>
               <input
                 type="text"
@@ -453,19 +504,37 @@ function App() {
               <button
                 type="button"
                 className="add-btn taobao-btn"
-                onClick={(e) => !taobaoEnabled ? alert('Taobao disabled: Cookies missing (check Options)') : searchTaobao(e, null)}
-                title={!taobaoEnabled ? "Taobao Disabled (Cookies Missing)" : "Search Taobao Only"}
-                disabled={!taobaoEnabled}
+                onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Search Disabled: Cookies missing for both sites (check Options)') : searchCN(e, null)}
+                title={(!taobaoEnabled && !goofishEnabled) ? "CN Search Disabled (Cookies Missing)" : "Search Taobao & Goofish"}
+                disabled={!taobaoEnabled && !goofishEnabled}
                 style={{
-                  backgroundColor: !taobaoEnabled ? '#555' : '#ff5000',
+                  backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
                   marginLeft: '5px',
-                  cursor: !taobaoEnabled ? 'not-allowed' : 'pointer',
-                  opacity: !taobaoEnabled ? 0.6 : 1
+                  cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
+                  opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
                 }}
               >
-                Search Taobao
+                Search CN
               </button>
             </form>
+
+            {/* Discreet Cookie Error Message */}
+            {cookieErrors.length > 0 && (
+              <div style={{
+                marginTop: '10px',
+                padding: '8px 16px',
+                backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                border: '1px solid #ff9800',
+                borderRadius: '8px',
+                color: '#ff9800',
+                fontSize: '0.9rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span>⚠️ Cookie Error for: <strong>{cookieErrors.join(', ')}</strong>. Please update cookies in Options.</span>
+              </div>
+            )}
           </div>
 
           {/* Search History */}
@@ -484,17 +553,18 @@ function App() {
                   return (
                     <button
                       key={i}
-                      className={`history-chip ${type === 'gk' ? 'gk-history' : type === 'taobao' ? 'taobao-history' : ''}`}
+                      className={`history-chip ${type === 'gk' ? 'gk-history' : (type === 'taobao' || type === 'cn') ? 'taobao-history' : ''}`}
                       onClick={() => {
                         if (type === 'gk') searchGK(null, term);
-                        else if (type === 'taobao') searchTaobao(null, term);
+                        else if (type === 'taobao') searchCN(null, term); // Legacy support
+                        else if (type === 'cn') searchCN(null, term);
                         else search(null, term);
                       }}
-                      title={type === 'gk' ? "Re-run GK Search" : type === 'taobao' ? "Re-run Taobao Search" : "Re-run Search"}
+                      title={type === 'gk' ? "Re-run GK Search" : (type === 'taobao' || type === 'cn') ? "Re-run CN Search" : "Re-run Search"}
                     >
                       {term}
                       {type === 'gk' && <span className="gk-badge">GK</span>}
-                      {type === 'taobao' && <span className="gk-badge taobao-badge-chip">TB</span>}
+                      {(type === 'taobao' || type === 'cn') && <span className="gk-badge taobao-badge-chip">CN</span>}
                     </button>
                   );
                 })}
@@ -686,6 +756,7 @@ function App() {
           authenticatedFetch={authenticatedFetch}
           onBlock={handleBlock}
           taobaoEnabled={taobaoEnabled}
+          goofishEnabled={goofishEnabled}
         />
       )}
 

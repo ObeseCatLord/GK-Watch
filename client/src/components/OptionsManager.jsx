@@ -32,6 +32,13 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [smtpPassError, setSmtpPassError] = useState('');
     const [smtpPassSaved, setSmtpPassSaved] = useState(false);
 
+    // Cookie Upload State
+    const [showCookieModal, setShowCookieModal] = useState(false);
+    const [cookieSite, setCookieSite] = useState(null); // 'taobao' or 'goofish'
+    const [cookieContent, setCookieContent] = useState('');
+    const [cookieError, setCookieError] = useState('');
+    const [cookieSuccess, setCookieSuccess] = useState('');
+
     useEffect(() => {
         try {
             const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
@@ -186,6 +193,47 @@ const OptionsManager = ({ authenticatedFetch }) => {
         } catch (err) {
             console.error('Error saving settings:', err);
             alert('Failed to save settings');
+        }
+    };
+
+    const handleCookieSave = async () => {
+        if (!cookieContent.trim()) {
+            setCookieError('Please paste cookie JSON content');
+            return;
+        }
+
+        try {
+            // Basic validation
+            JSON.parse(cookieContent);
+        } catch (e) {
+            setCookieError('Invalid JSON format. Please copy directly from EditThisCookie.');
+            return;
+        }
+
+        try {
+            const res = await authenticatedFetch(`/api/cookies/${cookieSite}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cookies: cookieContent })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to save');
+
+            setCookieSuccess('Cookies saved! Enabling site...');
+
+            // Auto-enable the site
+            handleNestedChange('enabledSites', cookieSite, true);
+
+            setTimeout(() => {
+                // setShowCookieModal(false);
+                setCookieContent('');
+                setCookieSuccess('');
+                setCookieSite(null);
+            }, 1000);
+
+        } catch (err) {
+            setCookieError(err.message);
         }
     };
 
@@ -469,8 +517,13 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 </p>
 
                 <div className="sites-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px', marginTop: '15px' }}>
-                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao'].map(site => {
-                        const siteName = site === 'yahoo' ? 'Yahoo Auctions' : site === 'fril' ? 'Rakuma (Fril)' : site === 'paypay' ? 'PayPay Flea Market' : site === 'surugaya' ? 'Suruga-ya' : site === 'taobao' ? 'Taobao' : 'Mercari';
+                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao', 'goofish'].map(site => {
+                        const siteName = site === 'yahoo' ? 'Yahoo Auctions' :
+                            site === 'fril' ? 'Rakuma (Fril)' :
+                                site === 'paypay' ? 'PayPay Flea Market' :
+                                    site === 'surugaya' ? 'Suruga-ya' :
+                                        site === 'taobao' ? 'Taobao' :
+                                            site === 'goofish' ? 'Goofish (Xianyu)' : 'Mercari';
                         return (
                             <div key={site} className="site-card" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
                                 <h4 style={{ textTransform: 'capitalize', marginTop: 0, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -478,7 +531,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 </h4>
 
                                 <div style={{ marginBottom: '8px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', opacity: site === 'taobao' && !settings.enabledSites?.taobao && !settings.hasTaobaoCookies ? 1 : 1 }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', opacity: (site === 'taobao' && !settings.enabledSites?.taobao && !settings.hasTaobaoCookies) || (site === 'goofish' && !settings.enabledSites?.goofish && !settings.hasGoofishCookies) ? 1 : 1 }}>
                                         <input
                                             type="checkbox"
                                             checked={settings.enabledSites?.[site] !== false}
@@ -490,18 +543,27 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                                         const res = await authenticatedFetch('/api/taobao/status');
                                                         const data = await res.json();
                                                         if (!data.hasCookies) {
-                                                            alert(
-                                                                "⚠️ Taobao Cookies Missing!\n\n" +
-                                                                "To enable Taobao scraping, you must export cookies from your browser:\n" +
-                                                                "1. Log in to Taobao.com in Chrome/Edge\n" +
-                                                                "2. Use 'EditThisCookie' extension to export cookies\n" +
-                                                                "3. Save as 'taobao_cookies.json' in 'server/data/'\n" +
-                                                                "4. Restart the server"
-                                                            );
-                                                            return; // Do not toggle
+                                                            setCookieSite('taobao');
+                                                            // setShowCookieModal(true); // Removed in favor of inline
+                                                            return; // Do not toggle yet
                                                         }
                                                     } catch (err) {
                                                         console.error('Error checking Taobao status:', err);
+                                                        return;
+                                                    }
+                                                }
+                                                if (site === 'goofish' && checked) {
+                                                    // Verify cookies before enabling
+                                                    try {
+                                                        const res = await authenticatedFetch('/api/goofish/status');
+                                                        const data = await res.json();
+                                                        if (!data.hasCookies) {
+                                                            setCookieSite('goofish');
+                                                            // setShowCookieModal(true); // Removed
+                                                            return; // Do not toggle yet
+                                                        }
+                                                    } catch (err) {
+                                                        console.error('Error checking Goofish status:', err);
                                                         return;
                                                     }
                                                 }
@@ -511,6 +573,64 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                         />
                                         Enable Search
                                     </label>
+
+                                    {(site === 'taobao' || site === 'goofish') && (
+                                        <div style={{ marginTop: '5px', marginLeft: '24px' }}>
+                                            <button
+                                                className="edit-btn"
+                                                onClick={() => {
+                                                    if (cookieSite === site) {
+                                                        // Toggle off
+                                                        setCookieSite(null);
+                                                        setCookieContent('');
+                                                        setCookieError('');
+                                                        setCookieSuccess('');
+                                                    } else {
+                                                        setCookieSite(site);
+                                                        setCookieContent('');
+                                                        setCookieError('');
+                                                        setCookieSuccess('');
+                                                    }
+                                                }}
+                                                style={{ fontSize: '0.8rem', padding: '2px 8px' }}
+                                            >
+                                                {cookieSite === site ? '❌ Cancel' : '🍪 Update Cookies'}
+                                            </button>
+
+                                            {/* Inline Cookie Edit Form */}
+                                            {cookieSite === site && (
+                                                <div style={{ marginTop: '10px', background: '#333', padding: '10px', borderRadius: '8px', border: '1px solid #444' }}>
+                                                    <p style={{ color: '#aaa', fontSize: '0.8rem', marginBottom: '8px', lineHeight: '1.4' }}>
+                                                        1. Install <b>Cookie-Editor</b> extension.<br />
+                                                        2. Log in to <b>{site === 'taobao' ? 'Taobao' : 'Goofish'}</b>.<br />
+                                                        3. Click <b>Export</b> → <b>Export as JSON</b>.<br />
+                                                        4. Paste below and Save.
+                                                    </p>
+
+                                                    <textarea
+                                                        value={cookieContent}
+                                                        onChange={(e) => setCookieContent(e.target.value)}
+                                                        placeholder="Paste JSON here"
+                                                        rows={6}
+                                                        className="settings-input"
+                                                        style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.75rem', marginBottom: '8px' }}
+                                                    />
+
+                                                    {cookieError && <div style={{ color: 'red', marginBottom: '8px', fontSize: '0.8rem' }}>{cookieError}</div>}
+                                                    {cookieSuccess && <div style={{ color: 'green', marginBottom: '8px', fontSize: '0.8rem' }}>{cookieSuccess}</div>}
+
+                                                    <button
+                                                        className="page-btn active"
+                                                        onClick={handleCookieSave}
+                                                        disabled={!cookieContent}
+                                                        style={{ width: '100%', padding: '6px' }}
+                                                    >
+                                                        Save Cookies
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div>

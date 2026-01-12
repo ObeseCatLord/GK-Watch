@@ -4,6 +4,7 @@ const paypay = require('./paypay');
 const fril = require('./fril');
 const surugaya = require('./surugaya');
 const taobao = require('./taobao');
+const goofish = require('./goofish');
 
 let payPayFailed = false;
 
@@ -50,6 +51,11 @@ async function searchAll(query, enabledOverride = null) {
 
     if (enabled.taobao !== false) {
         promises.push(taobao.search(query, strict.taobao ?? true).then(res => res.map(i => ({ ...i, source: 'Taobao' }))));
+    }
+
+    if (enabled.goofish !== false) {
+        // Goofish strict filtering same as others? defaulting to true for now
+        promises.push(goofish.search(query).then(res => res.map(i => ({ ...i, source: 'Goofish' }))));
     }
 
     const results = await Promise.allSettled(promises);

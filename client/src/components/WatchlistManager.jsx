@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ResultCard from './ResultCard';
 
-const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
+const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishEnabled }) => {
     const [watchlist, setWatchlist] = useState([]);
     const [newTerm, setNewTerm] = useState('');
     const [selectedResults, setSelectedResults] = useState(null);
@@ -272,6 +272,37 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
         }
     };
 
+    const addCNWatch = async () => {
+        if (!newTerm.trim()) return;
+
+        // Enable available CN sites, disable others
+        const cnEnabledSites = {
+            mercari: false,
+            yahoo: false,
+            paypay: false,
+            fril: false,
+            surugaya: false,
+            taobao: taobaoEnabled,
+            goofish: goofishEnabled
+        };
+
+        try {
+            await authenticatedFetch('/api/watchlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    term: newTerm,
+                    enabledSites: cnEnabledSites,
+                    name: `${newTerm} (CN)`
+                })
+            });
+            setNewTerm('');
+            fetchWatchlist();
+        } catch (err) {
+            console.error('Error adding CN watch:', err);
+        }
+    };
+
     const removeWatch = async (id, e) => {
         e.stopPropagation();
         if (!window.confirm('Are you sure you want to delete this watchlist item?')) return;
@@ -385,7 +416,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
         const filters = item.filters || [];
         setEditFilters(filters.join('\n'));
         setEditEnabledSites(item.enabledSites || {
-            mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false
+            mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false, goofish: false
         });
     };
 
@@ -596,17 +627,17 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
                     <button
                         type="button"
                         className="add-btn taobao-btn"
-                        onClick={(e) => !taobaoEnabled ? alert('Taobao disabled: Cookies missing (check Options)') : addTaobaoWatch()}
-                        disabled={!taobaoEnabled || !newTerm.trim()}
-                        title={!taobaoEnabled ? "Taobao Disabled (Cookies Missing)" : "Add Taobao-only Watch"}
+                        onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Watch Disabled: Cookies missing for both sites') : addCNWatch()}
+                        disabled={(!taobaoEnabled && !goofishEnabled) || !newTerm.trim()}
+                        title={(!taobaoEnabled && !goofishEnabled) ? "CN Watch Disabled (Cookies Missing)" : "Add CN Watch (Taobao/Goofish)"}
                         style={{
-                            backgroundColor: !taobaoEnabled ? '#555' : '#ff5000',
+                            backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
                             marginLeft: '5px',
-                            cursor: !taobaoEnabled ? 'not-allowed' : 'pointer',
-                            opacity: !taobaoEnabled ? 0.6 : 1
+                            cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
+                            opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
                         }}
                     >
-                        Add TB
+                        Add CN
                     </button>
                 </form>
 
@@ -815,10 +846,10 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
                             <div style={{ marginBottom: '20px' }}>
                                 <label style={{ display: 'block', marginBottom: '5px' }}>Enabled Services:</label>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao'].map(site => {
+                                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao', 'goofish'].map(site => {
                                         const isGloballyEnabled = globalSettings.enabledSites?.[site] !== false;
-                                        // Special case for Taobao: disable if globally OFF
-                                        const isDisabled = site === 'taobao' && !isGloballyEnabled;
+                                        // Special case for Taobao/Goofish: disable if globally OFF
+                                        const isDisabled = (site === 'taobao' || site === 'goofish') && !isGloballyEnabled;
 
                                         return (
                                             <label key={site} style={{ display: 'flex', alignItems: 'center', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>

@@ -378,11 +378,7 @@ async function search(query, strict = true) {
     const cookies = loadCookies();
     if (!cookies) {
         console.log('[Taobao] Skipping search - no valid cookies available');
-        console.log('[Taobao] To enable Taobao scraping:');
-        console.log('[Taobao]   1. Log into Taobao in your browser');
-        console.log('[Taobao]   2. Export cookies using a browser extension (e.g., EditThisCookie)');
-        console.log('[Taobao]   3. Save to:', COOKIES_FILE);
-        return [];
+        return [{ error: 'Cookie Error', source: 'Taobao' }];
     }
 
     // Use Puppeteer only (more reliable)

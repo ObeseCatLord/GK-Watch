@@ -39,7 +39,7 @@ const ResultCard = ({ item, onBlock, isNew }) => {
             <button className="fj-btn" onClick={handleFromJapan} title="Open in FromJapan">🛒</button>
             <div className="card-image-container">
                 {image ? (
-                    <img src={image} alt={title} className="card-image" loading="lazy" />
+                    <img src={image} alt={title} className="card-image" loading="lazy" referrerPolicy="no-referrer" />
                 ) : (
                     <div className="no-image">No Image</div>
                 )}

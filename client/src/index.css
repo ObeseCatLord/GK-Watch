@@ -11,6 +11,7 @@
   --paypay-color: #ff0033;
   --fril-color: #ff6b81;
   --taobao-color: #ff5000;
+  --goofish-color: #f1c40f;
 }
 
 body {
@@ -258,6 +259,10 @@ h1 {
 
 .source-badge.taobao {
   background-color: var(--taobao-color);
+}
+
+.source-badge.goofish {
+  background-color: var(--goofish-color);
 }
 
 .card-content {
