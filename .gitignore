@@ -34,3 +34,11 @@ server/data/
 deployment_guide.md
 stop_server.sh
 
+
+# Local Debug & Test Scripts
+debug_*.js
+test_*.js
+extract_*.js
+TAOBAO_COOKIE_SETUP.md
+server/debug_*.js
+server/test_*.js
