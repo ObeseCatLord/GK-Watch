@@ -292,8 +292,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
             paypay: false,
             fril: false,
             surugaya: false,
-            taobao: taobaoEnabled,
-            goofish: goofishEnabled
+            taobao: true,
+            goofish: true
         };
 
         try {
