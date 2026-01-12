@@ -30,7 +30,16 @@ const Watchlist = {
                     name: item.name || terms[0] || item.term,
                     emailNotify: item.emailNotify !== undefined ? item.emailNotify : true,
                     priority: item.priority === true, // Ensure boolean
-                    filters: item.filters || [] // Per-watch filter terms
+                    priority: item.priority === true, // Ensure boolean
+                    filters: item.filters || [], // Per-watch filter terms
+                    enabledSites: item.enabledSites || {
+                        mercari: true,
+                        yahoo: true,
+                        paypay: true,
+                        fril: true,
+                        surugaya: true,
+                        taobao: false
+                    }
                 };
             });
         } catch (err) {
@@ -73,7 +82,16 @@ const Watchlist = {
             lastRun: null,
             active: true,
             emailNotify: true,
-            filters: data.filters || [] // Persist filters if provided (e.g. from import)
+            emailNotify: true,
+            filters: data.filters || [], // Persist filters if provided (e.g. from import)
+            enabledSites: data.enabledSites || {
+                mercari: true,
+                yahoo: true,
+                paypay: true,
+                fril: true,
+                surugaya: true,
+                taobao: false
+            }
         };
         list.push(newItem);
         fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));

@@ -23,6 +23,7 @@ dist
 # but ignore resume.json as it is ephemeral.
 server/data/resume.json
 server/mercari_cookies.json
+server/data/taobao_cookies.json
 server/screenshots/
 
 # Security (DO NOT COMMIT)

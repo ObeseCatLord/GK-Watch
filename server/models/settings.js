@@ -22,14 +22,16 @@ const DEFAULT_SETTINGS = {
         yahoo: true,
         paypay: true,
         fril: true,
-        surugaya: true
+        surugaya: true,
+        taobao: false
     },
     strictFiltering: {
         mercari: true,
         yahoo: true,
         paypay: true,
         fril: true,
-        surugaya: true
+        surugaya: true,
+        taobao: true
     },
     allowYahooInternationalShipping: false // Default to filtering out international shipping
 };

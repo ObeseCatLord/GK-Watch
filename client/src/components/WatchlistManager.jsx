@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ResultCard from './ResultCard';
 
-const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
+const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
     const [watchlist, setWatchlist] = useState([]);
     const [newTerm, setNewTerm] = useState('');
     const [selectedResults, setSelectedResults] = useState(null);
@@ -79,6 +79,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
     const [editName, setEditName] = useState('');
     const [editTerms, setEditTerms] = useState('');
     const [editFilters, setEditFilters] = useState('');
+    const [editEnabledSites, setEditEnabledSites] = useState({});
+    const [globalSettings, setGlobalSettings] = useState({}); // Renamed to avoid collision with 'activeSettings' maybe? No, 'settings' is fine but distinct from local settings maps.
+
 
     const ITEMS_PER_PAGE = 24;
 
@@ -90,7 +93,20 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
     useEffect(() => {
         fetchWatchlist();
         fetchNewCounts();
+        fetchWatchlist();
+        fetchNewCounts();
+        fetchGlobalSettings();
     }, []);
+
+    const fetchGlobalSettings = async () => {
+        try {
+            const res = await authenticatedFetch('/api/settings');
+            const data = await res.json();
+            setGlobalSettings(data);
+        } catch (err) {
+            console.error('Error fetching global settings:', err);
+        }
+    };
 
     const fetchWatchlist = async () => {
         try {
@@ -367,6 +383,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         // Join filters with newline for textarea
         const filters = item.filters || [];
         setEditFilters(filters.join('\n'));
+        setEditEnabledSites(item.enabledSites || {
+            mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false
+        });
     };
 
     const saveEdit = async () => {
@@ -383,7 +402,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
             await authenticatedFetch(`/api/watchlist/${editingItem.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: editName, terms, filters })
+                body: JSON.stringify({ name: editName, terms, filters, enabledSites: editEnabledSites })
             });
             setEditingItem(null);
             fetchWatchlist();
@@ -443,6 +462,32 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
         );
     };
 
+    const addTaobaoWatch = async () => {
+        if (!newTerm.trim()) return;
+
+        try {
+            await authenticatedFetch('/api/watchlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    term: newTerm,
+                    enabledSites: {
+                        mercari: false,
+                        yahoo: false,
+                        paypay: false,
+                        fril: false,
+                        surugaya: false,
+                        taobao: true
+                    }
+                })
+            });
+            setNewTerm('');
+            fetchWatchlist();
+        } catch (err) {
+            console.error('Error adding Taobao watch:', err);
+        }
+    };
+
     return (
         <div className="watchlist-container">
 
@@ -478,6 +523,21 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                     />
                     <button type="submit" className="add-btn">Add</button>
                     <button type="button" className="add-btn gk-btn" onClick={addGKEntries}>Add GK</button>
+                    <button
+                        type="button"
+                        className="add-btn taobao-btn"
+                        onClick={(e) => !taobaoEnabled ? alert('Taobao disabled: Cookies missing (check Options)') : addTaobaoWatch()}
+                        disabled={!taobaoEnabled || !newTerm.trim()}
+                        title={!taobaoEnabled ? "Taobao Disabled (Cookies Missing)" : "Add Taobao-only Watch"}
+                        style={{
+                            backgroundColor: !taobaoEnabled ? '#555' : '#ff5000',
+                            marginLeft: '5px',
+                            cursor: !taobaoEnabled ? 'not-allowed' : 'pointer',
+                            opacity: !taobaoEnabled ? 0.6 : 1
+                        }}
+                    >
+                        Add TB
+                    </button>
                 </form>
 
 
@@ -681,6 +741,32 @@ const WatchlistManager = ({ authenticatedFetch, onBlock }) => {
                                     placeholder="e.g. 'damaged', 'junk', 'parts only'"
                                     style={{ width: '100%', padding: '8px', background: '#333', border: '1px solid #555', color: 'white' }}
                                 />
+                            </div>
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', marginBottom: '5px' }}>Enabled Services:</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao'].map(site => {
+                                        const isGloballyEnabled = globalSettings.enabledSites?.[site] !== false;
+                                        // Special case for Taobao: disable if globally OFF
+                                        const isDisabled = site === 'taobao' && !isGloballyEnabled;
+
+                                        return (
+                                            <label key={site} style={{ display: 'flex', alignItems: 'center', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editEnabledSites[site] !== false}
+                                                    onChange={e => {
+                                                        if (isDisabled) return;
+                                                        setEditEnabledSites(prev => ({ ...prev, [site]: e.target.checked }));
+                                                    }}
+                                                    disabled={isDisabled}
+                                                    style={{ marginRight: '8px' }}
+                                                />
+                                                {site.charAt(0).toUpperCase() + site.slice(1)}
+                                            </label>
+                                        );
+                                    })}
+                                </div>
                             </div>
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                                 <button onClick={() => setEditingItem(null)} className="page-btn">Cancel</button>

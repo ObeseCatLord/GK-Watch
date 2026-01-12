@@ -3,18 +3,25 @@ const yahoo = require('./yahoo');
 const paypay = require('./paypay');
 const fril = require('./fril');
 const surugaya = require('./surugaya');
+const taobao = require('./taobao');
 
 let payPayFailed = false;
 
 const Settings = require('../models/settings');
 
-async function searchAll(query) {
+async function searchAll(query, enabledOverride = null) {
     console.log(`Starting search for: ${query}`);
     const settings = Settings.get();
 
-    // Defaults (safe fallback)
-    const enabled = settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true };
-    const strict = settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true };
+    // Defaults (safe fallback) or use override
+    const enabled = enabledOverride || settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
+    const strict = settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
+
+    // Enforce global disable for Taobao (Master Switch)
+    // Even if item overrides it to true, if global is false (e.g. no cookies), don't run.
+    if (enabledOverride && settings.enabledSites && settings.enabledSites.taobao === false) {
+        enabled.taobao = false;
+    }
 
     // Run all scrapers in parallel
     // using Promise.allSettled so one failure doesn't stop others
@@ -38,6 +45,10 @@ async function searchAll(query) {
 
     if (enabled.surugaya !== false) {
         promises.push(surugaya.search(query, strict.surugaya ?? true).then(res => res.map(i => ({ ...i, source: 'Suruga-ya' }))));
+    }
+
+    if (enabled.taobao !== false) {
+        promises.push(taobao.search(query, strict.taobao ?? true).then(res => res.map(i => ({ ...i, source: 'Taobao' }))));
     }
 
     const results = await Promise.allSettled(promises);

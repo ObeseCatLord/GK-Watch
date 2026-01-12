@@ -468,8 +468,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 </p>
 
                 <div className="sites-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px', marginTop: '15px' }}>
-                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya'].map(site => {
-                        const siteName = site === 'yahoo' ? 'Yahoo Auctions' : site === 'fril' ? 'Rakuma (Fril)' : site === 'paypay' ? 'PayPay Flea Market' : site === 'surugaya' ? 'Suruga-ya' : 'Mercari';
+                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao'].map(site => {
+                        const siteName = site === 'yahoo' ? 'Yahoo Auctions' : site === 'fril' ? 'Rakuma (Fril)' : site === 'paypay' ? 'PayPay Flea Market' : site === 'surugaya' ? 'Suruga-ya' : site === 'taobao' ? 'Taobao' : 'Mercari';
                         return (
                             <div key={site} className="site-card" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
                                 <h4 style={{ textTransform: 'capitalize', marginTop: 0, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -477,11 +477,35 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                 </h4>
 
                                 <div style={{ marginBottom: '8px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', opacity: site === 'taobao' && !settings.enabledSites?.taobao && !settings.hasTaobaoCookies ? 1 : 1 }}>
                                         <input
                                             type="checkbox"
                                             checked={settings.enabledSites?.[site] !== false}
-                                            onChange={(e) => handleNestedChange('enabledSites', site, e.target.checked)}
+                                            onChange={async (e) => {
+                                                const checked = e.target.checked;
+                                                if (site === 'taobao' && checked) {
+                                                    // Verify cookies before enabling
+                                                    try {
+                                                        const res = await authenticatedFetch('/api/taobao/status');
+                                                        const data = await res.json();
+                                                        if (!data.hasCookies) {
+                                                            alert(
+                                                                "⚠️ Taobao Cookies Missing!\n\n" +
+                                                                "To enable Taobao scraping, you must export cookies from your browser:\n" +
+                                                                "1. Log in to Taobao.com in Chrome/Edge\n" +
+                                                                "2. Use 'EditThisCookie' extension to export cookies\n" +
+                                                                "3. Save as 'taobao_cookies.json' in 'server/data/'\n" +
+                                                                "4. Restart the server"
+                                                            );
+                                                            return; // Do not toggle
+                                                        }
+                                                    } catch (err) {
+                                                        console.error('Error checking Taobao status:', err);
+                                                        return;
+                                                    }
+                                                }
+                                                handleNestedChange('enabledSites', site, checked);
+                                            }}
                                             style={{ marginRight: '8px' }}
                                         />
                                         Enable Search

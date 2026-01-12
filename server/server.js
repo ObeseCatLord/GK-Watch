@@ -85,7 +85,29 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
     try {
         console.log(`Received search request for: ${query}`);
-        const results = await searchAggregator.searchAll(query);
+
+        // Handle site filtering (e.g. ?sites=taobao)
+        let enabledOverride = null;
+        if (req.query.sites) {
+            const requestedSites = req.query.sites.split(',').map(s => s.trim().toLowerCase());
+            // Create exclusive map - everything false unless requested
+            enabledOverride = {
+                mercari: false,
+                yahoo: false,
+                paypay: false,
+                fril: false,
+                surugaya: false,
+                taobao: false
+            };
+            requestedSites.forEach(site => {
+                if (enabledOverride.hasOwnProperty(site)) {
+                    enabledOverride[site] = true;
+                }
+            });
+            console.log('Site override:', enabledOverride);
+        }
+
+        const results = await searchAggregator.searchAll(query, enabledOverride);
         const filteredResults = BlockedItems.filterResults(results);
         res.json(filteredResults);
     } catch (error) {
@@ -374,6 +396,12 @@ app.post('/api/settings/test-ntfy', requireAuth, async (req, res) => {
     }
 });
 
+// Taobao Status Check
+const taobaoScraper = require('./scrapers/taobao');
+app.get('/api/taobao/status', (req, res) => {
+    res.json({ hasCookies: taobaoScraper.hasValidCookies() });
+});
+
 // Abort scheduled search
 app.post('/api/abort-scheduled', (req, res) => {
     Scheduler.abort();
@@ -418,7 +446,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         let allTermResults = [];
 
         for (const term of terms) {
-            const results = await searchAggregator.searchAll(term);
+            const results = await searchAggregator.searchAll(term, item.enabledSites);
             if (results && results.length > 0) {
                 allTermResults = [...allTermResults, ...results];
             }

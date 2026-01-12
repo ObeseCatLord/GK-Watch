@@ -138,7 +138,9 @@ const Scheduler = {
                 for (const term of terms) {
                     console.log(`[Batch] - Searching: ${term}`);
                     try {
-                        const results = await searchAggregator.searchAll(term);
+                        // Pass item's enabledSites to override global settings if present
+                        // If item.enabledSites is undefined (legacy items), searchAll falls back to global settings
+                        const results = await searchAggregator.searchAll(term, item.enabledSites);
                         if (searchAggregator.isPayPayFailed && searchAggregator.isPayPayFailed()) {
                             payPayErrorOccurred = true;
                         }

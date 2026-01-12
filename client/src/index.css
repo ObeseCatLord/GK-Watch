@@ -10,6 +10,7 @@
   --mandarake-color: #d60000;
   --paypay-color: #ff0033;
   --fril-color: #ff6b81;
+  --taobao-color: #ff5000;
 }
 
 body {
@@ -38,6 +39,26 @@ h1 {
 
 .search-container {
   margin-bottom: 1rem;
+}
+
+/* Taobao History */
+.history-chip.taobao-history {
+  border-color: #ff5000;
+  background: rgba(255, 80, 0, 0.1);
+}
+
+.history-chip.taobao-history:hover {
+  background: #ff5000;
+  color: white;
+}
+
+.taobao-badge-chip {
+  background-color: #ff5000 !important;
+  margin-left: 6px;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
 }
 
 /* Search History */
@@ -233,6 +254,10 @@ h1 {
 
 .source-badge.fril {
   background-color: var(--fril-color);
+}
+
+.source-badge.taobao {
+  background-color: var(--taobao-color);
 }
 
 .card-content {

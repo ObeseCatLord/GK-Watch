@@ -25,6 +25,7 @@ function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [taobaoEnabled, setTaobaoEnabled] = useState(false);
 
   // Check if login is required on mount
   useEffect(() => {
@@ -43,8 +44,16 @@ function App() {
         } else {
           setIsAuthenticated(true);
         }
+
+        // Check Taobao status
+        const tbRes = await fetch('/api/taobao/status', { headers: getAuthHeaders() });
+        if (tbRes.ok) {
+          const tbData = await tbRes.json();
+          setTaobaoEnabled(tbData.hasCookies);
+        }
+
       } catch (err) {
-        console.error('Error checking auth:', err);
+        console.error('Error checking auth/status:', err);
         setIsAuthenticated(true); // Allow access if can't check
       }
       setCheckingAuth(false);
@@ -265,6 +274,32 @@ function App() {
     }
   };
 
+  const searchTaobao = async (e, overrideQuery = null) => {
+    if (e) e.preventDefault();
+    const queryTerm = overrideQuery || query;
+    if (!queryTerm.trim()) return;
+
+    setLoading(true);
+    setError(null);
+    setResults([]);
+    setCurrentPage(1);
+
+    if (overrideQuery) setQuery(overrideQuery);
+    saveToHistory(queryTerm, 'taobao');
+
+    try {
+      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=taobao`);
+      if (!response.ok) throw new Error('Network response was not ok');
+      const data = await response.json();
+      setResults(data);
+    } catch (err) {
+      setError('Failed to fetch Taobao results.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Show loading while checking auth
   if (checkingAuth) {
     return (
@@ -349,6 +384,21 @@ function App() {
               >
                 Search GK
               </button>
+              <button
+                type="button"
+                className="add-btn taobao-btn"
+                onClick={(e) => !taobaoEnabled ? alert('Taobao disabled: Cookies missing (check Options)') : searchTaobao(e, null)}
+                title={!taobaoEnabled ? "Taobao Disabled (Cookies Missing)" : "Search Taobao Only"}
+                disabled={!taobaoEnabled}
+                style={{
+                  backgroundColor: !taobaoEnabled ? '#555' : '#ff5000',
+                  marginLeft: '5px',
+                  cursor: !taobaoEnabled ? 'not-allowed' : 'pointer',
+                  opacity: !taobaoEnabled ? 0.6 : 1
+                }}
+              >
+                Search Taobao
+              </button>
             </form>
           </div>
 
@@ -368,11 +418,17 @@ function App() {
                   return (
                     <button
                       key={i}
-                      className={`history-chip ${type === 'gk' ? 'gk-history' : ''}`}
-                      onClick={() => type === 'gk' ? searchGK(null, term) : search(null, term)}
-                      title={type === 'gk' ? "Re-run GK Search" : "Re-run Search"}
+                      className={`history-chip ${type === 'gk' ? 'gk-history' : type === 'taobao' ? 'taobao-history' : ''}`}
+                      onClick={() => {
+                        if (type === 'gk') searchGK(null, term);
+                        else if (type === 'taobao') searchTaobao(null, term);
+                        else search(null, term);
+                      }}
+                      title={type === 'gk' ? "Re-run GK Search" : type === 'taobao' ? "Re-run Taobao Search" : "Re-run Search"}
                     >
-                      {term} {type === 'gk' && <span className="gk-badge">GK</span>}
+                      {term}
+                      {type === 'gk' && <span className="gk-badge">GK</span>}
+                      {type === 'taobao' && <span className="gk-badge taobao-badge-chip">TB</span>}
                     </button>
                   );
                 })}
@@ -380,7 +436,7 @@ function App() {
             </div>
           )}
 
-          {loading && <div className="loading">Searching across Japan...</div>}
+          {loading && <div className="loading">Searching...</div>}
 
           {error && <div className="error">{error}</div>}
 
@@ -504,7 +560,11 @@ function App() {
       )}
 
       {view === 'watchlist' && (
-        <WatchlistManager authenticatedFetch={authenticatedFetch} onBlock={handleBlock} />
+        <WatchlistManager
+          authenticatedFetch={authenticatedFetch}
+          onBlock={handleBlock}
+          taobaoEnabled={taobaoEnabled}
+        />
       )}
 
       {view === 'blocked' && (
