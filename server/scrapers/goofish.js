@@ -1,20 +1,11 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
-const queryMatcher = require('../utils/queryMatcher');
-
-// Reuse seller blacklist if applicable or define new one
-const SELLER_BLACKLIST = [
-    // Add Goofish specific blacklisted sellers here if known
-];
 
 const GOOFISH_SEARCH_URL = 'https://www.goofish.com/search';
 const COOKIES_FILE = path.join(__dirname, '../data/goofish_cookies.json');
 const USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
 
-/**
- * Load cookies from file
- */
 function loadCookies() {
     try {
         if (!fs.existsSync(COOKIES_FILE)) {
@@ -37,17 +28,11 @@ function loadCookies() {
     }
 }
 
-/**
- * Build the search URL
- */
 function buildSearchUrl(query) {
     const encodedQuery = encodeURIComponent(query);
     return `${GOOFISH_SEARCH_URL}?q=${encodedQuery}`;
 }
 
-/**
- * Scrape with Puppeteer
- */
 async function searchWithPuppeteer(query) {
     let browser = null;
     try {
@@ -75,6 +60,37 @@ async function searchWithPuppeteer(query) {
             return [{ error: 'Cookie Error', source: 'Goofish' }];
         }
 
+        console.log(`[Goofish] Loaded ${cookies.length} cookies from file.`);
+
+        // Sanitize cookies for Puppeteer
+        cookies = cookies.map(cookie => {
+            const newCookie = {
+                name: cookie.name,
+                value: cookie.value,
+                domain: cookie.domain,
+                path: cookie.path || '/',
+                secure: !!cookie.secure,
+                httpOnly: !!cookie.httpOnly,
+            };
+
+            if (cookie.expires) {
+                newCookie.expires = cookie.expires;
+            }
+
+            if (cookie.sameSite) {
+                const lower = String(cookie.sameSite).toLowerCase();
+                if (lower === 'strict') newCookie.sameSite = 'Strict';
+                else if (lower === 'lax') newCookie.sameSite = 'Lax';
+                else if (lower === 'none') {
+                    newCookie.sameSite = 'None';
+                    newCookie.secure = true;
+                }
+            }
+
+            return newCookie;
+        });
+
+        await page.setCookie(...cookies);
         await page.setUserAgent(USER_AGENT);
 
         let apiResults = null;
@@ -83,8 +99,9 @@ async function searchWithPuppeteer(query) {
         page.on('response', async response => {
             const url = response.url();
             if (url.includes('mtop.taobao.idlemtopsearch.pc.search') && url.indexOf('.shade') === -1 && url.indexOf('.activate') === -1) {
+                let text = '';
                 try {
-                    const text = await response.text();
+                    text = await response.text();
                     const json = JSON.parse(text);
                     let items = [];
                     if (json.data && json.data.items) items = json.data.items;
@@ -175,9 +192,14 @@ async function searchWithPuppeteer(query) {
                                 shopName: source.userNickName || item.userNickName || 'Goofish Seller'
                             };
                         });
+                    } else {
+                        // Log empty items logic if JSON parsed but no items
+                        // console.log('JSON structure does not contain items:', JSON.stringify(json).substring(0, 200));
                     }
                 } catch (e) {
-                    console.log(`[Goofish] Error parsing API response: ${e.message}`);
+                    console.log(`[Goofish] Error parsing API response for URL: ${url}`);
+                    console.log(`[Goofish] Response preview: ${text ? text.substring(0, 500) : 'No text captured'}`);
+                    console.log(`[Goofish] Error details: ${e.message}`);
                 }
             }
         });
