@@ -193,7 +193,7 @@ const EmailService = {
                             <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
                             <p style="color: #888; font-size: 0.9em; text-align: center;">Sent by GKWatch Scheduler</p>
                             <div style="text-align: center; margin-top: 10px;">
-                                <a href="http://localhost:5173" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Open Dashboard</a>
+                                <a href="${settings.baseUrl}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Open Dashboard</a>
                             </div>
                         </div>
                     </div>
@@ -268,6 +268,7 @@ const EmailService = {
                         <h1 style="color: #646cff;">🎉 Test Email Successful!</h1>
                         <p>Great news! Your GKWatch email settings are configured correctly.</p>
                         <p>You will receive notifications when new items are found during scheduled searches.</p>
+                        <p>Dashboard Link: <a href="${settings.baseUrl}">${settings.baseUrl}</a></p>
                         <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
                         <p style="color: #888; font-size: 0.9em;">Sent at: ${new Date().toLocaleString()}</p>
                     </div>

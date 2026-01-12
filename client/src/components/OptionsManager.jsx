@@ -4,6 +4,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [settings, setSettings] = useState({
         email: '',
         emailEnabled: false,
+        baseUrl: 'http://localhost:5173',
         smtpHost: '',
         smtpPort: 587,
         smtpUser: '',
@@ -577,6 +578,18 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         value={settings.email}
                         onChange={handleChange}
                         placeholder="your@email.com"
+                        className="option-input"
+                    />
+                </div>
+
+                <div className="option-row">
+                    <label>Dashboard Base URL (for email links):</label>
+                    <input
+                        type="text"
+                        name="baseUrl"
+                        value={settings.baseUrl || ''}
+                        onChange={handleChange}
+                        placeholder="http://localhost:5173 or https://your-domain.com"
                         className="option-input"
                     />
                 </div>

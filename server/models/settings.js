@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
     smtpPort: 587,
     smtpUser: '',
     smtpPass: '',
+    baseUrl: 'http://localhost:5173',
     loginEnabled: false,
     loginPassword: '',
     ntfyEnabled: false,

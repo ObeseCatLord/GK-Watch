@@ -622,7 +622,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
                                 className="queue-remove-btn"
                                 onClick={async () => {
                                     try {
-                                        await fetch('http://localhost:3000/api/abort-scheduled', { method: 'POST' });
+                                        await authenticatedFetch('/api/abort-scheduled', { method: 'POST' });
                                     } catch (err) {
                                         console.error('Error aborting:', err);
                                     }

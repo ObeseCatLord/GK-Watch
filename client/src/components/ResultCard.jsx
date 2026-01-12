@@ -26,6 +26,10 @@ const ResultCard = ({ item, onBlock, isNew }) => {
         window.open(fjUrl, '_blank');
     };
 
+    const safelyGetSource = () => {
+        return (source || 'Unknown').toString();
+    };
+
     return (
         <a href={link} target="_blank" rel="noopener noreferrer" className={`result-card ${isNew ? 'is-new' : ''}`}>
             {isNew && <span className="new-ribbon">NEW</span>}
@@ -39,8 +43,8 @@ const ResultCard = ({ item, onBlock, isNew }) => {
                 ) : (
                     <div className="no-image">No Image</div>
                 )}
-                <span className={`source-badge ${source.toLowerCase().replace(/\s+/g, '-')}`}>
-                    {source}
+                <span className={`source-badge ${safelyGetSource().toLowerCase().replace(/\s+/g, '-')}`}>
+                    {safelyGetSource()}
                 </span>
             </div>
             <div className="card-content">
