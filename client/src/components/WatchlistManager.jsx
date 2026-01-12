@@ -528,31 +528,35 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
         URL.revokeObjectURL(url);
     };
 
-    const addTaobaoWatch = async () => {
-        if (!newTerm.trim()) return;
+    // Calculate filtered and sorted results for display
+    const filteredAndSortedResults = React.useMemo(() => {
+        if (!selectedResults) return [];
 
-        try {
-            await authenticatedFetch('/api/watchlist', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    term: newTerm,
-                    enabledSites: {
-                        mercari: false,
-                        yahoo: false,
-                        paypay: false,
-                        fril: false,
-                        surugaya: false,
-                        taobao: true
-                    }
-                })
-            });
-            setNewTerm('');
-            fetchWatchlist();
-        } catch (err) {
-            console.error('Error adding Taobao watch:', err);
+        const parsePrice = (priceStr) => {
+            if (!priceStr) return 0;
+            const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
+            return match ? parseFloat(match[0]) : 0;
+        };
+
+        let results = selectedResults.filter(item => {
+            if (item.hidden) return false;
+            const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
+            const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
+            return matchesTitle && matchesSource;
+        });
+
+        if (sortBy === 'name') {
+            results.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
+        } else if (sortBy === 'priceHigh') {
+            results.sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
+        } else if (sortBy === 'priceLow') {
+            results.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
         }
-    };
+
+        return results;
+    }, [selectedResults, resultFilter, sourceFilter, sortBy]);
+
+    const totalPages = Math.ceil(filteredAndSortedResults.length / ITEMS_PER_PAGE);
 
     return (
         <div className="watchlist-container">
@@ -980,175 +984,106 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled }) => {
                             </div>
                             <div className="results-grid">
                                 {(() => {
-                                    // Parse price string to number for sorting
-                                    const parsePrice = (priceStr) => {
-                                        if (!priceStr) return 0;
-                                        const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
-                                        return match ? parseFloat(match[0]) : 0;
-                                    };
-
-                                    let filteredResults = selectedResults.filter(item => {
-                                        if (item.hidden) return false; // Hide items in grace period
-                                        const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
-                                        const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
-                                        return matchesTitle && matchesSource;
-                                    });
-
-                                    // Apply sorting
-                                    if (sortBy === 'name') {
-                                        filteredResults = [...filteredResults].sort((a, b) =>
-                                            (a.title || '').localeCompare(b.title || '', 'ja')
-                                        );
-                                    } else if (sortBy === 'priceHigh') {
-                                        filteredResults = [...filteredResults].sort((a, b) =>
-                                            parsePrice(b.price) - parsePrice(a.price)
-                                        );
-                                    } else if (sortBy === 'priceLow') {
-                                        filteredResults = [...filteredResults].sort((a, b) =>
-                                            parsePrice(a.price) - parsePrice(b.price)
-                                        );
-                                    }
-                                    // 'time' is default order from server
-
-                                    if (filteredResults.length === 0) {
+                                    if (filteredAndSortedResults.length === 0) {
                                         return <p>{resultFilter || sourceFilter !== 'All' ? 'No results match your filter.' : 'No results found in last run (or run hasn\'t happened yet).'}</p>;
                                     }
 
-                                    const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
-                                    const safePage = Math.min(currentPage, totalPages);
+                                    const safePage = Math.min(currentPage, Math.max(1, totalPages));
 
-                                    return (
-                                        <>
-                                            {filteredResults
-                                                .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
-                                                .map((item, idx) => (
-                                                    <ResultCard key={idx} item={item} onBlock={handleLocalBlock} isNew={item.isNew} />
-                                                ))}
-                                        </>
-                                    );
+                                    return filteredAndSortedResults
+                                        .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
+                                        .map((item, idx) => (
+                                            <ResultCard key={idx} item={item} onBlock={handleLocalBlock} isNew={item.isNew} />
+                                        ));
                                 })()}
                             </div>
-                            {(() => {
-                                // Parse price string to number for sorting
-                                const parsePrice = (priceStr) => {
-                                    if (!priceStr) return 0;
-                                    const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
-                                    return match ? parseFloat(match[0]) : 0;
-                                };
 
-                                let filteredResults = selectedResults.filter(item => {
-                                    if (item.hidden) return false; // Hide items in grace period
-                                    const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
-                                    const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
-                                    return matchesTitle && matchesSource;
-                                });
+                            {/* Pagination */}
+                            {filteredAndSortedResults.length > ITEMS_PER_PAGE && (
+                                <div className="pagination">
+                                    <button
+                                        className="page-btn"
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                    >
+                                        ← Prev
+                                    </button>
 
-                                // Apply sorting
-                                if (sortBy === 'name') {
-                                    filteredResults = [...filteredResults].sort((a, b) =>
-                                        (a.title || '').localeCompare(b.title || '', 'ja')
-                                    );
-                                } else if (sortBy === 'priceHigh') {
-                                    filteredResults = [...filteredResults].sort((a, b) =>
-                                        parsePrice(b.price) - parsePrice(a.price)
-                                    );
-                                } else if (sortBy === 'priceLow') {
-                                    filteredResults = [...filteredResults].sort((a, b) =>
-                                        parsePrice(a.price) - parsePrice(b.price)
-                                    );
-                                }
-                                // 'time' is default order from server
+                                    <div className="page-numbers">
+                                        {(() => {
+                                            const pages = [];
+                                            const start = Math.max(1, currentPage - 2);
+                                            const end = Math.min(totalPages, start + 4);
+                                            const adjustedStart = Math.max(1, Math.min(start, totalPages - 4));
 
-                                const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
-
-                                if (filteredResults.length <= ITEMS_PER_PAGE) return null;
-
-                                return (
-                                    <div className="pagination">
-                                        <button
-                                            className="page-btn"
-                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                            disabled={currentPage === 1}
-                                        >
-                                            ← Prev
-                                        </button>
-
-                                        <div className="page-numbers">
-                                            {(() => {
-                                                const pages = [];
-                                                const start = Math.max(1, currentPage - 2);
-                                                const end = Math.min(totalPages, start + 4);
-                                                const adjustedStart = Math.max(1, Math.min(start, totalPages - 4));
-
-                                                for (let i = adjustedStart; i <= end; i++) {
-                                                    pages.push(
-                                                        <button
-                                                            key={i}
-                                                            className={`page-number-btn ${currentPage === i ? 'active' : ''}`}
-                                                            onClick={() => setCurrentPage(i)}
-                                                        >
-                                                            {i}
-                                                        </button>
-                                                    );
-                                                }
-                                                return pages;
-                                            })()}
-                                        </div>
-
-                                        <div className="page-jump">
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                max={totalPages}
-                                                placeholder="#"
-                                                className="page-input"
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        const val = parseInt(e.target.value);
-                                                        if (val >= 1 && val <= totalPages) {
-                                                            setCurrentPage(val);
-                                                            e.target.value = '';
-                                                        }
-                                                    }
-                                                }}
-                                            />
-                                            <span className="total-pages">/ {totalPages}</span>
-                                        </div>
-
-                                        <button
-                                            className="page-btn"
-                                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                            disabled={currentPage >= totalPages}
-                                        >
-                                            Next →
-                                        </button>
-
-                                        <button
-                                            className="page-btn"
-                                            onClick={() => exportToHtml(
-                                                selectedResults.filter(r => !r.hidden),
-                                                selectedTerm || 'watchlist_results'
-                                            )}
-                                            style={{ marginLeft: 'auto', backgroundColor: '#333', border: '1px solid #555' }}
-                                        >
-                                            📥 Export HTML
-                                        </button>
+                                            for (let i = adjustedStart; i <= end; i++) {
+                                                pages.push(
+                                                    <button
+                                                        key={i}
+                                                        className={`page-number-btn ${currentPage === i ? 'active' : ''}`}
+                                                        onClick={() => setCurrentPage(i)}
+                                                    >
+                                                        {i}
+                                                    </button>
+                                                );
+                                            }
+                                            return pages;
+                                        })()}
                                     </div>
-                                );
-                            })()}
+
+                                    <div className="page-jump">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max={totalPages}
+                                            placeholder="#"
+                                            className="page-input"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    const val = parseInt(e.target.value);
+                                                    if (val >= 1 && val <= totalPages) {
+                                                        setCurrentPage(val);
+                                                        e.target.value = '';
+                                                    }
+                                                }
+                                            }}
+                                        />
+                                        <span className="total-pages">/ {totalPages}</span>
+                                    </div>
+
+                                    <button
+                                        className="page-btn"
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage >= totalPages}
+                                    >
+                                        Next →
+                                    </button>
+
+                                    <button
+                                        className="page-btn"
+                                        onClick={() => exportToHtml(
+                                            filteredAndSortedResults,
+                                            selectedTerm || 'watchlist_results'
+                                        )}
+                                        style={{ marginLeft: 'auto', backgroundColor: '#333', border: '1px solid #555' }}
+                                    >
+                                        📥 Export HTML
+                                    </button>
+                                </div>
+                            )}
 
                             {/* Export Button (shown when no pagination) */}
-                            {selectedResults && selectedResults.filter(r => !r.hidden).length > 0 && totalPages <= 1 && (
+                            {filteredAndSortedResults.length > 0 && totalPages <= 1 && (
                                 <div style={{ textAlign: 'right', marginTop: '1rem' }}>
                                     <button
                                         className="page-btn"
                                         onClick={() => exportToHtml(
-                                            selectedResults.filter(r => !r.hidden),
+                                            filteredAndSortedResults,
                                             selectedTerm || 'watchlist_results'
                                         )}
                                         style={{ backgroundColor: '#333', border: '1px solid #555' }}
                                     >
-                                        📥 Export HTML ({selectedResults.filter(r => !r.hidden).length} items)
+                                        📥 Export HTML ({filteredAndSortedResults.length} items)
                                     </button>
                                 </div>
                             )}
