@@ -268,7 +268,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                 body: JSON.stringify({
                     terms,
                     name: terms[0], // Set name explicitly to first term
-                    filters: ['プラモデル'],
+                    filters: [],
                     enabledSites: {
                         mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true,
                         taobao: false, goofish: false

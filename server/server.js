@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const searchAggregator = require('./scrapers');
 const Settings = require('./models/settings');
 
@@ -144,6 +145,48 @@ app.post('/api/watchlist', requireAuth, (req, res) => {
 app.put('/api/watchlist/:id', requireAuth, (req, res) => {
     const updated = Watchlist.update(req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: 'Item not found' });
+
+    // If enabledSites changed, remove results from disabled sites
+    if (req.body.enabledSites) {
+        try {
+            const RESULTS_FILE = path.join(__dirname, 'data/results.json');
+            if (fs.existsSync(RESULTS_FILE)) {
+                const resultsData = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
+                const id = req.params.id;
+
+                if (resultsData[id] && resultsData[id].items) {
+                    const enabled = req.body.enabledSites;
+                    const beforeCount = resultsData[id].items.length;
+
+                    resultsData[id].items = resultsData[id].items.filter(item => {
+                        const source = (item.source || '').toLowerCase();
+                        if (source.includes('mercari') && enabled.mercari === false) return false;
+                        if (source.includes('yahoo') && enabled.yahoo === false) return false;
+                        if (source.includes('paypay') && enabled.paypay === false) return false;
+                        if ((source.includes('fril') || source.includes('rakuma')) && enabled.fril === false) return false;
+                        if (source.includes('suruga') && enabled.surugaya === false) return false;
+                        if (source.includes('taobao') && enabled.taobao === false) return false;
+                        if (source.includes('goofish') && enabled.goofish === false) return false;
+                        return true;
+                    });
+
+                    if (resultsData[id].items.length !== beforeCount) {
+                        resultsData[id].newCount = Math.max(0, resultsData[id].newCount - (beforeCount - resultsData[id].items.length)); // Rough adjustment
+                        // Better: just recount or leave newCount? newCount tracks "unseen".
+                        // If we remove items, newCount might need adjustment if removed items were "new".
+                        // Safest is to just clamp it or reset if empty.
+                        if (resultsData[id].items.length === 0) resultsData[id].newCount = 0;
+
+                        fs.writeFileSync(RESULTS_FILE, JSON.stringify(resultsData, null, 2));
+                        console.log(`[Watchlist] Cleaned up ${beforeCount - resultsData[id].items.length} disabled items for ${id}`);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[Watchlist] Error cleaning up disabled results:', err);
+        }
+    }
+
     res.json(updated);
 });
 
