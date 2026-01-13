@@ -147,7 +147,7 @@ async function searchNeokyo(query) {
                     }
                 }
 
-                const img = $card.find('img.card-img-top').attr('src');
+                const img = ($card.find('img.card-img-top').attr('src') || '').trim();
                 const priceText = $card.find('.price b, .price').first().text().trim();
 
                 let price = 'N/A';
@@ -162,6 +162,7 @@ async function searchNeokyo(query) {
                     pageResults.push({
                         title,
                         link: paypayLink,
+                        neokyoLink: (relativeLink && relativeLink.startsWith('http')) ? relativeLink : `https://neokyo.com${relativeLink || ''}`,
                         image: img || '',
                         price,
                         source: 'PayPay Flea Market' // Matched to source filter
@@ -186,6 +187,38 @@ async function searchNeokyo(query) {
     return allResults;
 }
 
+/**
+ * Fetch the full title from a Neokyo product detail page
+ * Used to verify truncated titles before filtering
+ */
+async function fetchFullTitle(neokyoLink) {
+    try {
+        const response = await axios.get(neokyoLink, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+            },
+            timeout: 20000
+        });
+
+        const $ = cheerio.load(response.data);
+        // The full title is in h6 with classes font-gothamRounded translate
+        let fullTitle = $('h6.font-gothamRounded.translate').first().text().trim();
+        if (!fullTitle) {
+            // Fallback selectors
+            fullTitle = $('h6.translate').first().text().trim();
+        }
+        if (!fullTitle) {
+            fullTitle = $('title').text().replace(' - Neokyo', '').replace('Item Details', '').trim();
+        }
+        return fullTitle || null;
+    } catch (error) {
+        console.log(`[PayPay Fallback] Failed to fetch full title from ${neokyoLink}: ${error.message}`);
+        return null;
+    }
+}
+
 // Main Search Function - Legacy (Direct) -> Neokyo -> Yahoo Integration
 async function search(query, strictEnabled = true) {
     let results = [];
@@ -205,12 +238,43 @@ async function search(query, strictEnabled = true) {
     // 2. Try Neokyo Fallback
     try {
         results = await searchNeokyo(query);
+
         if (strictEnabled && results.length > 0) {
-            results = results.filter(item => matchTitle(item.title, query));
+            console.log(`[PayPay] Strict filtering enabled. Checking ${results.length} items.`);
+            const filteredResults = [];
+
+            for (const item of results) {
+                // Check if title matches query strictly
+                if (matchTitle(item.title, query)) {
+                    filteredResults.push(item);
+                    continue;
+                }
+
+                // If it doesn't match, try fetching the full title via NeokyoLink
+                if (item.neokyoLink) {
+                    // Check if title looks truncated (ends with ...) or is just generic mismatch
+                    // Actually always check if we have neokyoLink because Neokyo titles are often shortened
+                    const fullTitle = await fetchFullTitle(item.neokyoLink);
+                    if (fullTitle) {
+                        if (matchTitle(fullTitle, query)) {
+                            console.log(`[PayPay] Keeping item after full title check: "${fullTitle.substring(0, 50)}..."`);
+                            item.title = fullTitle;
+                            filteredResults.push(item);
+                            continue;
+                        }
+                    }
+                }
+            }
+            results = filteredResults;
             console.log(`[PayPay] Neokyo found ${results.length} items after strict filtering.`);
         }
+
         if (results && results.length > 0) {
-            return results;
+            // Clean up internal fields
+            return results.map(item => {
+                const { neokyoLink, ...rest } = item;
+                return rest;
+            });
         }
     } catch (err) {
         console.warn(`[PayPay] Neokyo fallback error: ${err.message}`);

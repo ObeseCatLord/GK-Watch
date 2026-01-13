@@ -233,6 +233,25 @@ h1 {
   backdrop-filter: blur(4px);
 }
 
+.time-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  /* Opposite side of source badge */
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: white;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
 .source-badge.mercari {
   background-color: var(--mercari-color);
 }
@@ -1810,6 +1829,7 @@ h1 {
     font-size: 0.75rem;
   }
 }
+
 /* Mobile Search Layout */
 .mobile-label {
   display: none;
@@ -1822,19 +1842,23 @@ h1 {
 
   .mobile-label {
     display: inline;
-    font-size: 1.2rem; /* Make icon larger */
+    font-size: 1.2rem;
+    /* Make icon larger */
   }
 
   /* Compact button padding on mobile */
   .add-btn {
-    padding: 0 1rem; 
-    min-width: unset; /* Remove any min-width if set */
+    padding: 0 1rem;
+    min-width: unset;
+    /* Remove any min-width if set */
   }
 
   /* Ensure search input takes available space */
   .search-input {
-    min-width: 0; /* Allow shrinking */
+    min-width: 0;
+    /* Allow shrinking */
     flex-grow: 1;
-    font-size: 1rem; /* Slightly smaller text prevents zoom on some mobiles but keeps it readable */
+    font-size: 1rem;
+    /* Slightly smaller text prevents zoom on some mobiles but keeps it readable */
   }
 }

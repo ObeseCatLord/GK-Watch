@@ -167,6 +167,37 @@ async function searchNeokyo(query) {
     }
 }
 
+// Helper to calculate estimated end time from Yahoo's relative time string
+function calculateEndTime(timeStr) {
+    if (!timeStr) return null;
+
+    const now = Date.now();
+    let durationMs = 0;
+
+    // Yahoo formats: "3日", "16時間", "10分", "10秒" ?
+    // Sometimes mixed? Usually single unit in search results list.
+
+    if (timeStr.includes('日')) {
+        const days = parseInt(timeStr.replace(/[^0-9]/g, ''), 10);
+        durationMs = days * 24 * 60 * 60 * 1000;
+    } else if (timeStr.includes('時間')) {
+        const hours = parseInt(timeStr.replace(/[^0-9]/g, ''), 10);
+        durationMs = hours * 60 * 60 * 1000;
+    } else if (timeStr.includes('分')) {
+        const minutes = parseInt(timeStr.replace(/[^0-9]/g, ''), 10);
+        durationMs = minutes * 60 * 1000;
+    } else if (timeStr.includes('秒')) {
+        const seconds = parseInt(timeStr.replace(/[^0-9]/g, ''), 10);
+        durationMs = seconds * 1000;
+    }
+
+    if (durationMs > 0) {
+        return new Date(now + durationMs).toISOString(); // Return ISO timestamp
+    }
+
+    return null;
+}
+
 // Puppeteer-based Yahoo Auctions scraper (fallback for when Axios fails)
 async function searchYahooPuppeteer(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all') {
     console.log(`[Yahoo Fallback] Searching Yahoo Auctions via Puppeteer for ${query} (Target: ${targetSource})...`);
@@ -216,6 +247,10 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
                 const priceEl = $(element).find('.Product__priceValue');
                 const price = priceEl.text().trim();
 
+                const timeEl = $(element).find('.Product__time');
+                const timeStr = timeEl.text().trim();
+                const endTime = calculateEndTime(timeStr);
+
                 // Check for PayPay Flea Market indicator
                 // Icon text: "Yahoo!フリマ" or URL contains paypayfleamarket
                 const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
@@ -232,6 +267,8 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
                         link,
                         image: image || '',
                         price: formatYahooPrice(price),
+                        startTime: Date.now(), // timestamp of scrape
+                        endTime,
                         source: itemSource
                     });
                 }
@@ -295,6 +332,10 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                 const imageEl = $(element).find('.Product__imageData');
                 const image = imageEl.attr('src');
 
+                const timeEl = $(element).find('.Product__time');
+                const timeStr = timeEl.text().trim();
+                const endTime = calculateEndTime(timeStr);
+
                 // Check for PayPay Flea Market indicator
                 // Icon text: "Yahoo!フリマ" or URL contains paypayfleamarket
                 const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
@@ -330,6 +371,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                         price: formatYahooPrice(price),
                         bidPrice: formatYahooPrice(bidPrice),
                         binPrice: formatYahooPrice(binPrice),
+                        endTime,
                         source: itemSource
                     });
                 }

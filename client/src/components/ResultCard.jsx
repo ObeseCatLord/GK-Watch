@@ -1,7 +1,41 @@
 import React from 'react';
 
 const ResultCard = ({ item, onBlock, isNew }) => {
-    const { title, link, image, price, source } = item;
+    const { title, link, image, price, source, endTime } = item;
+    const [timeLeft, setTimeLeft] = React.useState('');
+
+    React.useEffect(() => {
+        if (!endTime) return;
+
+        const updateTimer = () => {
+            const now = Date.now();
+            const end = new Date(endTime).getTime();
+            const diff = end - now;
+
+            if (diff <= 0) {
+                setTimeLeft('Ended');
+                return;
+            }
+
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+            if (days > 0) {
+                setTimeLeft(`${days}d ${hours}h`);
+            } else if (hours > 0) {
+                setTimeLeft(`${hours}h ${minutes}m`);
+            } else {
+                setTimeLeft(`${minutes}m`);
+            }
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 60000); // 1 minute interval
+
+        return () => clearInterval(interval);
+    }, [endTime]);
+
 
     const handleBlock = (e) => {
         e.preventDefault();
@@ -46,6 +80,11 @@ const ResultCard = ({ item, onBlock, isNew }) => {
                 <span className={`source-badge ${safelyGetSource().toLowerCase().replace(/\s+/g, '-')}`}>
                     {safelyGetSource()}
                 </span>
+                {timeLeft && (
+                    <span className="time-badge" title="Time Remaining">
+                        ⏱ {timeLeft}
+                    </span>
+                )}
             </div>
             <div className="card-content">
                 <h3 className="card-title" title={title}>{title}</h3>
