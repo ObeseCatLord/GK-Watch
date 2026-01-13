@@ -424,17 +424,17 @@ async function search(query, strict = true) {
             const isBlacklisted = SELLER_BLACKLIST.some(blacklistedName => item.shopName.includes(blacklistedName));
 
             if (isBlacklisted) {
-                console.log(`[Taobao] Strict Excluded (Blacklisted Seller): '${item.shopName}' - ${item.title}`);
+                // console.log(`[Taobao] Strict Excluded (Blacklisted Seller): '${item.shopName}' - ${item.title}`);
             }
 
             return titleMatch && !isBlacklisted;
         });
 
         results = filteredResults;
-        console.log(`[Taobao] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
+        console.log(`[Taobao] Filtered ${initialCount - results.length} items (Title mismatch or Blacklisted). Remaining: ${results.length}`);
     } else {
         // If not strict, we might still want to log the shops found
-        results.forEach(r => console.log(`[Taobao] Found item from shop: '${r.shopName}'`));
+        // results.forEach(r => console.log(`[Taobao] Found item from shop: '${r.shopName}'`));
     }
 
     return results;
