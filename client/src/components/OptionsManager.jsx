@@ -39,6 +39,10 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [cookieError, setCookieError] = useState('');
     const [cookieSuccess, setCookieSuccess] = useState('');
 
+    // System Cleanup State
+    const [cleanupStatus, setCleanupStatus] = useState('');
+    const [cleanupMessage, setCleanupMessage] = useState('');
+
     useEffect(() => {
         try {
             const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
@@ -481,6 +485,46 @@ const OptionsManager = ({ authenticatedFetch }) => {
         } catch (err) {
             console.error('Error importing file:', err);
             alert('Failed to import file: ' + err.message);
+        }
+    };
+
+    const runManualCleanup = async () => {
+        if (!window.confirm('Run system cleanup now? This will delete temporary files and expired database entries.')) {
+            return;
+        }
+
+        setCleanupStatus('cleaning');
+        setCleanupMessage('');
+        try {
+            const res = await authenticatedFetch('/api/cleanup', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Cleanup failed');
+
+            setCleanupStatus('success');
+            // Format stats
+            let msg = 'Cleanup completed.';
+            if (data.stats) {
+                const { log, results, puppeteer } = data.stats;
+                const details = [];
+                if (log?.rotated) details.push(`Log rotated`);
+                if (log?.linesRemoved) details.push(`Removed ${log.linesRemoved} log lines`);
+                if (results?.itemsRemoved) details.push(`Removed ${results.itemsRemoved} expired items`);
+                if (puppeteer?.filesRemoved) details.push(`Cleared ${puppeteer.filesRemoved} temp files`);
+
+                if (details.length > 0) msg = `Cleanup Success: ${details.join(', ')}`;
+                else msg = 'Cleanup Success: No items needed removal.';
+            }
+            setCleanupMessage(msg);
+            setTimeout(() => {
+                if (cleanupStatus !== 'cleaning') {
+                    setCleanupStatus('');
+                    setCleanupMessage('');
+                }
+            }, 5000);
+        } catch (err) {
+            console.error('Cleanup error:', err);
+            setCleanupStatus('error');
+            setCleanupMessage('Error: ' + err.message);
         }
     };
 
@@ -953,6 +997,30 @@ const OptionsManager = ({ authenticatedFetch }) => {
                             style={{ display: 'none' }}
                         />
                     </label>
+                </div>
+            </div>
+
+            {/* System Maintenance */}
+            <div className="options-section">
+                <h3>🛠️ System Maintenance</h3>
+                <p className="options-description">
+                    Manually trigger system cleanup to rotate logs, remove expired results, and clear temporary files.
+                </p>
+
+                <div className="option-row">
+                    <button
+                        className={`save-btn ${cleanupStatus === 'cleaning' ? 'disabled' : ''}`}
+                        onClick={runManualCleanup}
+                        disabled={cleanupStatus === 'cleaning'}
+                        style={{ backgroundColor: cleanupStatus === 'error' ? '#ef5350' : '#4a90e2' }}
+                    >
+                        {cleanupStatus === 'cleaning' ? '🧹 Cleaning System...' : '🧹 Clean System Now'}
+                    </button>
+                    {cleanupMessage && (
+                        <div style={{ marginTop: '10px', fontSize: '0.9rem', color: cleanupStatus === 'success' ? '#66bb6a' : (cleanupStatus === 'error' ? '#ef5350' : '#ddd') }}>
+                            {cleanupMessage}
+                        </div>
+                    )}
                 </div>
             </div>
 

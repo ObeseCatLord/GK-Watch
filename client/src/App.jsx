@@ -499,14 +499,18 @@ function App() {
                 onChange={(e) => setQuery(e.target.value)}
                 style={{ flex: 1 }}
               />
-              <button type="submit" className="add-btn">Search</button>
+              <button type="submit" className="add-btn">
+                <span className="desktop-label">Search</span>
+                <span className="mobile-label">🔍</span>
+              </button>
               <button
                 type="button"
                 className="add-btn gk-btn"
                 onClick={searchGK}
                 title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
               >
-                Search GK
+                <span className="desktop-label">Search GK</span>
+                <span className="mobile-label">GK</span>
               </button>
               <button
                 type="button"
@@ -521,7 +525,9 @@ function App() {
                   opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
                 }}
               >
-                Search CN
+              >
+                <span className="desktop-label">Search CN</span>
+                <span className="mobile-label">CN</span>
               </button>
             </form>
 

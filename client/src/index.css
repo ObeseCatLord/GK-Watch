@@ -1810,3 +1810,31 @@ h1 {
     font-size: 0.75rem;
   }
 }
+/* Mobile Search Layout */
+.mobile-label {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .desktop-label {
+    display: none;
+  }
+
+  .mobile-label {
+    display: inline;
+    font-size: 1.2rem; /* Make icon larger */
+  }
+
+  /* Compact button padding on mobile */
+  .add-btn {
+    padding: 0 1rem; 
+    min-width: unset; /* Remove any min-width if set */
+  }
+
+  /* Ensure search input takes available space */
+  .search-input {
+    min-width: 0; /* Allow shrinking */
+    flex-grow: 1;
+    font-size: 1rem; /* Slightly smaller text prevents zoom on some mobiles but keeps it readable */
+  }
+}

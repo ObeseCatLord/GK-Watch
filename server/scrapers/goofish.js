@@ -261,7 +261,39 @@ async function searchWithPuppeteer(query) {
 
 async function search(query) {
     console.log(`[Goofish] Searching for: ${query}`);
-    return await searchWithPuppeteer(query);
+
+    let attempts = 0;
+    const maxAttempts = 4; // 1 initial + 3 retries
+
+    while (attempts < maxAttempts) {
+        attempts++;
+        if (attempts > 1) {
+            console.log(`[Goofish] Retry attempt ${attempts - 1}/${maxAttempts - 1}...`);
+            // Add a small delay between retries to avoid hammering
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+        const results = await searchWithPuppeteer(query);
+
+        // Check if the result indicates a block/captcha
+        const isBlocked = results && results.length === 1 && results[0].error === 'Goofish Blocked (CAPTCHA)';
+
+        if (isBlocked) {
+            console.log(`[Goofish] Search blocked on attempt ${attempts}.`);
+            if (attempts < maxAttempts) {
+                console.log('[Goofish] Retrying...');
+                continue;
+            } else {
+                console.log('[Goofish] Max retries reached. Giving up.');
+                return results;
+            }
+        }
+
+        // If not blocked, return results (whether empty or successful)
+        return results;
+    }
+
+    return []; // Should not be reached
 }
 
 function hasValidCookies() {

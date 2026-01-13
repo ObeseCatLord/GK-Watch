@@ -187,7 +187,7 @@ function cleanupPuppeteerTemp() {
         const oneHourMs = 60 * 60 * 1000;
 
         files.forEach(file => {
-            if (file.startsWith('puppeteer_dev_profile')) {
+            if (file.startsWith('puppeteer_dev_profile') || file.startsWith('puppeteer_dev_chrome_profile')) {
                 const filePath = path.join(tempDir, file);
                 try {
                     const fileStats = fs.statSync(filePath);
