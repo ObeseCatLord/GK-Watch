@@ -230,6 +230,7 @@ const Scheduler = {
         const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
         const PAYPAY_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
         const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
+        const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
 
         try {
             if (fs.existsSync(RESULTS_FILE)) {
@@ -292,6 +293,14 @@ const Scheduler = {
             }
         });
 
+        // Track which Goofish items are in the new results (by title)
+        const newGoofishTitles = new Set();
+        newResults.forEach(result => {
+            if (result.source && result.source.toLowerCase() === 'goofish' && result.title) {
+                newGoofishTitles.add(result.title.trim());
+            }
+        });
+
         // Process new results - preserve firstSeen for existing, add for new
         // Also add lastSeen for Yahoo and Suruga-ya items
         const processedResults = newResults.map(result => {
@@ -301,6 +310,7 @@ const Scheduler = {
             const isMercari = result.source && result.source.toLowerCase().includes('mercari');
             const isPayPay = result.source && result.source.toLowerCase().includes('paypay');
             const isTaobao = result.source && result.source.toLowerCase() === 'taobao';
+            const isGoofish = result.source && result.source.toLowerCase() === 'goofish';
 
             let duplicateInfo = null;
             if (result.title && result.source) {
@@ -314,7 +324,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: existing.firstSeen,
-                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao) ? now : existing.lastSeen,
+                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao || isGoofish) ? now : existing.lastSeen,
                     isNew: false,
                     hidden: false // Clear hidden flag - item is visible again
                 };
@@ -323,7 +333,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: duplicateInfo.firstSeen, // Inherit timestamp
-                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao) ? now : duplicateInfo.lastSeen,
+                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao || isGoofish) ? now : duplicateInfo.lastSeen,
                     isNew: false,
                     hidden: false // Clear hidden flag - item is visible again
                 };
@@ -333,7 +343,7 @@ const Scheduler = {
                 return {
                     ...result,
                     firstSeen: now,
-                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao) ? now : undefined,
+                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao || isGoofish) ? now : undefined,
                     isNew: true,
                     hidden: false
                 };
@@ -528,6 +538,40 @@ const Scheduler = {
             const existingLinksAfterPayPay = new Set(finalResults.map(r => r.link));
             const uniquePreservedTaobao = preservedTaobao.filter(item => !existingLinksAfterPayPay.has(item.link));
             finalResults = [...finalResults, ...uniquePreservedTaobao];
+        }
+
+        // Goofish Grace Period: Preserve Goofish items for 3 days after they disappear
+        // Similar to Yahoo/Mercari/Taobao - items are HIDDEN during grace period
+        const existingGoofishItems = existingItems.filter(item =>
+            item.source && item.source.toLowerCase() === 'goofish'
+        );
+
+        const goofishToPreserve = existingGoofishItems.filter(item => {
+            // Skip if this title is already in new results
+            if (item.title && newGoofishTitles.has(item.title.trim())) {
+                return false;
+            }
+
+            // Check if within grace period
+            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
+                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
+            const ageMs = nowMs - lastSeenTime;
+
+            return ageMs < GOOFISH_GRACE_PERIOD_MS;
+        });
+
+        if (goofishToPreserve.length > 0) {
+            console.log(`[Scheduler] Goofish grace period: Preserving ${goofishToPreserve.length} hidden Goofish items for ${term || watchId}`);
+            // Mark them as not new, hidden (like Yahoo/Mercari/Taobao)
+            const preservedGoofish = goofishToPreserve.map(item => ({
+                ...item,
+                isNew: false,
+                hidden: true // Hide during grace period
+            }));
+            // Deduplicate by link before adding
+            const existingLinksAfterTaobao = new Set(finalResults.map(r => r.link));
+            const uniquePreservedGoofish = preservedGoofish.filter(item => !existingLinksAfterTaobao.has(item.link));
+            finalResults = [...finalResults, ...uniquePreservedGoofish];
         }
 
         // Save results with newCount
