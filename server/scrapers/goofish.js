@@ -99,9 +99,24 @@ async function searchWithPuppeteer(query) {
         page.on('response', async response => {
             const url = response.url();
             if (url.includes('mtop.taobao.idlemtopsearch.pc.search') && url.indexOf('.shade') === -1 && url.indexOf('.activate') === -1) {
+                // Check for punish/CAPTCHA
+                if (url.includes('punish') || url.includes('x5secdata')) {
+                    console.log('[Goofish] BLOCK DETECTED: Request redirected to punish/captcha page.');
+                    apiResults = [{ error: 'Goofish Blocked (CAPTCHA)', source: 'Goofish' }];
+                    return;
+                }
+
                 let text = '';
                 try {
                     text = await response.text();
+
+                    // Check if response is HTML (login/captcha page) instead of JSON
+                    if (text.trim().startsWith('<')) {
+                        console.log('[Goofish] BLOCK DETECTED: Received HTML instead of JSON.');
+                        apiResults = [{ error: 'Goofish Blocked (CAPTCHA)', source: 'Goofish' }];
+                        return;
+                    }
+
                     const json = JSON.parse(text);
                     let items = [];
                     if (json.data && json.data.items) items = json.data.items;

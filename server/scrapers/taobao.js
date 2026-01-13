@@ -356,6 +356,14 @@ async function searchWithPuppeteer(query, cookies) {
 
         console.log(`[Taobao] Puppeteer found ${results.length} results`);
 
+        if (results.length === 0) {
+            console.log('[Taobao] 0 results found. Saving debug dump...');
+            const content = await page.content();
+            fs.writeFileSync(path.join(__dirname, '../taobao_debug.html'), content);
+            await page.screenshot({ path: path.join(__dirname, '../taobao_debug.png') });
+            console.log('[Taobao] Saved debug dump to server/taobao_debug.html and screenshot to server/taobao_debug.png');
+        }
+
         return results;
 
     } catch (error) {
