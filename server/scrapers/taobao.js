@@ -367,7 +367,7 @@ async function searchWithPuppeteer(query, cookies) {
             if (loginIframe || loginSrc) {
                 console.log('[Taobao] BLOCK DETECTED: Login iframe found.');
                 // Return a single error item so the frontend knows
-                results = [{ error: 'Taobao Login Required', source: 'Taobao' }];
+                results = [{ error: 'Taobao Cookie Required', source: 'Taobao' }];
             } else {
                 console.log('[Taobao] 0 results found AND no login detected. Saving debug dump...');
                 const content = await page.content();

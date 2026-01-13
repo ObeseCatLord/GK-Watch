@@ -13,7 +13,7 @@ const path = require('path');
 const CONFIG = {
     MAX_LOG_SIZE_BYTES: 1 * 1024 * 1024,  // 1 MB
     LOG_LINES_TO_KEEP: 1000,               // Keep last 1000 lines after rotation
-    RESULTS_MAX_AGE_DAYS: 30,              // Remove items older than 30 days
+    RESULTS_MAX_AGE_DAYS: 5,               // Remove items older than 5 days (if not seen)
 };
 
 const SERVER_LOG_PATH = path.join(__dirname, '..', 'server.log');
@@ -116,12 +116,17 @@ function cleanupExpiredResults() {
             const originalCount = watchData.items.length;
 
             // Filter out items older than the cutoff
-            // Keep items that have no firstSeen (legacy) or are newer than cutoff
+            // Keep items that have no timestamps (legacy) or have been seen recently (lastSeen >= cutoff)
             watchData.items = watchData.items.filter(item => {
-                if (!item.firstSeen) {
-                    return true; // Keep items without timestamp (legacy data)
+                // Determine the most recent time the item was seen
+                // Use lastSeen if available, otherwise firstSeen
+                const dateStr = item.lastSeen || item.firstSeen;
+
+                if (!dateStr) {
+                    return true; // Keep legacy items without any timestamps
                 }
-                const itemDate = new Date(item.firstSeen).getTime();
+
+                const itemDate = new Date(dateStr).getTime();
                 return itemDate >= cutoffMs;
             });
 
@@ -161,6 +166,58 @@ function cleanupExpiredResults() {
 }
 
 /**
+ * Remove Puppeteer temporary profile directories from /tmp.
+ * Only removes directories older than 1 hour to ensure active sessions aren't killed.
+ * 
+ * @returns {Object} Statistics about the cleanup
+ */
+function cleanupPuppeteerTemp() {
+    const stats = {
+        cleaned: false,
+        filesRemoved: 0,
+        spaceFreed: 0
+    };
+
+    try {
+        const tempDir = '/tmp';
+        if (!fs.existsSync(tempDir)) return stats;
+
+        const files = fs.readdirSync(tempDir);
+        const now = Date.now();
+        const oneHourMs = 60 * 60 * 1000;
+
+        files.forEach(file => {
+            if (file.startsWith('puppeteer_dev_profile')) {
+                const filePath = path.join(tempDir, file);
+                try {
+                    const fileStats = fs.statSync(filePath);
+                    const age = now - fileStats.mtimeMs;
+
+                    if (age > oneHourMs) {
+                        // Calculate size roughly (just the folder entry usually, recursive size is expensive)
+                        // For cleanup stats, we count folders removed.
+                        fs.rmSync(filePath, { recursive: true, force: true });
+                        stats.filesRemoved++;
+                        stats.cleaned = true;
+                    }
+                } catch (e) {
+                    // Ignore errors accessing/deleting specific files (permission, etc)
+                }
+            }
+        });
+
+        if (stats.cleaned) {
+            console.log(`[Cleanup] Puppeteer temp cleanup: removed ${stats.filesRemoved} old profile directories.`);
+        }
+
+    } catch (error) {
+        console.error('[Cleanup] Error cleaning Puppeteer temp:', error.message);
+    }
+
+    return stats;
+}
+
+/**
  * Run all cleanup tasks.
  * 
  * @returns {Object} Combined statistics from all cleanup operations
@@ -170,10 +227,12 @@ function runFullCleanup() {
 
     const logStats = rotateLogIfNeeded();
     const resultsStats = cleanupExpiredResults();
+    const puppeteerStats = cleanupPuppeteerTemp();
 
     const summary = {
         log: logStats,
         results: resultsStats,
+        puppeteer: puppeteerStats,
         timestamp: new Date().toISOString()
     };
 
@@ -208,6 +267,7 @@ function updateConfig(newConfig) {
 module.exports = {
     rotateLogIfNeeded,
     cleanupExpiredResults,
+    cleanupPuppeteerTemp,
     runFullCleanup,
     getConfig,
     updateConfig

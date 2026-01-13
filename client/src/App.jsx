@@ -233,22 +233,29 @@ function App() {
   // Explicitly define standard sites to exclude CN ones
   const STANDARD_SITES = ['mercari', 'yahoo', 'paypay', 'fril', 'surugaya'];
 
-  const [cookieErrors, setCookieErrors] = useState([]);
+  const [siteErrors, setSiteErrors] = useState([]);
 
   // Helper to separate errors from valid results
   const processResults = (rawResults) => {
     if (!Array.isArray(rawResults)) return [];
 
-    // Find errors
-    const errors = rawResults.filter(item => item.error === 'Cookie Error');
+    // Find errors (any item with an 'error' property)
+    const errors = rawResults.filter(item => item.error);
     const validItems = rawResults.filter(item => !item.error);
 
     if (errors.length > 0) {
-      setCookieErrors(prev => {
-        // Merge unique sources
-        const newSources = errors.map(e => e.source);
-        const unique = [...new Set([...prev, ...newSources])];
-        return unique;
+      setSiteErrors(prev => {
+        // Create map of Source -> Error Message
+        const newErrors = errors.map(e => ({ source: e.source || 'Unknown', error: e.error }));
+
+        // Merge with previous errors, preferring newer ones
+        const combined = [...prev, ...newErrors];
+
+        // Deduplicate by source (keep latest)
+        const uniqueMap = aMap = new Map();
+        combined.forEach(err => uniqueMap.set(err.source, err.error));
+
+        return Array.from(uniqueMap.entries()).map(([source, error]) => ({ source, error }));
       });
     }
 
@@ -264,7 +271,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1); // Reset page on new search
-    setCookieErrors([]); // Clear previous errors
+    setSiteErrors([]); // Clear previous errors
 
     // Save to history
     saveToHistory(searchTerm, 'normal');
@@ -333,7 +340,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1); // Reset page on new search
-    setCookieErrors([]);
+    setSiteErrors([]);
 
     if (overrideQuery) setQuery(overrideQuery);
 
@@ -393,7 +400,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1);
-    setCookieErrors([]);
+    setSiteErrors([]);
 
     if (overrideQuery) setQuery(overrideQuery);
     saveToHistory(queryTerm, 'cn'); // 'cn' for both
@@ -518,21 +525,29 @@ function App() {
               </button>
             </form>
 
-            {/* Discreet Cookie Error Message */}
-            {cookieErrors.length > 0 && (
+            {/* Discreet Site Error Message */}
+            {siteErrors.length > 0 && (
               <div style={{
                 marginTop: '10px',
                 padding: '8px 16px',
-                backgroundColor: 'rgba(255, 152, 0, 0.1)',
-                border: '1px solid #ff9800',
+                backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                border: '1px solid #ef5350',
                 borderRadius: '8px',
-                color: '#ff9800',
+                color: '#ef5350',
                 fontSize: '0.9rem',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px'
               }}>
-                <span>⚠️ Cookie Error for: <strong>{cookieErrors.join(', ')}</strong>. Please update cookies in Options.</span>
+                <span>
+                  ⚠️ <strong>Search Incomplete:</strong>{' '}
+                  {siteErrors.map((err, i) => (
+                    <span key={err.source}>
+                      <strong>{err.source}</strong> ({err.error})
+                      {i < siteErrors.length - 1 ? ', ' : ''}
+                    </span>
+                  ))}
+                </span>
               </div>
             )}
           </div>
