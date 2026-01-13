@@ -13,7 +13,7 @@ const path = require('path');
 const CONFIG = {
     MAX_LOG_SIZE_BYTES: 1 * 1024 * 1024,  // 1 MB
     LOG_LINES_TO_KEEP: 1000,               // Keep last 1000 lines after rotation
-    RESULTS_MAX_AGE_DAYS: 5,               // Remove items older than 5 days (if not seen)
+    RESULTS_MAX_AGE_DAYS: 3,               // Remove items older than 3 days (if not seen)
 };
 
 const SERVER_LOG_PATH = path.join(__dirname, '..', 'server.log');
