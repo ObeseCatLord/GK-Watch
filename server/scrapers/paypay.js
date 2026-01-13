@@ -80,43 +80,154 @@ async function searchLegacy(query, strictEnabled = true) {
     }
 }
 
-// Main Search Function - Uses Legacy First (More Reliable)
-async function search(query, strictEnabled = true) {
-    try {
-        // Try Legacy scraper first (direct PayPay site scraping)
-        // This is more reliable for finding items despite bot protection
-        const results = await searchLegacy(query, strictEnabled);
+// Neokyo Scraper Logic
+const NEOKYO_SEARCH_URL = 'https://neokyo.com/en/search/yahooFleaMarket';
+const DELAY_BETWEEN_PAGES = 300; // ms
 
+function buildNeokyoUrl(query, page = 1) {
+    const encodedQuery = encodeURIComponent(query);
+    const baseUrl = `${NEOKYO_SEARCH_URL}?provider=yahooFleaMarket&translate=0&order-tag=openTime&order-direction=DESC&keyword=${encodedQuery}`;
+
+    if (page === 1) return baseUrl;
+    // Neokyo pagination params
+    return `${baseUrl}&page=${page}&google_translate=&category[level_1]=&category[level_2]=&category[level_3]=&category[level_4]=&category[level_5]=&category[level_6]=&category[level_7]=`;
+}
+
+async function searchNeokyo(query) {
+    console.log(`[PayPay Fallback] Searching Neokyo for ${query}...`);
+    const allResults = [];
+    let page = 1;
+    let hasMore = true;
+    // Safety limit, though user said scrape all
+    const MAX_PAGES = 50;
+
+    while (hasMore && page <= MAX_PAGES) {
+        if (page > 1) await new Promise(r => setTimeout(r, DELAY_BETWEEN_PAGES));
+
+        const url = buildNeokyoUrl(query, page);
+        console.log(`[PayPay Fallback] Fetching Neokyo page ${page}`);
+
+        try {
+            const res = await axios.get(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                },
+                timeout: 15000
+            });
+
+            const $ = cheerio.load(res.data);
+            const pageResults = [];
+            const productCards = $('.product-card');
+
+            if (productCards.length === 0) {
+                // Check if it's genuinely empty or error
+                if ($('body').text().includes('found no results') || $('.no-result-container').length > 0) {
+                    console.log('[PayPay Fallback] No results found on Neokyo.');
+                }
+                hasMore = false;
+                break;
+            }
+
+            productCards.each((i, card) => {
+                const $card = $(card);
+                const titleLink = $card.find('a.product-link').first();
+                const title = titleLink.text().trim();
+                const relativeLink = titleLink.attr('href');
+
+                // Neokyo link: /en/product/yahooFleaMarket/{ID}
+                // Actual PayPay link: https://paypayfleamarket.yahoo.co.jp/item/{ID}
+                let paypayLink = '';
+                if (relativeLink) {
+                    const idMatch = relativeLink.match(/\/product\/yahooFleaMarket\/([A-Za-z0-9]+)/);
+                    if (idMatch && idMatch[1]) {
+                        paypayLink = `https://paypayfleamarket.yahoo.co.jp/item/${idMatch[1]}`;
+                    } else {
+                        paypayLink = `https://neokyo.com${relativeLink}`;
+                    }
+                }
+
+                const img = $card.find('img.card-img-top').attr('src');
+                const priceText = $card.find('.price b, .price').first().text().trim();
+
+                let price = 'N/A';
+                if (priceText) {
+                    const priceMatch = priceText.match(/(\d[\d,]*)/);
+                    if (priceMatch) {
+                        price = `¥${priceMatch[1].replace(/,/g, '')}`;
+                    }
+                }
+
+                if (title && paypayLink) {
+                    pageResults.push({
+                        title,
+                        link: paypayLink,
+                        image: img || '',
+                        price,
+                        source: 'PayPay Flea Market' // Matched to source filter
+                    });
+                }
+            });
+
+            if (pageResults.length > 0) {
+                allResults.push(...pageResults);
+                page++;
+            } else {
+                hasMore = false;
+            }
+
+        } catch (err) {
+            console.error(`[PayPay Fallback] Error fetching page ${page}:`, err.message);
+            hasMore = false;
+        }
+    }
+
+    console.log(`[PayPay Fallback] Found ${allResults.length} items on Neokyo.`);
+    return allResults;
+}
+
+// Main Search Function - Legacy (Direct) -> Neokyo -> Yahoo Integration
+async function search(query, strictEnabled = true) {
+    let results = [];
+
+    // 1. Try Legacy scraper first (Direct PayPay)
+    try {
+        results = await searchLegacy(query, strictEnabled);
         if (results && results.length > 0) {
             console.log(`[PayPay] Legacy scraper found ${results.length} items.`);
             return results;
         }
+        console.log("[PayPay] Legacy scraper found 0 items.");
+    } catch (err) {
+        console.warn(`[PayPay] Legacy scraper error: ${err.message}`);
+    }
 
-        console.log("[PayPay] Legacy scraper found 0 items. Falling back to Yahoo integration...");
+    // 2. Try Neokyo Fallback
+    try {
+        results = await searchNeokyo(query);
+        if (strictEnabled && results.length > 0) {
+            results = results.filter(item => matchTitle(item.title, query));
+            console.log(`[PayPay] Neokyo found ${results.length} items after strict filtering.`);
+        }
+        if (results && results.length > 0) {
+            return results;
+        }
+    } catch (err) {
+        console.warn(`[PayPay] Neokyo fallback error: ${err.message}`);
+    }
 
-        // Fallback to Yahoo Integration
+    // 3. Fallback to Yahoo Integration (Last Resort)
+    try {
+        console.log("[PayPay] Trying Yahoo integration fallback...");
         const yahooResults = await yahoo.search(query, strictEnabled, false, 'paypay');
         if (yahooResults && yahooResults.length > 0) {
             return yahooResults.map(i => ({ ...i, source: 'PayPay Flea Market' }));
         }
-
-        return [];
-
     } catch (err) {
-        console.warn(`[PayPay] Error: ${err.message}. Trying fallback...`);
-
-        // If legacy fails, try Yahoo
-        try {
-            const yahooResults = await yahoo.search(query, strictEnabled, false, 'paypay');
-            if (yahooResults && yahooResults.length > 0) {
-                return yahooResults.map(i => ({ ...i, source: 'PayPay Flea Market' }));
-            }
-        } catch (yahooErr) {
-            console.warn(`[PayPay] Yahoo fallback also failed: ${yahooErr.message}`);
-        }
-
-        return [];
+        console.warn(`[PayPay] Yahoo integration fallback error: ${err.message}`);
     }
+
+    return [];
 }
 
 module.exports = { search };

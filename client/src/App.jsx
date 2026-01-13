@@ -525,7 +525,6 @@ function App() {
                   opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
                 }}
               >
-              >
                 <span className="desktop-label">Search CN</span>
                 <span className="mobile-label">CN</span>
               </button>
