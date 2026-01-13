@@ -357,11 +357,24 @@ async function searchWithPuppeteer(query, cookies) {
         console.log(`[Taobao] Puppeteer found ${results.length} results`);
 
         if (results.length === 0) {
-            console.log('[Taobao] 0 results found. Saving debug dump...');
-            const content = await page.content();
-            fs.writeFileSync(path.join(__dirname, '../taobao_debug.html'), content);
-            await page.screenshot({ path: path.join(__dirname, '../taobao_debug.png') });
-            console.log('[Taobao] Saved debug dump to server/taobao_debug.html and screenshot to server/taobao_debug.png');
+            // Check for Login/Baxia iframe
+            const loginIframe = await page.$('#baxia-dialog-content');
+            const loginSrc = await page.evaluate(() => {
+                const iframes = Array.from(document.querySelectorAll('iframe'));
+                return iframes.find(f => f.src && f.src.includes('login.taobao.com'));
+            });
+
+            if (loginIframe || loginSrc) {
+                console.log('[Taobao] BLOCK DETECTED: Login iframe found.');
+                // Return a single error item so the frontend knows
+                results = [{ error: 'Taobao Login Required', source: 'Taobao' }];
+            } else {
+                console.log('[Taobao] 0 results found AND no login detected. Saving debug dump...');
+                const content = await page.content();
+                fs.writeFileSync(path.join(__dirname, '../taobao_debug.html'), content);
+                await page.screenshot({ path: path.join(__dirname, '../taobao_debug.png') });
+                console.log('[Taobao] Saved debug dump to taobao_debug.html/png');
+            }
         }
 
         return results;
