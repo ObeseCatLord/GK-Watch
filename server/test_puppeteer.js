@@ -10,7 +10,12 @@ const fs = require('fs');
     console.log('TMPDIR env:', process.env.TMPDIR);
     console.log('os.tmpdir():', os.tmpdir());
 
-    // Test 3: Using Bundled Chrome (no executablePath)
+    const isARM = process.arch === 'arm' || process.arch === 'arm64';
+    const executablePath = (process.platform === 'linux' && isARM)
+        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
+        : undefined;
+
+    console.log('Executable Path:', executablePath);
 
     // Test 2: Using Snap Common Dir
     const snapDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium', `test-profile-${Date.now()}`);
@@ -19,7 +24,7 @@ const fs = require('fs');
     try {
         const browser = await puppeteer.launch({
             headless: "new",
-            // executablePath, // REMOVED
+            executablePath,
             userDataDir: snapDir,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
