@@ -36,13 +36,14 @@ function buildSearchUrl(query) {
 
 async function searchWithPuppeteer(query) {
     let browser = null;
+    let userDataDir = null;
     try {
         const searchUrl = buildSearchUrl(query);
         const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
         if (!fs.existsSync(downloadsDir)) {
             fs.mkdirSync(downloadsDir, { recursive: true });
         }
-        const userDataDir = path.join(downloadsDir, `goofish-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+        userDataDir = path.join(downloadsDir, `goofish-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, { recursive: true });

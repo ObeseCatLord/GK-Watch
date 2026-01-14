@@ -235,6 +235,7 @@ async function searchWithAxios(query, cookies) {
  */
 async function searchWithPuppeteer(query, cookies) {
     let browser = null;
+    let userDataDir = null;
 
     try {
         const searchUrl = buildSearchUrl(query);
@@ -242,7 +243,7 @@ async function searchWithPuppeteer(query, cookies) {
         if (!fs.existsSync(downloadsDir)) {
             fs.mkdirSync(downloadsDir, { recursive: true });
         }
-        const userDataDir = path.join(downloadsDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+        userDataDir = path.join(downloadsDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, { recursive: true });
@@ -428,12 +429,15 @@ async function search(query, strict = true) {
         const initialCount = results.length;
 
         const filteredResults = results.filter(item => {
-            // 1. Title Match
+            // 1. Skip error objects
+            if (item.error) return false;
+
+            // 2. Title Match
             const titleMatch = queryMatcher.matchTitle(item.title, query);
 
-            // 2. Seller Match (Only if strict is enabled)
+            // 3. Seller Match (Only if strict is enabled)
             // Use partial matching to handle prefixes like "15年老店" (X years old shop)
-            const isBlacklisted = SELLER_BLACKLIST.some(blacklistedName => item.shopName.includes(blacklistedName));
+            const isBlacklisted = SELLER_BLACKLIST.some(blacklistedName => item.shopName && item.shopName.includes(blacklistedName));
 
             if (isBlacklisted) {
                 // console.log(`[Taobao] Strict Excluded (Blacklisted Seller): '${item.shopName}' - ${item.title}`);
