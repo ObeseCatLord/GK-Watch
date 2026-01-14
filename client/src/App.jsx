@@ -782,7 +782,7 @@ function App() {
                       <button
                         className="page-btn"
                         onClick={() => handleExportClipboard(filteredResults)}
-                        style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
                         title="Copy Name - Link to Clipboard"
                       >
                         📋 Copy
@@ -807,7 +807,7 @@ function App() {
               <button
                 className="page-btn"
                 onClick={() => handleExportClipboard(results)}
-                style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                style={{ backgroundColor: '#333', border: '1px solid #555' }}
                 title="Copy Name - Link to Clipboard"
               >
                 📋 Copy ({results.length})

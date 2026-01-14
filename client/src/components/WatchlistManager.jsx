@@ -1104,7 +1104,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                         <button
                                             className="page-btn"
                                             onClick={() => handleExportClipboard(filteredAndSortedResults)}
-                                            style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                                            style={{ backgroundColor: '#333', border: '1px solid #555' }}
                                             title="Copy Name - Link to Clipboard"
                                         >
                                             📋 Copy
@@ -1129,7 +1129,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                     <button
                                         className="page-btn"
                                         onClick={() => handleExportClipboard(filteredAndSortedResults)}
-                                        style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
                                         title="Copy Name - Link to Clipboard"
                                     >
                                         📋 Copy ({filteredAndSortedResults.length})
