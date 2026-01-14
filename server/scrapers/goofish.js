@@ -54,6 +54,7 @@ try {
 
     browser = await puppeteer.launch({
         headless: "new",
+        executablePath,
         userDataDir,
         pipe: true,
         dumpio: true,
