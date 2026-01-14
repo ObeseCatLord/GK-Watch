@@ -177,9 +177,12 @@ async function searchNeokyo(query) {
                 hasMore = false;
             }
 
-        } catch (err) {
             console.error(`[PayPay Fallback] Error fetching page ${page}:`, err.message);
             hasMore = false;
+            // If the very first page fails, we should consider the whole scrape failed
+            if (page === 1) {
+                return null;
+            }
         }
     }
 
@@ -239,6 +242,10 @@ async function search(query, strictEnabled = true) {
     try {
         results = await searchNeokyo(query);
 
+        if (results === null) {
+            throw new Error('Neokyo scrape failed');
+        }
+
         if (strictEnabled && results.length > 0) {
             console.log(`[PayPay] Strict filtering enabled. Checking ${results.length} items.`);
             const filteredResults = [];
@@ -269,27 +276,22 @@ async function search(query, strictEnabled = true) {
             console.log(`[PayPay] Neokyo found ${results.length} items after strict filtering.`);
         }
 
-        if (results && results.length > 0) {
+        // Return results even if empty, as long as it wasn't a scrape failure (null)
+        // This prevents falling back to generic Yahoo search when PayPay genuinely has 0 items
+        if (results) {
             // Clean up internal fields
             return results.map(item => {
                 const { neokyoLink, ...rest } = item;
                 return rest;
             });
         }
+
     } catch (err) {
         console.warn(`[PayPay] Neokyo fallback error: ${err.message}`);
     }
 
-    // 3. Fallback to Yahoo Integration (Last Resort)
-    try {
-        console.log("[PayPay] Trying Yahoo integration fallback...");
-        const yahooResults = await yahoo.search(query, strictEnabled, false, 'paypay');
-        if (yahooResults && yahooResults.length > 0) {
-            return yahooResults.map(i => ({ ...i, source: 'PayPay Flea Market' }));
-        }
-    } catch (err) {
-        console.warn(`[PayPay] Yahoo integration fallback error: ${err.message}`);
-    }
+    // 3. Fallback to Yahoo Integration (REMOVED per user request)
+    // console.log("[PayPay] Yahoo fallback disabled.");
 
     return [];
 }
