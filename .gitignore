@@ -42,3 +42,5 @@ extract_*.js
 TAOBAO_COOKIE_SETUP.md
 server/debug_*.js
 server/test_*.js
+server/diagnose_disk_usage.sh
+server/monitor_disk.sh
