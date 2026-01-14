@@ -28,6 +28,7 @@ function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [taobaoEnabled, setTaobaoEnabled] = useState(false);
   const [goofishEnabled, setGoofishEnabled] = useState(false);
+  const [strictMode, setStrictMode] = useState(true);
 
   // Check if login is required on mount
   useEffect(() => {
@@ -319,7 +320,7 @@ function App() {
     try {
       // Check if query contains | operator for multi-search
       const hasOrOperator = searchTerm.includes('|');
-      const sitesParam = `&sites=${STANDARD_SITES.join(',')}`;
+      const sitesParam = `&sites=${STANDARD_SITES.join(',')}&strict=${strictMode}`;
 
       if (hasOrOperator) {
         // Split by | and run parallel searches, similar to GK search
@@ -392,7 +393,8 @@ function App() {
       `${queryTerm} レジンキャストキット`
     ];
 
-    const sitesParam = `&sites=${STANDARD_SITES.join(',')}`;
+    // Force strict for GK searches? Maybe optional, but usually better. Using global toggle for now.
+    const sitesParam = `&sites=${STANDARD_SITES.join(',')}&strict=${strictMode}`;
 
     try {
       // Run searches in parallel
@@ -450,7 +452,9 @@ function App() {
       if (taobaoEnabled) sites.push('taobao');
       if (goofishEnabled) sites.push('goofish');
 
-      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=${sites.join(',')}`);
+      if (goofishEnabled) sites.push('goofish');
+
+      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=${sites.join(',')}&strict=${strictMode}`);
       if (!response.ok) throw new Error('Network response was not ok');
       const data = await response.json();
       const cleanData = processResults(data);
@@ -538,35 +542,45 @@ function App() {
                 onChange={(e) => setQuery(e.target.value)}
                 style={{ flex: 1 }}
               />
+              <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap', color: '#ccc', marginRight: '5px' }} title="Enable Strict Filtering (Exact Match)">
+                <input
+                  type="checkbox"
+                  checked={strictMode}
+                  onChange={e => setStrictMode(e.target.checked)}
+                  style={{ marginRight: '5px' }}
+                />
+                Strict
+              </label>
               <button type="submit" className="add-btn">
-                <span className="desktop-label">Search</span>
-                <span className="mobile-label">🔍</span>
-              </button>
-              <button
-                type="button"
-                className="add-btn gk-btn"
-                onClick={searchGK}
-                title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
-              >
-                <span className="desktop-label">Search GK</span>
-                <span className="mobile-label">GK</span>
-              </button>
-              <button
-                type="button"
-                className="add-btn taobao-btn"
-                onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Search Disabled: Cookies missing for both sites (check Options)') : searchCN(e, null)}
-                title={(!taobaoEnabled && !goofishEnabled) ? "CN Search Disabled (Cookies Missing)" : "Search Taobao & Goofish"}
-                disabled={!taobaoEnabled && !goofishEnabled}
-                style={{
-                  backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
-                  marginLeft: '5px',
-                  cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
-                  opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
-                }}
-              >
-                <span className="desktop-label">Search CN</span>
-                <span className="mobile-label">CN</span>
-              </button>
+                <button type="submit" className="add-btn">
+                  <span className="desktop-label">Search</span>
+                  <span className="mobile-label">🔍</span>
+                </button>
+                <button
+                  type="button"
+                  className="add-btn gk-btn"
+                  onClick={searchGK}
+                  title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
+                >
+                  <span className="desktop-label">Search GK</span>
+                  <span className="mobile-label">GK</span>
+                </button>
+                <button
+                  type="button"
+                  className="add-btn taobao-btn"
+                  onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Search Disabled: Cookies missing for both sites (check Options)') : searchCN(e, null)}
+                  title={(!taobaoEnabled && !goofishEnabled) ? "CN Search Disabled (Cookies Missing)" : "Search Taobao & Goofish"}
+                  disabled={!taobaoEnabled && !goofishEnabled}
+                  style={{
+                    backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
+                    marginLeft: '5px',
+                    cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
+                    opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
+                  }}
+                >
+                  <span className="desktop-label">Search CN</span>
+                  <span className="mobile-label">CN</span>
+                </button>
             </form>
 
             {/* Discreet Site Error Message */}
