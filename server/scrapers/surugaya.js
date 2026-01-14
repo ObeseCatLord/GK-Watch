@@ -322,7 +322,9 @@ async function search(query, strict = true, filters = []) {
     if (strict && results && results.length > 0) {
         console.log(`[Suruga-ya] Strict filtering enabled. Checking ${results.length} items against query: "${query}"`);
         const initialCount = results.length;
+        const initialCount = results.length;
         const filteredResults = [];
+        let rateLimitHit = false;
 
         for (const item of results) {
             // Check if title matches query strictly
