@@ -117,59 +117,16 @@ async function fetchFullTitle(neokyoLink) {
             fullTitle = $('title').text().replace(' - Neokyo', '').replace('Item Details', '').trim();
         }
         return fullTitle || null;
+
     } catch (error) {
-        console.log(`[Suruga-ya] Failed to fetch full title from ${neokyoLink}: ${error.message}`);
+        const isRateLimit = error.response && (error.response.status === 403 || error.response.status === 429);
+        console.log(`[Suruga-ya] Failed to fetch full title from ${neokyoLink}: ${error.message} ${isRateLimit ? '(Rate Limit/Block)' : ''}`);
+
+        if (isRateLimit) {
+            return 'RATE_LIMIT';
+        }
         return null;
     }
-}
-
-/**
- * Fetch the full title from a Neokyo product detail page
- * Used to verify truncated titles before filtering
- * Added retry logic for 403/429 errors
- */
-async function fetchFullTitle(neokyoLink) {
-    const maxRetries = 1;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-            if (attempt > 0) {
-                console.log(`[Suruga-ya] Retrying title fetch for ${neokyoLink} (Attempt ${attempt + 1}/${maxRetries + 1})...`);
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
-            }
-
-            const response = await axios.get(neokyoLink, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                },
-                timeout: 10000
-            });
-
-            const $ = cheerio.load(response.data);
-            // The full title is in h6 with classes font-gothamRounded translate
-            let fullTitle = $('h6.font-gothamRounded.translate').first().text().trim();
-            if (!fullTitle) {
-                // Fallback selectors
-                fullTitle = $('h6.translate').first().text().trim();
-            }
-            if (!fullTitle) {
-                fullTitle = $('title').text().replace(' - Neokyo', '').replace('Item Details', '').trim();
-            }
-            return fullTitle || null;
-
-        } catch (error) {
-            const isRateLimit = error.response && (error.response.status === 403 || error.response.status === 429);
-            console.log(`[Suruga-ya] Failed to fetch full title from ${neokyoLink}: ${error.message} ${isRateLimit ? '(Rate Limit/Block)' : ''}`);
-
-            if (isRateLimit && attempt < maxRetries) {
-                continue; // Retry
-            }
-            // If failed after retries or non-retryable error
-            if (attempt === maxRetries) return null;
-        }
-    }
-    return null;
 }
 
 /**
@@ -341,7 +298,24 @@ async function search(query, strict = true, filters = []) {
             if (item.neokyoLink) {
                 // If the Title check failed on the truncated title, and we are strict,
                 // we assume it MIGHT be a match and verify.
+
+                // Circuit Breaker: If rate limited previously, stop fetching and default to KEEP
+                if (rateLimitHit) {
+                    console.log(`[Suruga-ya] Rate limit active. Skipping verify for "${item.title}". Defaulting to KEEP.`);
+                    filteredResults.push(item);
+                    continue;
+                }
+
                 const fullTitle = await fetchFullTitle(item.neokyoLink);
+
+                if (fullTitle === 'RATE_LIMIT') {
+                    console.log(`[Suruga-ya] Rate limit hit (429/403). Activating circuit breaker.`);
+                    rateLimitHit = true;
+                    // Keep this item since we couldn't verify
+                    filteredResults.push(item);
+                    continue;
+                }
+
                 if (fullTitle) {
                     const fullMatches = queryMatcher.matchTitle(fullTitle, query);
                     if (fullMatches) {
