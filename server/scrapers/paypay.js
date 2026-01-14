@@ -14,7 +14,7 @@ async function searchLegacy(query, strictEnabled = true) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept-Language': 'ja-JP'
             },
-            timeout: 10000
+            timeout: 5000 // Reduced from 10000 to prevent long hangs
         });
 
         const $ = cheerio.load(res.data);
@@ -113,7 +113,7 @@ async function searchNeokyo(query) {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept-Language': 'en-US,en;q=0.5',
                 },
-                timeout: 15000
+                timeout: 8000 // Reduced from 15000 to prevent global timeout
             });
 
             const $ = cheerio.load(res.data);
