@@ -290,7 +290,7 @@ async function searchWithPuppeteer(query, cookies) {
         await new Promise(r => setTimeout(r, 5000));
 
         // Extract products directly in the browser context
-        const results = await page.evaluate(() => {
+        let results = await page.evaluate(() => {
             const products = [];
             // Use the correct selector found during testing
             const cards = document.querySelectorAll('[class*="doubleCard"], .item');
