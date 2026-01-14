@@ -1,7 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
-const { matchTitle } = require('../utils/queryMatcher');
+const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 
 // Helper to format price with ¥ prefix
 function formatYahooPrice(priceText) {
@@ -278,9 +278,12 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
         });
 
         // Strict filtering using query matcher (supports | for OR, && for AND)
-        if (strictEnabled) {
-            const strictResults = results.filter(item => matchTitle(item.title, query));
-            console.log(`[Yahoo Fallback] Found ${results.length} items via Puppeteer, ${strictResults.length} after strict filtering.`);
+        const parsedQuery = parseQuery(query);
+        const hasQuoted = hasQuotedTerms(parsedQuery);
+
+        if (strictEnabled || hasQuoted) {
+            const strictResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+            console.log(`[Yahoo Fallback] Found ${results.length} items via Puppeteer, ${strictResults.length} after strict filtering${hasQuoted ? ' (Quoted Terms Enforced)' : ''}.`);
             return strictResults;
         }
 
@@ -380,11 +383,15 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
             }
         });
 
-        // Strict filtering using query matcher (supports | for OR, && for AND)
-        if (strictEnabled) {
-            const strictResults = results.filter(item => matchTitle(item.title, query));
+        // Strict filtering using query matcher (supports | for OR, && for AND, and quoted terms)
+        const parsedQuery = parseQuery(query);
+        const hasQuoted = hasQuotedTerms(parsedQuery);
+
+        if (strictEnabled || hasQuoted) {
+            const strictResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+
             // Return results even if empty after strict filtering - 0 is OK if no error
-            console.log(`Yahoo (Axios) found ${results.length} items, ${strictResults.length} after strict filtering.`);
+            console.log(`Yahoo (Axios) found ${results.length} items, ${strictResults.length} after strict filtering${hasQuoted ? ' (Quoted Terms Enforced)' : ''}.`);
             return strictResults;
         }
 
@@ -406,8 +413,11 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         // Chain 2: Neokyo (only if Puppeteer threw an error)
         try {
             const neokyoResults = await searchNeokyo(query);
-            if (strictEnabled) {
-                return neokyoResults.filter(item => matchTitle(item.title, query));
+            const parsedQuery = parseQuery(query);
+            const hasQuoted = hasQuotedTerms(parsedQuery);
+
+            if (strictEnabled || hasQuoted) {
+                return neokyoResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
             }
             return neokyoResults;
         } catch (neokyoError) {
@@ -416,8 +426,11 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 
         // Chain 3: Jauce (only if both Puppeteer and Neokyo threw errors)
         const jauceResults = await searchJauce(query);
-        if (strictEnabled) {
-            return jauceResults.filter(item => matchTitle(item.title, query));
+        const parsedQuery = parseQuery(query);
+        const hasQuoted = hasQuotedTerms(parsedQuery);
+
+        if (strictEnabled || hasQuoted) {
+            return jauceResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
         }
         return jauceResults;
     }

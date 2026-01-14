@@ -1,6 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { matchTitle } = require('../utils/queryMatcher');
+const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 
 async function search(query, strictEnabled = true, filters = []) {
     console.log(`Searching Fril for ${query}...`);
@@ -78,10 +78,13 @@ async function search(query, strictEnabled = true, filters = []) {
             console.log(`[Fril] Server-side negative filtering removed ${preCount - results.length} items.`);
         }
 
-        // Strict filtering using query matcher (supports | for OR, && for AND)
-        if (strictEnabled) {
-            const filteredResults = results.filter(item => matchTitle(item.title, query));
-            console.log(`Fril: Found ${results.length} items, ${filteredResults.length} after strict filter`);
+        // Strict filtering using query matcher (supports | for OR, && for AND, and quoted terms)
+        const parsedQuery = parseQuery(query);
+        const hasQuoted = hasQuotedTerms(parsedQuery);
+
+        if (strictEnabled || hasQuoted) {
+            const filteredResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+            console.log(`Fril: Found ${results.length} items, ${filteredResults.length} after strict filter${hasQuoted ? ' (Quoted Terms Enforced)' : ''}`);
             return filteredResults;
         }
 

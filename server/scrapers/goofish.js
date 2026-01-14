@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 
 const GOOFISH_SEARCH_URL = 'https://www.goofish.com/search';
 const COOKIES_FILE = path.join(__dirname, '../data/goofish_cookies.json');
@@ -280,11 +281,12 @@ async function searchWithPuppeteer(query) {
     }
 }
 
-async function search(query) {
+async function search(query, strict = true) {
     console.log(`[Goofish] Searching for: ${query}`);
 
     let attempts = 0;
     const maxAttempts = 4; // 1 initial + 3 retries
+    let results = [];
 
     while (attempts < maxAttempts) {
         attempts++;
@@ -294,7 +296,7 @@ async function search(query) {
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
-        const results = await searchWithPuppeteer(query);
+        results = await searchWithPuppeteer(query);
 
         // Check if the result indicates a block/captcha
         const isBlocked = results && results.length === 1 && results[0].error === 'Goofish Blocked (CAPTCHA)';
@@ -310,11 +312,27 @@ async function search(query) {
             }
         }
 
-        // If not blocked, return results (whether empty or successful)
-        return results;
+        // If not blocked, we have results (could be empty or items)
+        break;
     }
 
-    return []; // Should not be reached
+    if (!results) results = [];
+
+    // Strict filtering using query matcher (supports | for OR, && for AND, and quoted terms)
+    const parsedQuery = parseQuery(query);
+    const hasQuoted = hasQuotedTerms(parsedQuery);
+
+    if ((strict || hasQuoted) && results.length > 0) {
+        // Filter only if not error object
+        if (results[0].error) return results;
+
+        const initialCount = results.length;
+        const filteredResults = results.filter(item => matchesQuery(item.title, parsedQuery, strict));
+        console.log(`[Goofish] Filtered ${initialCount - filteredResults.length} items. Remaining: ${filteredResults.length}${hasQuoted ? ' (Quoted Terms Enforced)' : ''}`);
+        return filteredResults;
+    }
+
+    return results;
 }
 
 function hasValidCookies() {

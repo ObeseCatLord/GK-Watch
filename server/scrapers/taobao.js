@@ -470,9 +470,12 @@ async function search(query, strict = true) {
         return [];
     }
 
-    // Apply strict filtering if enabled
-    if (strict) {
-        console.log(`[Taobao] Strict filtering enabled. Checking ${results.length} items against query: "${query}" AND seller blacklist.`);
+    // Apply strict filtering if enabled or if quoted terms are present
+    const parsedQuery = queryMatcher.parseQuery(query);
+    const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
+
+    if (strict || hasQuoted) {
+        console.log(`[Taobao] Strict filtering enabled${hasQuoted ? ' (Quoted Terms Found)' : ''}. Checking ${results.length} items against query: "${query}" AND seller blacklist.`);
         const initialCount = results.length;
 
         const filteredResults = results.filter(item => {
@@ -480,7 +483,7 @@ async function search(query, strict = true) {
             if (item.error) return false;
 
             // 2. Title Match
-            const titleMatch = queryMatcher.matchTitle(item.title, query);
+            const titleMatch = queryMatcher.matchesQuery(item.title, parsedQuery, strict);
 
             // 3. Seller Match (Only if strict is enabled)
             // Use partial matching to handle prefixes like "15年老店" (X years old shop)

@@ -275,9 +275,13 @@ async function search(query, strict = true, filters = []) {
     // Try Axios (only)
     let results = await searchWithAxios(effectiveQuery);
 
-    // Filter results if strict mode is on
-    if (strict && results && results.length > 0) {
-        console.log(`[Suruga-ya] Strict filtering enabled. Checking ${results.length} items against query: "${query}"`);
+    // Filter results if strict mode is on or if query contains quoted terms
+    const parsedQuery = queryMatcher.parseQuery(query);
+    const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
+
+    // Strict filtering applies if strict mode is ON, OR if we have quoted terms that must be enforced
+    if ((strict || hasQuoted) && results && results.length > 0) {
+        console.log(`[Suruga-ya] Strict filtering enabled${hasQuoted ? ' (Quoted Terms Found)' : ''}. Checking ${results.length} items against query: "${query}"`);
         const initialCount = results.length;
         const filteredResults = [];
         let rateLimitHit = false;
@@ -285,7 +289,8 @@ async function search(query, strict = true, filters = []) {
         for (const item of results) {
             // Check if title matches query strictly
             // Use ORIGINAL query (without negative terms) for positive matching
-            const matches = queryMatcher.matchTitle(item.title, query);
+            // Pass 'strict' matchesQuery - if strict=false but hasQuoted=true, it will only enforce quoted terms
+            const matches = queryMatcher.matchesQuery(item.title, parsedQuery, strict);
 
             // If it matches, keep it
             if (matches) {
@@ -317,7 +322,7 @@ async function search(query, strict = true, filters = []) {
                 }
 
                 if (fullTitle) {
-                    const fullMatches = queryMatcher.matchTitle(fullTitle, query);
+                    const fullMatches = queryMatcher.matchesQuery(fullTitle, parsedQuery, strict);
                     if (fullMatches) {
                         console.log(`[Suruga-ya] Keeping item after full title check: "${fullTitle.substring(0, 60)}..."`);
                         // Update the item's title to the full version for display

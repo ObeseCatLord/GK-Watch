@@ -1,6 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { matchTitle } = require('../utils/queryMatcher');
+const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 const yahoo = require('./yahoo');
 
 // Legacy scraper (Direct PayPay site scraping) - Unreliable due to bot protection
@@ -61,9 +61,12 @@ async function searchLegacy(query, strictEnabled = true) {
             }
         });
 
-        if (strictEnabled) {
-            const filteredResults = results.filter(item => matchTitle(item.title, query));
-            console.log(`[PayPay Legacy] Found ${results.length} items, ${filteredResults.length} after strict filter`);
+        const parsedQuery = parseQuery(query);
+        const hasQuoted = hasQuotedTerms(parsedQuery);
+
+        if (strictEnabled || hasQuoted) {
+            const filteredResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+            console.log(`[PayPay Legacy] Found ${results.length} items, ${filteredResults.length} after strict filter${hasQuoted ? ' (Quoted Terms Enforced)' : ''}`);
             return filteredResults;
         }
 
@@ -263,13 +266,16 @@ async function search(query, strictEnabled = true, filters = []) {
             throw new Error('Neokyo scrape failed');
         }
 
-        if (strictEnabled && results.length > 0) {
-            console.log(`[PayPay] Strict filtering enabled. Checking ${results.length} items.`);
+        const parsedQuery = parseQuery(query);
+        const hasQuoted = hasQuotedTerms(parsedQuery);
+
+        if ((strictEnabled || hasQuoted) && results.length > 0) {
+            console.log(`[PayPay] Strict filtering enabled${hasQuoted ? ' (Quoted Terms Found)' : ''}. Checking ${results.length} items.`);
             const filteredResults = [];
 
             for (const item of results) {
                 // Check if title matches query strictly
-                if (matchTitle(item.title, query)) {
+                if (matchesQuery(item.title, parsedQuery, strictEnabled)) {
                     filteredResults.push(item);
                     continue;
                 }
@@ -280,7 +286,7 @@ async function search(query, strictEnabled = true, filters = []) {
                     // Actually always check if we have neokyoLink because Neokyo titles are often shortened
                     const fullTitle = await fetchFullTitle(item.neokyoLink);
                     if (fullTitle) {
-                        if (matchTitle(fullTitle, query)) {
+                        if (matchesQuery(fullTitle, parsedQuery, strictEnabled)) {
                             console.log(`[PayPay] Keeping item after full title check: "${fullTitle.substring(0, 50)}..."`);
                             item.title = fullTitle;
                             filteredResults.push(item);

@@ -4,7 +4,9 @@ const paypay = require('./paypay');
 const fril = require('./fril');
 const surugaya = require('./surugaya');
 const taobao = require('./taobao');
+const taobao = require('./taobao');
 const goofish = require('./goofish');
+// Mandarake removed as out of scope
 
 let payPayFailed = false;
 
@@ -61,7 +63,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             fril: overrideObj.fril !== false && globalStrict.fril !== false,
             surugaya: overrideObj.surugaya !== false && globalStrict.surugaya !== false,
             taobao: overrideObj.taobao !== false && globalStrict.taobao !== false,
-            goofish: overrideObj.goofish !== false && (globalStrict.goofish ?? true) !== false // Handle goofish if missing in legacy settings
+            goofish: overrideObj.goofish !== false && (globalStrict.goofish ?? true) !== false
         };
     }
 
@@ -108,7 +110,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
 
     if (enabled.goofish !== false) {
         // Goofish strict filtering same as others? defaulting to true for now
-        promises.push(goofish.search(query).then(res => res.map(i => ({ ...i, source: 'Goofish' }))));
+        promises.push(goofish.search(query, strict.goofish ?? true).then(res => res.map(i => ({ ...i, source: 'Goofish' }))));
     }
 
     const results = await Promise.allSettled(promises);

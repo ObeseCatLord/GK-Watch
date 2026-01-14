@@ -8,6 +8,7 @@
  *   - term1|term2       → term1 OR term2
  *   - term1 && term2    → term1 AND term2 (explicit)
  *   - Mixed: ガレージキット セイバー|アルトリア → GK AND (Saber OR Altria)
+ *   - "Exact Term"      → Enforces exact match even in non-strict mode
  * 
  * Operator precedence: | binds tighter than && (and space)
  */
@@ -65,6 +66,25 @@ function parseQuery(query) {
 }
 
 /**
+ * Parse a single term, stripping quotes if present.
+ */
+function parseTerm(term) {
+    let value = term;
+    let quoted = false;
+
+    // Check for surrounding quotes (single or double)
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+        if (value.length > 2) {
+            value = value.substring(1, value.length - 1);
+            quoted = true;
+        }
+    }
+
+    return { type: 'TERM', value, quoted };
+}
+
+/**
  * Parse a single group that may contain OR operators (|)
  * 
  * @param {string} group - A single group (no spaces or &&)
@@ -73,19 +93,19 @@ function parseQuery(query) {
 function parseOrGroup(group) {
     if (!group.includes('|')) {
         // Simple term
-        return { type: 'TERM', value: group };
+        return parseTerm(group);
     }
 
     // Split by |
     const orParts = group.split('|').filter(part => part.length > 0);
 
     if (orParts.length === 1) {
-        return { type: 'TERM', value: orParts[0] };
+        return parseTerm(orParts[0]);
     }
 
     return {
         type: 'OR',
-        children: orParts.map(part => ({ type: 'TERM', value: part }))
+        children: orParts.map(part => parseTerm(part))
     };
 }
 
@@ -94,15 +114,23 @@ function parseOrGroup(group) {
  * 
  * @param {string} title - Item title to check
  * @param {Object} parsedQuery - Parsed query tree from parseQuery()
+ * @param {boolean} strict - If true, all terms must match. If false, only quoted terms must match.
  * @returns {boolean} True if title matches query
  */
-function matchesQuery(title, parsedQuery) {
+function matchesQuery(title, parsedQuery, strict = true) {
     if (!title || !parsedQuery) return false;
 
     const titleLower = title.toLowerCase();
 
     switch (parsedQuery.type) {
         case 'TERM': {
+            // If NOT strict mode, we ONLY check if the term is quoted.
+            // If it's NOT quoted, we return true (pass) because we assume
+            // non-strict mode relies on the scraper's fuzzy search.
+            if (!strict && !parsedQuery.quoted) {
+                return true;
+            }
+
             let termLower = parsedQuery.value.toLowerCase();
             let isNegated = false;
 
@@ -128,14 +156,14 @@ function matchesQuery(title, parsedQuery) {
             if (!parsedQuery.children || parsedQuery.children.length === 0) {
                 return true; // Empty AND = match all
             }
-            return parsedQuery.children.every(child => matchesQuery(title, child));
+            return parsedQuery.children.every(child => matchesQuery(title, child, strict));
         }
 
         case 'OR': {
             if (!parsedQuery.children || parsedQuery.children.length === 0) {
                 return false; // Empty OR = match none
             }
-            return parsedQuery.children.some(child => matchesQuery(title, child));
+            return parsedQuery.children.some(child => matchesQuery(title, child, strict));
         }
 
         default:
@@ -148,11 +176,30 @@ function matchesQuery(title, parsedQuery) {
  * 
  * @param {string} title - Item title to check
  * @param {string} query - Raw query string
+ * @param {boolean} strict - Whether to enforce strict matching
  * @returns {boolean} True if title matches query
  */
-function matchTitle(title, query) {
+function matchTitle(title, query, strict = true) {
     const parsed = parseQuery(query);
-    return matchesQuery(title, parsed);
+    return matchesQuery(title, parsed, strict);
+}
+
+/**
+ * Check if the parsed query contains any quoted terms.
+ * Useful for determining if we should force strict checking even if global strict is off.
+ */
+function hasQuotedTerms(parsedQuery) {
+    if (!parsedQuery) return false;
+
+    if (parsedQuery.type === 'TERM') {
+        return !!parsedQuery.quoted;
+    }
+
+    if (parsedQuery.children && parsedQuery.children.length > 0) {
+        return parsedQuery.children.some(child => hasQuotedTerms(child));
+    }
+
+    return false;
 }
 
 /**
@@ -179,6 +226,7 @@ module.exports = {
     matchTitle,
     getSearchTerms,
     getMissingTerms,
+    hasQuotedTerms,
     GK_VARIANTS
 };
 
@@ -211,17 +259,17 @@ function findMissing(title, node) {
             }
 
             let hasMatch = false;
+            // NOTE: We don't check quoted status here because getMissingTerms 
+            // is usually for diagnostic or strict fallback where we WANT to know what's missing.
+            // If we strictly want to ignore non-quoted terms in "missing", we'd need a flag.
+            // For now, behave as strict=true (report all missing).
+
             if (GK_VARIANTS.some(v => v.toLowerCase() === termLower)) {
                 hasMatch = GK_VARIANTS.some(variant => titleLower.includes(variant.toLowerCase()));
             } else {
                 hasMatch = titleLower.includes(termLower);
             }
 
-            // If negated, failure means "term IS present" -> return term?
-            // Usually we care about POSITIVE terms missing. 
-            // If "-foo" fails (meaning "foo" IS present), we arguably "missed" the condition.
-            // But for truncation logic, we likely only care about POSITIVE terms that were cut off.
-            // So ignore negated terms here.
             if (isNegated) return [];
 
             return hasMatch ? [] : [node.value];
@@ -235,11 +283,7 @@ function findMissing(title, node) {
 
         case 'OR': {
             // If ANY child matches, then nothing is missing.
-            // If ALL fail, then effectively all options equivalent to specific terms are missing.
-            // But we return all of them to check if ANY of them are truncated.
-            // E.g. "Saber|Altria". Title "... Sab". 
-            // Missing: [Saber, Altria]. "Saber" starts with "Sab". -> Match.
-            if (matchesQuery(title, node)) return [];
+            if (matchesQuery(title, node, true)) return []; // Pass strict=true just to check match
             return node.children.flatMap(child => findMissing(title, child));
         }
 
