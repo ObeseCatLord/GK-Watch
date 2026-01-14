@@ -177,6 +177,7 @@ async function searchNeokyo(query) {
                 hasMore = false;
             }
 
+        } catch (err) {
             console.error(`[PayPay Fallback] Error fetching page ${page}:`, err.message);
             hasMore = false;
             // If the very first page fails, we should consider the whole scrape failed
