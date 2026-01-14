@@ -42,12 +42,12 @@ async function search(query, strictEnabled = true, filters = []) {
             ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
             : undefined;
 
-        // Use Snap-compliant directory for userDataDir
-        const snapCommonDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium');
-        if (!fs.existsSync(snapCommonDir)) {
-            fs.mkdirSync(snapCommonDir, { recursive: true });
+        // Use Downloads directory (Snap safe)
+        const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
+        if (!fs.existsSync(downloadsDir)) {
+            fs.mkdirSync(downloadsDir, { recursive: true });
         }
-        userDataDir = path.join(snapCommonDir, `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+        userDataDir = path.join(downloadsDir, `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, { recursive: true });
@@ -57,6 +57,7 @@ async function search(query, strictEnabled = true, filters = []) {
             headless: "new",
             executablePath,
             userDataDir,
+            pipe: true, // Confirmed working with Snap in Downloads
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
