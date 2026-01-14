@@ -52,6 +52,26 @@ const fs = require('fs');
         console.error('Pipe Launch Failed:', err.message);
     }
 
+    // Test 7: XDG Runtime Dir
+    const runDir = '/run/user/1001/puppeteer_test';
+    if (!fs.existsSync(runDir)) fs.mkdirSync(runDir, { recursive: true });
+
+    const xdgProfile = path.join(runDir, `test-profile-${Date.now()}`);
+    console.log('Using XDG Dir:', xdgProfile);
+
+    try {
+        const browser = await puppeteer.launch({
+            headless: "new",
+            executablePath,
+            userDataDir: xdgProfile,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        });
+        console.log('SUCCESS: Browser launched in XDG Dir!');
+        await browser.close();
+    } catch (err) {
+        console.error('XDG Launch Failed:', err.message);
+    }
+
     // Test 5: Relative Path (in CWD)
     const relativeDir = path.resolve(`./test-profile-${Date.now()}`);
     console.log('Using Relative Dir:', relativeDir);
