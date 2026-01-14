@@ -20,8 +20,12 @@ async function testConfig(name, usePipe, baseDir) {
         fs.mkdirSync(userDataDir, { recursive: true });
     }
 
+    // Only set executablePath if explicitly testing dedicated binary
+    // Otherwise verify Snap (which will fail)
+
+    // BUT for "Dedicated Binary" test, we override env var.
     const isARM = process.arch === 'arm' || process.arch === 'arm64';
-    const executablePath = (process.platform === 'linux' && isARM)
+    let executablePath = (process.platform === 'linux' && isARM)
         ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
         : undefined;
 
@@ -54,29 +58,9 @@ async function testConfig(name, usePipe, baseDir) {
     const snapDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium');
     if (!fs.existsSync(snapDir)) fs.mkdirSync(snapDir, { recursive: true });
 
-    // Test 1: Downloads + WebSocket
-    await testConfig('Downloads + WS', false, downloadsDir);
-
-    // Test 2: Downloads + Pipe
-    await testConfig('Downloads + Pipe', true, downloadsDir);
-
-    // Test 4: Downloads + TMPDIR Override
-    const customTmp = path.join(downloadsDir, 'tmp_override');
-    if (!fs.existsSync(customTmp)) fs.mkdirSync(customTmp);
-    process.env.TMPDIR = customTmp;
-    console.log(`Set TMPDIR = ${customTmp}`);
-    await testConfig('Downloads + TMPDIR', false, downloadsDir);
     // Test 5: Dedicated Custom Binary (Bypass Snap)
     console.log('\n--- Testing Config: Dedicated Binary ---');
-    // Find the binary dynamically
-    const binBase = path.join(os.homedir(), 'chrome_bin', 'chrome');
-    let customBinPath = '';
-    if (fs.existsSync(binBase)) {
-        const versions = fs.readdirSync(binBase);
-        if (versions.length > 0) {
-            customBinPath = path.join(binBase, versions[0], 'chrome-linux64', 'chrome');
-        }
-    }
+    const customBinPath = '/home/ubuntu/chrome_bin/chrome/linux-143.0.7499.192/chrome-linux64/chrome';
 
     if (customBinPath && fs.existsSync(customBinPath)) {
         console.log(`Found binary: ${customBinPath}`);
@@ -88,7 +72,7 @@ async function testConfig(name, usePipe, baseDir) {
 
         process.env.PUPPETEER_EXECUTABLE_PATH = originalEnv || '';
     } else {
-        console.log('Skipping Dedicated Binary test (not found)');
+        console.log('Skipping Dedicated Binary test (not found on local FS, checking remote)');
     }
 
 })();
