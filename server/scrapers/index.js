@@ -10,9 +10,25 @@ let payPayFailed = false;
 
 const Settings = require('../models/settings');
 
+// Helper to extract quoted terms: 'foo "bar baz" qux' -> ['bar baz']
+function extractQuotedTerms(query) {
+    const regex = /"([^"]+)"/g;
+    const matches = [];
+    let match;
+    while ((match = regex.exec(query)) !== null) {
+        matches.push(match[1]);
+    }
+    return matches;
+}
+
 async function searchAll(query, enabledOverride = null, strictOverride = null) {
     console.log(`Starting search for: ${query}`);
     const settings = Settings.get();
+
+    const quotedTerms = extractQuotedTerms(query);
+    if (quotedTerms.length > 0) {
+        console.log(`[Scraper] Found quoted strict terms: ${JSON.stringify(quotedTerms)}`);
+    }
 
     // Defaults (safe fallback) or use override
     // Taobao defaults to false - only enabled when explicitly requested (e.g., Search Taobao button)
@@ -76,7 +92,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null) {
     }
 
     const results = await Promise.allSettled(promises);
-    const flatResults = [];
+    let flatResults = [];
 
     results.forEach((res, index) => {
         if (res.status === 'fulfilled') {
@@ -93,6 +109,19 @@ async function searchAll(query, enabledOverride = null, strictOverride = null) {
             }
         }
     });
+
+    // Apply mandatory quoted term filtering
+    if (quotedTerms.length > 0) {
+        const beforeCount = flatResults.length;
+        flatResults = flatResults.filter(item => {
+            if (!item.title) return false;
+            const titleLower = item.title.toLowerCase();
+            return quotedTerms.every(term => titleLower.includes(term.toLowerCase()));
+        });
+        if (flatResults.length < beforeCount) {
+            console.log(`[Scraper] Quoted term filtering removed ${beforeCount - flatResults.length} items. Remaining: ${flatResults.length}`);
+        }
+    }
 
     if (enabled.paypay === false) {
         payPayFailed = false;
