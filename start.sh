@@ -7,10 +7,10 @@ cd "$(dirname "$0")"
 
 echo "🚀 Starting GK Watcher..."
 
-# Set TMPDIR for Snap Chromium compatibility
-export TMPDIR="$HOME/tmp"
-mkdir -p "$TMPDIR"
-echo "Using TMPDIR: $TMPDIR"
+# TMPDIR not needed as Snap is fixed
+# export TMPDIR="$HOME/tmp"
+# mkdir -p "$TMPDIR"
+# echo "Using TMPDIR: $TMPDIR"
 
 # Kill any existing processes on ports 3000 and 5173
 echo "Cleaning up any existing processes..."
