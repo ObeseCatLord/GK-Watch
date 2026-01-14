@@ -35,15 +35,34 @@ async function searchAll(query, enabledOverride = null, strictOverride = null) {
     const enabled = enabledOverride || settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false };
 
     // Determine strict settings:
-    // 1. If strictOverride is a boolean, apply it to all sites.
-    // 2. If strictOverride is an object, merge it.
-    // 3. Fallback to global settings.
-    // 4. Fallback to default true.
+    // User Request: Options tab (Global Settings) takes priority for DISABLE logic.
+    // If Global is OFF for a site, it stays OFF even if Watch is ON.
+    // Logic: EffectiveStrict = Override (Watch) AND Global.
+    // Both must be TRUE for strict mode to be active.
+
+    const globalStrict = settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
     let strict;
-    if (typeof strictOverride === 'boolean') {
-        strict = { mercari: strictOverride, yahoo: strictOverride, paypay: strictOverride, fril: strictOverride, surugaya: strictOverride, taobao: strictOverride };
+
+    if (strictOverride === null || strictOverride === undefined) {
+        // No override, use global defaults
+        strict = globalStrict;
     } else {
-        strict = strictOverride || settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
+        // Have override (boolean or object)
+        // Resolve override to object first
+        const overrideObj = typeof strictOverride === 'boolean'
+            ? { mercari: strictOverride, yahoo: strictOverride, paypay: strictOverride, fril: strictOverride, surugaya: strictOverride, taobao: strictOverride }
+            : strictOverride;
+
+        // Apply AND logic (Lax wins)
+        strict = {
+            mercari: overrideObj.mercari !== false && globalStrict.mercari !== false,
+            yahoo: overrideObj.yahoo !== false && globalStrict.yahoo !== false,
+            paypay: overrideObj.paypay !== false && globalStrict.paypay !== false,
+            fril: overrideObj.fril !== false && globalStrict.fril !== false,
+            surugaya: overrideObj.surugaya !== false && globalStrict.surugaya !== false,
+            taobao: overrideObj.taobao !== false && globalStrict.taobao !== false,
+            goofish: overrideObj.goofish !== false && (globalStrict.goofish ?? true) !== false // Handle goofish if missing in legacy settings
+        };
     }
 
     // Enforce global disables (Master Switches)
