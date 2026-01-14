@@ -7,11 +7,17 @@ cd "$(dirname "$0")"
 
 echo "🚀 Starting GK Watcher..."
 
+# Set TMPDIR for Snap Chromium compatibility
+export TMPDIR="$HOME/tmp"
+mkdir -p "$TMPDIR"
+echo "Using TMPDIR: $TMPDIR"
+
 # Kill any existing processes on ports 3000 and 5173
 echo "Cleaning up any existing processes..."
 fuser -k 3000/tcp 2>/dev/null
 fuser -k 5173/tcp 2>/dev/null
-sleep 1
+fuser -k 5174/tcp 2>/dev/null
+sleep 3
 
 # Start the backend server
 echo "Starting backend server..."
