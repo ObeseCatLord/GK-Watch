@@ -42,7 +42,7 @@ async function search(query, strictEnabled = true, filters = []) {
             ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
             : undefined;
 
-        userDataDir = path.join(os.tmpdir(), `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+        userDataDir = path.join('/tmp', `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
         browser = await puppeteer.launch({
             headless: "new",
