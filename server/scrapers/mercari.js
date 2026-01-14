@@ -25,7 +25,6 @@ async function search(query, strictEnabled = true, filters = []) {
     console.log(`[Mercari] Searching for: "${effectiveQuery}" (Filters will be applied post-fetch)`);
 
     let browser = null;
-    let browser = null;
     let timeoutHandle = null;
     let userDataDir = null;
 
