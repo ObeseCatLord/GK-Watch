@@ -34,6 +34,24 @@ const fs = require('fs');
         console.error('Snap Dir Launch Failed:', err.message);
     }
 
+    // Test 6: Pipe Connection + Shell Headless
+    const pipeDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium', `test-profile-pipe-${Date.now()}`);
+    console.log('Using Pipe Dir:', pipeDir);
+
+    try {
+        const browser = await puppeteer.launch({
+            headless: "shell", // Old headless
+            executablePath,
+            userDataDir: pipeDir,
+            pipe: true, // Use pipe instead of WS
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        });
+        console.log('SUCCESS: Browser launched with PIPE!');
+        await browser.close();
+    } catch (err) {
+        console.error('Pipe Launch Failed:', err.message);
+    }
+
     // Test 5: Relative Path (in CWD)
     const relativeDir = path.resolve(`./test-profile-${Date.now()}`);
     console.log('Using Relative Dir:', relativeDir);
