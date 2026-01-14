@@ -39,14 +39,8 @@ async function searchWithPuppeteer(query) {
         const searchUrl = buildSearchUrl(query);
         console.log(`[Goofish] Fetching with Puppeteer: ${searchUrl}`);
 
-        const isARM = process.arch === 'arm' || process.arch === 'arm64';
-        const executablePath = (process.platform === 'linux' && isARM)
-            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-            : undefined;
-
         browser = await puppeteer.launch({
             headless: "new",
-            executablePath,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 

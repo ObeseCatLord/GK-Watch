@@ -37,16 +37,8 @@ async function search(query, strictEnabled = true, filters = []) {
 
         // Use system Chromium only on ARM Linux (bundled Chrome doesn't work on ARM)
         // On x64 Linux and other platforms, use bundled Puppeteer Chrome (faster)
-        const isARM = process.arch === 'arm' || process.arch === 'arm64';
-        const executablePath = (process.platform === 'linux' && isARM)
-            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-            : undefined;
-
-        userDataDir = path.join(os.tmpdir(), `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
-
         browser = await puppeteer.launch({
             headless: "new",
-            executablePath,
             userDataDir,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
