@@ -66,4 +66,29 @@ async function testConfig(name, usePipe, baseDir) {
     process.env.TMPDIR = customTmp;
     console.log(`Set TMPDIR = ${customTmp}`);
     await testConfig('Downloads + TMPDIR', false, downloadsDir);
+    // Test 5: Dedicated Custom Binary (Bypass Snap)
+    console.log('\n--- Testing Config: Dedicated Binary ---');
+    // Find the binary dynamically
+    const binBase = path.join(os.homedir(), 'chrome_bin', 'chrome');
+    let customBinPath = '';
+    if (fs.existsSync(binBase)) {
+        const versions = fs.readdirSync(binBase);
+        if (versions.length > 0) {
+            customBinPath = path.join(binBase, versions[0], 'chrome-linux64', 'chrome');
+        }
+    }
+
+    if (customBinPath && fs.existsSync(customBinPath)) {
+        console.log(`Found binary: ${customBinPath}`);
+        // Override executable path logic locally for this test
+        const originalEnv = process.env.PUPPETEER_EXECUTABLE_PATH;
+        process.env.PUPPETEER_EXECUTABLE_PATH = customBinPath;
+
+        await testConfig('Dedicated Binary + WS', false, downloadsDir);
+
+        process.env.PUPPETEER_EXECUTABLE_PATH = originalEnv || '';
+    } else {
+        console.log('Skipping Dedicated Binary test (not found)');
+    }
+
 })();
