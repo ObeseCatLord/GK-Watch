@@ -66,4 +66,16 @@ echo "--- Core Dumps (in Home) ---"
 find "$HOME" -maxdepth 3 -name "core" -o -name "core.*" -type f -ls 2>/dev/null | head -n 10
 echo ""
 
+# 7. Check Snap Private Tmp (Common Chromium Snap Issue)
+echo "--- Snap Private Tmp (/tmp/snap-private-tmp) ---"
+if [ -d "/tmp/snap-private-tmp" ]; then
+    echo "Size of /tmp/snap-private-tmp (requires sudo for accuracy):"
+    sudo du -sh /tmp/snap-private-tmp 2>/dev/null || echo "Unable to read size (Permission Denied). Try running with sudo."
+    echo "Detailed breakdown (requires sudo):"
+    sudo du -h -d 1 /tmp/snap-private-tmp 2>/dev/null | sort -hr | head -n 10
+else
+    echo "/tmp/snap-private-tmp not found."
+fi
+echo ""
+
 echo "=== End of Diagnostic ==="
