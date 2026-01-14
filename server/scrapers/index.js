@@ -10,19 +10,36 @@ let payPayFailed = false;
 
 const Settings = require('../models/settings');
 
-async function searchAll(query, enabledOverride = null) {
+async function searchAll(query, enabledOverride = null, strictOverride = null) {
     console.log(`Starting search for: ${query}`);
     const settings = Settings.get();
 
     // Defaults (safe fallback) or use override
     // Taobao defaults to false - only enabled when explicitly requested (e.g., Search Taobao button)
     const enabled = enabledOverride || settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false };
-    const strict = settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
 
-    // Enforce global disable for Taobao (Master Switch)
-    // Even if item overrides it to true, if global is false (e.g. no cookies), don't run.
-    if (enabledOverride && settings.enabledSites && settings.enabledSites.taobao === false) {
-        enabled.taobao = false;
+    // Determine strict settings:
+    // 1. If strictOverride is a boolean, apply it to all sites.
+    // 2. If strictOverride is an object, merge it.
+    // 3. Fallback to global settings.
+    // 4. Fallback to default true.
+    let strict;
+    if (typeof strictOverride === 'boolean') {
+        strict = { mercari: strictOverride, yahoo: strictOverride, paypay: strictOverride, fril: strictOverride, surugaya: strictOverride, taobao: strictOverride };
+    } else {
+        strict = strictOverride || settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
+    }
+
+    // Enforce global disables (Master Switches)
+    // If a site is disabled globally, it should not run even if requested by an item
+    if (enabledOverride && settings.enabledSites) {
+        if (settings.enabledSites.mercari === false) enabled.mercari = false;
+        if (settings.enabledSites.yahoo === false) enabled.yahoo = false;
+        if (settings.enabledSites.paypay === false) enabled.paypay = false;
+        if (settings.enabledSites.fril === false) enabled.fril = false;
+        if (settings.enabledSites.surugaya === false) enabled.surugaya = false;
+        if (settings.enabledSites.taobao === false) enabled.taobao = false;
+        if (settings.enabledSites.goofish === false) enabled.goofish = false;
     }
 
     // Run all scrapers in parallel

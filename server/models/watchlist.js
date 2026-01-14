@@ -30,7 +30,7 @@ const Watchlist = {
                     name: item.name || terms[0] || item.term,
                     emailNotify: item.emailNotify !== undefined ? item.emailNotify : true,
                     priority: item.priority === true, // Ensure boolean
-                    priority: item.priority === true, // Ensure boolean
+                    strict: item.strict !== false,    // Default to true
                     filters: item.filters || [], // Per-watch filter terms
                     enabledSites: item.enabledSites || {
                         mercari: true,
@@ -82,7 +82,10 @@ const Watchlist = {
             lastRun: null,
             active: true,
             emailNotify: true,
+            lastRun: null,
+            active: true,
             emailNotify: true,
+            strict: data.strict !== false, // Default to true
             filters: data.filters || [], // Persist filters if provided (e.g. from import)
             enabledSites: data.enabledSites || {
                 mercari: true,

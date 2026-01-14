@@ -565,7 +565,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         let allTermResults = [];
 
         for (const term of terms) {
-            const results = await searchAggregator.searchAll(term, item.enabledSites);
+            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false);
             if (results && results.length > 0) {
                 allTermResults = [...allTermResults, ...results];
             }

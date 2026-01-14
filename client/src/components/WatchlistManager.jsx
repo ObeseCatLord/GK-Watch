@@ -81,6 +81,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
     const [editTerms, setEditTerms] = useState('');
     const [editFilters, setEditFilters] = useState('');
     const [editEnabledSites, setEditEnabledSites] = useState({});
+    const [editStrict, setEditStrict] = useState(true);
+    const [newStrict, setNewStrict] = useState(true);
     const [globalSettings, setGlobalSettings] = useState({}); // Renamed to avoid collision with 'activeSettings' maybe? No, 'settings' is fine but distinct from local settings maps.
 
 
@@ -238,6 +240,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     term: newTerm,
+                    strict: newStrict,
                     enabledSites: {
                         mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true,
                         taobao: false, goofish: false
@@ -269,6 +272,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                     terms,
                     name: terms[0], // Set name explicitly to first term
                     filters: [],
+                    strict: newStrict,
                     enabledSites: {
                         mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true,
                         taobao: false, goofish: false
@@ -303,6 +307,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                 body: JSON.stringify({
                     term: newTerm,
                     enabledSites: cnEnabledSites,
+                    strict: newStrict,
                     name: `${newTerm} (CN)`
                 })
             });
@@ -428,6 +433,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         setEditEnabledSites(item.enabledSites || {
             mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false, goofish: false
         });
+        setEditStrict(item.strict !== false);
     };
 
     const saveEdit = async () => {
@@ -444,7 +450,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
             await authenticatedFetch(`/api/watchlist/${editingItem.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: editName, terms, filters, enabledSites: editEnabledSites })
+                body: JSON.stringify({ name: editName, terms, filters, enabledSites: editEnabledSites, strict: editStrict })
             });
             setEditingItem(null);
             fetchWatchlist();
@@ -632,6 +638,15 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                         className="search-input"
                         style={{ maxWidth: '400px', fontSize: '1rem' }}
                     />
+                    <label style={{ display: 'flex', alignItems: 'center', marginLeft: '10px', fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Enable Strict Filtering (Exact Match)">
+                        <input
+                            type="checkbox"
+                            checked={newStrict}
+                            onChange={e => setNewStrict(e.target.checked)}
+                            style={{ marginRight: '5px' }}
+                        />
+                        Strict
+                    </label>
                     <button type="submit" className="add-btn">Add</button>
                     <button type="button" className="add-btn gk-btn" onClick={addGKEntries}>Add GK</button>
                     <button
@@ -878,6 +893,20 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                         );
                                     })}
                                 </div>
+                            </div>
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={editStrict}
+                                        onChange={e => setEditStrict(e.target.checked)}
+                                        style={{ marginRight: '8px', transform: 'scale(1.2)' }}
+                                    />
+                                    Enable Strict Filtering (Exact Match)
+                                </label>
+                                <p style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '5px', marginLeft: '24px' }}>
+                                    If enabled, items must match query exactly (order insensitive) and pass anti-spam checks.
+                                </p>
                             </div>
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                                 <button onClick={() => setEditingItem(null)} className="page-btn">Cancel</button>
