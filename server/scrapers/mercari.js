@@ -152,10 +152,17 @@ async function search(query, strictEnabled = true) {
                                 if (priceNum) formattedPrice = `¥${Number(priceNum).toLocaleString()}`;
                             }
 
+                            // Extract Image URL
+                            let imageUrl = '';
+                            const imgEl = item.querySelector('img');
+                            if (imgEl) {
+                                imageUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+                            }
+
                             data.push({
                                 title: title || 'Unknown Item',
                                 link,
-                                image: '', // Optimizing out image extraction for speed if blocked
+                                image: imageUrl,
                                 price: formattedPrice,
                                 source: 'Mercari'
                             });
