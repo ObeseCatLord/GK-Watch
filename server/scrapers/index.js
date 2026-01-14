@@ -82,7 +82,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     const promises = [];
 
     if (enabled.mercari !== false) {
-        promises.push(mercari.search(query, strict.mercari ?? true).then(res => res.map(i => ({ ...i, source: 'Mercari' }))));
+        promises.push(mercari.search(query, strict.mercari ?? true, filters).then(res => res.map(i => ({ ...i, source: 'Mercari' }))));
     }
 
     if (enabled.yahoo !== false) {

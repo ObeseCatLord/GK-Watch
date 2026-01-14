@@ -568,8 +568,13 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         const terms = item.terms || [item.term];
         let allTermResults = [];
 
+        const settings = Settings.get();
+        const globalFilters = settings.globalBlacklist || [];
+        // Unique merge of item filters and global filters
+        const filters = [...new Set([...(item.filters || []), ...globalFilters])];
+
         for (const term of terms) {
-            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || []);
+            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, filters);
             if (results && results.length > 0) {
                 allTermResults = [...allTermResults, ...results];
             }

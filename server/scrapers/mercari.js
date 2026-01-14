@@ -10,10 +10,18 @@ function reset() {
     console.log('Mercari Scraper state reset.');
 }
 
-async function search(query, strictEnabled = true) {
+async function search(query, strictEnabled = true, filters = []) {
     if (isDisabled) {
         console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
         return [];
+    }
+
+    // Append negative filters to query
+    let effectiveQuery = query;
+    if (filters && filters.length > 0) {
+        const negativeTerms = filters.map(f => `-${f}`).join(' ');
+        effectiveQuery = `${query} ${negativeTerms}`;
+        console.log(`[Mercari] Optimized search with negative terms: "${effectiveQuery}"`);
     }
 
     let browser = null;
@@ -21,7 +29,7 @@ async function search(query, strictEnabled = true) {
 
     // Search Logic Promise
     const runSearch = async () => {
-        console.log(`Searching Mercari for ${query}...`);
+        console.log(`Searching Mercari for ${effectiveQuery}...`);
 
         let allResults = [];
         const MAX_PAGES = 10;
@@ -61,7 +69,7 @@ async function search(query, strictEnabled = true) {
             });
 
             // Initial URL
-            let currentUrl = `https://jp.mercari.com/search?keyword=${encodeURIComponent(query)}&status=on_sale`;
+            let currentUrl = `https://jp.mercari.com/search?keyword=${encodeURIComponent(effectiveQuery)}&status=on_sale`;
 
             for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
                 if (pageNum > 1) {
