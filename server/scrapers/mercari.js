@@ -52,7 +52,8 @@ async function search(query, strictEnabled = true, filters = []) {
             headless: "new",
             executablePath,
             userDataDir,
-            pipe: true, // Use pipe connection to avoid socket issues
+            pipe: true,
+            dumpio: true, // Enable Chrome stdout/stderr logging
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
