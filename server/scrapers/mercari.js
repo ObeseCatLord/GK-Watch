@@ -44,10 +44,15 @@ async function search(query, strictEnabled = true, filters = []) {
 
         userDataDir = path.join('/tmp', `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
+        if (!fs.existsSync(userDataDir)) {
+            fs.mkdirSync(userDataDir, { recursive: true });
+        }
+
         browser = await puppeteer.launch({
             headless: "new",
             executablePath,
             userDataDir,
+            pipe: true, // Use pipe connection to avoid socket issues
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
