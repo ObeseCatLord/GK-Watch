@@ -238,7 +238,11 @@ async function searchWithPuppeteer(query, cookies) {
 
     try {
         const searchUrl = buildSearchUrl(query);
-        const userDataDir = path.join('/tmp', `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+        const snapCommonDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium');
+        if (!fs.existsSync(snapCommonDir)) {
+            fs.mkdirSync(snapCommonDir, { recursive: true });
+        }
+        const userDataDir = path.join(snapCommonDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, { recursive: true });
