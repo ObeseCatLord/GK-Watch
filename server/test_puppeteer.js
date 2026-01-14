@@ -72,6 +72,23 @@ const fs = require('fs');
         console.error('XDG Launch Failed:', err.message);
     }
 
+    // Test 8: Headless FALSE (Diagnostic)
+    const displayDir = path.resolve(`./test-profile-display-${Date.now()}`);
+    console.log('Using Display Dir:', displayDir);
+
+    try {
+        const browser = await puppeteer.launch({
+            headless: false,
+            executablePath: '/snap/bin/chromium', // Direct path
+            userDataDir: displayDir,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        });
+        console.log('SUCCESS: Browser launched in Display Mode!');
+        await browser.close();
+    } catch (err) {
+        console.error('Display Mode Launch Failed:', err.message);
+    }
+
     // Test 5: Relative Path (in CWD)
     const relativeDir = path.resolve(`./test-profile-${Date.now()}`);
     console.log('Using Relative Dir:', relativeDir);
