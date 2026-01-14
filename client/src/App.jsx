@@ -100,7 +100,17 @@ function App() {
 
   const authenticatedFetch = async (url, options = {}) => {
     const headers = { ...options.headers, ...getAuthHeaders() };
-    const res = await fetch(url, { ...options, headers });
+
+    // Default to 60s timeout if not provided
+    let signal = options.signal;
+    let controller = null;
+    if (!signal) {
+      controller = new AbortController();
+      setTimeout(() => controller.abort(), 60000);
+      signal = controller.signal;
+    }
+
+    const res = await fetch(url, { ...options, headers, signal });
     if (res.status === 401) {
       setIsAuthenticated(false);
       setLoginRequired(true);
@@ -152,62 +162,61 @@ function App() {
   };
 
   // Export results to HTML file with 5-column grid
-  const exportToHtml = (items, filename = 'search_results') => {
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${filename} - GK Watch Export</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a1a; color: #eee; padding: 20px; }
-    h1 { text-align: center; margin-bottom: 20px; color: #fff; }
-    .info { text-align: center; margin-bottom: 20px; color: #888; }
-    .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
-    .card { background: #2a2a2a; border-radius: 8px; overflow: hidden; transition: transform 0.2s; border: 1px solid #333; }
-    .card:hover { transform: translateY(-3px); border-color: #555; }
-    .card a { text-decoration: none; color: inherit; display: block; }
-    .card img { width: 100%; height: 280px; object-fit: cover; background: #333; }
-    .card-body { padding: 10px; }
-    .card-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; height: 2.6em; }
-    .card-price { font-size: 0.9rem; font-weight: bold; color: #fff; }
-    .card-source { font-size: 0.7rem; color: #888; margin-top: 3px; }
-    @media (max-width: 1200px) { .grid { grid-template-columns: repeat(4, 1fr); } }
-    @media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-    @media (max-width: 600px) { .grid { grid-template-columns: repeat(2, 1fr); } }
-  </style>
-</head>
-<body>
-  <h1>🔍 ${filename}</h1>
-  <p class="info">${items.length} items exported on ${new Date().toLocaleString()}</p>
-  <div class="grid">
-    ${items.map(item => `
-    <div class="card">
-      <a href="${item.link}" target="_blank" rel="noopener">
-        <img src="${item.image || 'https://via.placeholder.com/200x280?text=No+Image'}" alt="${(item.title || '').replace(/"/g, '&quot;')}" loading="lazy" onerror="this.src='https://via.placeholder.com/200x280?text=No+Image'">
-        <div class="card-body">
-          <div class="card-title">${item.title || 'Unknown'}</div>
-          <div class="card-price">${item.price || 'N/A'}</div>
-          <div class="card-source">${item.source || ''}</div>
-        </div>
-      </a>
-    </div>`).join('')}
-  </div>
-</body>
-</html>`;
+  const exportToHtml = (items, filename) => {
+    // Generate HTML content
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>GK Watch Export - ${filename}</title>
+      <style>
+        body { font-family: sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f0f2f5; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        .img-container { height: 200px; overflow: hidden; position: relative; }
+        .img-container img { width: 100%; height: 100%; object-fit: cover; }
+        .content { padding: 15px; flex: 1; display: flex; flex-direction: column; }
+        h3 { margin: 0 0 10px; font-size: 1rem; line-height: 1.4; color: #333; }
+        .price { font-weight: bold; font-size: 1.2rem; color: #e53935; margin-bottom: 10px; }
+        .source { font-size: 0.8rem; color: #666; margin-top: auto; display: flex; justify-content: space-between; align-items: center; }
+        a { text-decoration: none; color: inherit; }
+        .blocked { opacity: 0.6; filter: grayscale(100%); }
+        .badge { background: #333; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; }
+      </style>
+    </head>
+    <body>
+      <h1>Search Results: ${filename}</h1>
+      <p>Exported on ${new Date().toLocaleString()} - ${items.length} items</p>
+      <div class="grid">
+        ${items.map(item => `
+          <div class="card">
+            <a href="${item.link}" target="_blank">
+              <div class="img-container">
+                <img src="${item.image}" alt="${item.title.replace(/"/g, '&quot;')}" loading="lazy">
+              </div>
+              <div class="content">
+                <h3>${item.title}</h3>
+                <div class="price">${item.price}</div>
+                <div class="source">
+                  <span>${item.source}</span>
+                  ${item.isNew ? '<span class="badge">NEW</span>' : ''}
+                </div>
+              </div>
+            </a>
+          </div>
+        `).join('')}
+      </div>
+    </body>
+    </html>
+    `;
 
-    const blob = new Blob([html], { type: 'text/html' });
+    // Create download link
+    const blob = new Blob([htmlContent], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    // Sanitize filename but preserve spaces and harmless punctuation
-    const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, '_');
-
-    // Add date/time to filename
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-').slice(0, 5); // HH-MM
 
     a.download = `${safeFilename} - ${dateStr} ${timeStr}.html`;
     document.body.appendChild(a);
@@ -739,13 +748,23 @@ function App() {
                       Next →
                     </button>
 
-                    <button
-                      className="page-btn"
-                      onClick={() => exportToHtml(filteredResults, query || 'search_results')}
-                      style={{ marginLeft: 'auto', backgroundColor: '#333', border: '1px solid #555' }}
-                    >
-                      📥 Export HTML
-                    </button>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                      <button
+                        className="page-btn"
+                        onClick={() => handleExportClipboard(filteredResults)}
+                        style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                        title="Copy Name - Link to Clipboard"
+                      >
+                        📋 Copy
+                      </button>
+                      <button
+                        className="page-btn"
+                        onClick={() => exportToHtml(filteredResults, query || 'search_results')}
+                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
+                      >
+                        📥 HTML
+                      </button>
+                    </div>
                   </div>
                 )}
               </>
@@ -754,13 +773,21 @@ function App() {
 
           {/* Export Button (shown when no pagination) */}
           {results.length > 0 && results.length <= ITEMS_PER_PAGE && (
-            <div style={{ textAlign: 'right', marginTop: '1rem' }}>
+            <div style={{ textAlign: 'right', marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
+              <button
+                className="page-btn"
+                onClick={() => handleExportClipboard(results)}
+                style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                title="Copy Name - Link to Clipboard"
+              >
+                📋 Copy ({results.length})
+              </button>
               <button
                 className="page-btn"
                 onClick={() => exportToHtml(results, query || 'search_results')}
                 style={{ backgroundColor: '#333', border: '1px solid #555' }}
               >
-                📥 Export HTML ({results.length} items)
+                📥 HTML ({results.length})
               </button>
             </div>
           )}
