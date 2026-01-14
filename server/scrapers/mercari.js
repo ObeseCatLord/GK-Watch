@@ -16,13 +16,10 @@ async function search(query, strictEnabled = true, filters = []) {
         return [];
     }
 
-    // Append negative filters to query
+    // Optimization: Mercari doesn't support negative search terms in the URL query.
+    // We will apply these filters on the server side after fetching.
     let effectiveQuery = query;
-    if (filters && filters.length > 0) {
-        const negativeTerms = filters.map(f => `-${f}`).join(' ');
-        effectiveQuery = `${query} ${negativeTerms}`;
-        console.log(`[Mercari] Optimized search with negative terms: "${effectiveQuery}"`);
-    }
+    console.log(`[Mercari] Searching for: "${effectiveQuery}" (Filters will be applied post-fetch)`);
 
     let browser = null;
     let timeoutHandle = null;
@@ -209,14 +206,27 @@ async function search(query, strictEnabled = true, filters = []) {
         }
 
         // Strict filtering using query matcher (supports | for OR, && for AND)
+        // Also apply negative filters here since Mercari API doesn't support them
+        let finalResults = allResults;
+
+        if (filters && filters.length > 0) {
+            const filterTerms = filters.map(f => f.toLowerCase());
+            const preCount = finalResults.length;
+            finalResults = finalResults.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return !filterTerms.some(term => titleLower.includes(term));
+            });
+            console.log(`[Mercari] Server-side negative filtering removed ${preCount - finalResults.length} items.`);
+        }
+
         if (strictEnabled) {
-            const filteredResults = allResults.filter(item => matchTitle(item.title, query));
+            const filteredResults = finalResults.filter(item => matchTitle(item.title, query));
             console.log(`Mercari: Total ${allResults.length} items, ${filteredResults.length} after strict filter`);
             return filteredResults;
         }
 
-        console.log(`Mercari: Total ${allResults.length} items (Strict filtering disabled)`);
-        return allResults;
+        console.log(`Mercari: Total ${allResults.length} items (Strict filtering disabled). Returning filtered set: ${finalResults.length}`);
+        return finalResults;
     };
 
     // Timeout Promise (4 min) to match frontend 5 min safety
