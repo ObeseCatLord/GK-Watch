@@ -148,7 +148,8 @@ const Scheduler = {
                     try {
                         // Pass item's enabledSites to override global settings if present
                         // If item.enabledSites is undefined (legacy items), searchAll falls back to global settings
-                        const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false);
+                        // Also pass item.filters for Suruga-ya optimization
+                        const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || []);
                         if (searchAggregator.isPayPayFailed && searchAggregator.isPayPayFailed()) {
                             payPayErrorOccurred = true;
                         }

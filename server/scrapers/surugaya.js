@@ -124,6 +124,55 @@ async function fetchFullTitle(neokyoLink) {
 }
 
 /**
+ * Fetch the full title from a Neokyo product detail page
+ * Used to verify truncated titles before filtering
+ * Added retry logic for 403/429 errors
+ */
+async function fetchFullTitle(neokyoLink) {
+    const maxRetries = 1;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            if (attempt > 0) {
+                console.log(`[Suruga-ya] Retrying title fetch for ${neokyoLink} (Attempt ${attempt + 1}/${maxRetries + 1})...`);
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+            }
+
+            const response = await axios.get(neokyoLink, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                },
+                timeout: 10000
+            });
+
+            const $ = cheerio.load(response.data);
+            // The full title is in h6 with classes font-gothamRounded translate
+            let fullTitle = $('h6.font-gothamRounded.translate').first().text().trim();
+            if (!fullTitle) {
+                // Fallback selectors
+                fullTitle = $('h6.translate').first().text().trim();
+            }
+            if (!fullTitle) {
+                fullTitle = $('title').text().replace(' - Neokyo', '').replace('Item Details', '').trim();
+            }
+            return fullTitle || null;
+
+        } catch (error) {
+            const isRateLimit = error.response && (error.response.status === 403 || error.response.status === 429);
+            console.log(`[Suruga-ya] Failed to fetch full title from ${neokyoLink}: ${error.message} ${isRateLimit ? '(Rate Limit/Block)' : ''}`);
+
+            if (isRateLimit && attempt < maxRetries) {
+                continue; // Retry
+            }
+            // If failed after retries or non-retryable error
+            if (attempt === maxRetries) return null;
+        }
+    }
+    return null;
+}
+
+/**
  * Get total pages from pagination element
  * Looks for: class="pagination pagination-sm justify-content-center"
  */
@@ -254,11 +303,20 @@ async function searchWithAxios(query) {
 /**
  * Main search function - tries Axios first, falls back to Puppeteer
  */
-async function search(query, strict = true) {
-    console.log(`Searching Suruga-ya for ${query}...`);
+async function search(query, strict = true, filters = []) {
+    // Append negative filters to query for optimized searching
+    // e.g. "Gundam -Plastic -Model"
+    let effectiveQuery = query;
+    if (filters && filters.length > 0) {
+        const negativeTerms = filters.map(f => `-${f}`).join(' ');
+        effectiveQuery = `${query} ${negativeTerms}`;
+        console.log(`[Suruga-ya] Optimized search with negative terms: "${effectiveQuery}"`);
+    }
+
+    console.log(`Searching Suruga-ya for ${effectiveQuery}...`);
 
     // Try Axios (only)
-    let results = await searchWithAxios(query);
+    let results = await searchWithAxios(effectiveQuery);
 
     // Filter results if strict mode is on
     if (strict && results && results.length > 0) {
@@ -268,6 +326,7 @@ async function search(query, strict = true) {
 
         for (const item of results) {
             // Check if title matches query strictly
+            // Use ORIGINAL query (without negative terms) for positive matching
             const matches = queryMatcher.matchTitle(item.title, query);
 
             // If it matches, keep it
@@ -279,6 +338,8 @@ async function search(query, strict = true) {
             // If it doesn't match, try fetching the full title from detail page
             // This handles truncation AND cases where search results show partial info
             if (item.neokyoLink) {
+                // If the Title check failed on the truncated title, and we are strict,
+                // we assume it MIGHT be a match and verify.
                 const fullTitle = await fetchFullTitle(item.neokyoLink);
                 if (fullTitle) {
                     const fullMatches = queryMatcher.matchTitle(fullTitle, query);
@@ -289,7 +350,21 @@ async function search(query, strict = true) {
                         filteredResults.push(item);
                         continue;
                     }
+                } else {
+                    // Fail-safe: Could not fetch title (e.g. 403 again after retry)
+                    // Default to KEEPING the item to ensure we don't miss valid items.
+                    console.log(`[Suruga-ya] WARN: Could not verify full title for "${item.title}". Defaulting to KEEP.`);
+                    filteredResults.push(item);
+                    continue;
                 }
+            } else {
+                // No link to verify? Should technically keep if we want to be safe,
+                // but without link it's likely a bad scrape. 
+                // However, we only get here if title failed match.
+                // If default behavior is safe, we should probably keep it?
+                // But rare case. Let's stick to fail-safe on fetch failure.
+                // If no link, we can't verify, so we rely on initial match (which failed).
+                // So discard.
             }
 
             // Item doesn't match after all checks - filter it out

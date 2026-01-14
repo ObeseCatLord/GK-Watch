@@ -21,7 +21,7 @@ function extractQuotedTerms(query) {
     return matches;
 }
 
-async function searchAll(query, enabledOverride = null, strictOverride = null) {
+async function searchAll(query, enabledOverride = null, strictOverride = null, filters = []) {
     console.log(`Starting search for: ${query}`);
     const settings = Settings.get();
 
@@ -98,7 +98,8 @@ async function searchAll(query, enabledOverride = null, strictOverride = null) {
     }
 
     if (enabled.surugaya !== false) {
-        promises.push(surugaya.search(query, strict.surugaya ?? true).then(res => res.map(i => ({ ...i, source: 'Suruga-ya' }))));
+        // Pass filters to Suruga-ya for negative searching
+        promises.push(surugaya.search(query, strict.surugaya ?? true, filters).then(res => res.map(i => ({ ...i, source: 'Suruga-ya' }))));
     }
 
     if (enabled.taobao !== false) {

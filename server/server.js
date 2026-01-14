@@ -111,7 +111,9 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
 
         const strict = req.query.strict !== 'false'; // Default true
-        const results = await searchAggregator.searchAll(query, enabledOverride, strict);
+        // Live search doesn't support complex filters array yet (only query string), so pass empty []
+        // Optional: Could parse filters from query if added later.
+        const results = await searchAggregator.searchAll(query, enabledOverride, strict, []);
         const filteredResults = BlockedItems.filterResults(results);
         res.json(filteredResults);
     } catch (error) {
@@ -567,7 +569,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         let allTermResults = [];
 
         for (const term of terms) {
-            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false);
+            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || []);
             if (results && results.length > 0) {
                 allTermResults = [...allTermResults, ...results];
             }
