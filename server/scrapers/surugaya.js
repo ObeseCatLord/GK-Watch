@@ -69,9 +69,9 @@ function parseResults($) {
             const priceMatch = priceText.match(/(\d[\d,]*)/);
             let price = 'N/A';
             if (priceMatch) {
-                // Remove commas and format
-                const priceNum = priceMatch[1].replace(/,/g, '');
-                price = `¥${priceNum}`;
+                // Remove commas first to parse, then re-format with commas
+                const priceNum = parseInt(priceMatch[1].replace(/,/g, ''), 10);
+                price = `¥${priceNum.toLocaleString()}`;
             }
 
             // Store both Neokyo link (for detail fetch) and Suruga-ya link (for display)
