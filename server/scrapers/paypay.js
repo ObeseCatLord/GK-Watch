@@ -235,6 +235,18 @@ async function search(query, strictEnabled = true, filters = []) {
         // In this case, we do NOT want to fall back to Neokyo.
         if (Array.isArray(results)) {
             console.log(`[PayPay] Legacy scraper successful. Found ${results.length} items.`);
+
+            // Apply negative filtering (server-side)
+            if (filters && filters.length > 0 && results.length > 0) {
+                const filterTerms = filters.map(f => f.toLowerCase());
+                const preCount = results.length;
+                results = results.filter(item => {
+                    const titleLower = item.title.toLowerCase();
+                    return !filterTerms.some(term => titleLower.includes(term));
+                });
+                console.log(`[PayPay] Server-side negative filtering (Legacy) removed ${preCount - results.length} items.`);
+            }
+
             return results;
         }
 
@@ -306,7 +318,7 @@ async function search(query, strictEnabled = true, filters = []) {
             const titleLower = item.title.toLowerCase();
             return !filterTerms.some(term => titleLower.includes(term));
         });
-        console.log(`[PayPay] Server-side negative filtering removed ${preCount - results.length} items.`);
+        console.log(`[PayPay] Server-side negative filtering (Neokyo) removed ${preCount - results.length} items.`);
     }
 
     return results || [];
