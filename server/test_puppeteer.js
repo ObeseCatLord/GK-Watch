@@ -104,20 +104,22 @@ const fs = require('fs');
         await browser.close();
     } catch (err) {
         console.error('Relative Dir Launch Failed:', err.message);
-        // Test 9: Default /tmp Dir
-        const tmpProfile = path.join('/tmp', `test-profile-${Date.now()}`);
-        console.log('Using /tmp Dir:', tmpProfile);
+    }
 
-        try {
-            const browser = await puppeteer.launch({
-                headless: "new",
-                executablePath,
-                userDataDir: tmpProfile,
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-            });
-            console.log('SUCCESS: Browser launched in /tmp Dir!');
-            await browser.close();
-        } catch (err) {
-            console.error('/tmp Dir Launch Failed:', err.message);
-        }
-    }) ();
+    // Test 9: Default /tmp Dir
+    const tmpProfile = path.join('/tmp', `test-profile-${Date.now()}`);
+    console.log('Using /tmp Dir:', tmpProfile);
+
+    try {
+        const browser = await puppeteer.launch({
+            headless: "new",
+            executablePath,
+            userDataDir: tmpProfile,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        });
+        console.log('SUCCESS: Browser launched in /tmp Dir!');
+        await browser.close();
+    } catch (err) {
+        console.error('/tmp Dir Launch Failed:', err.message);
+    }
+})();
