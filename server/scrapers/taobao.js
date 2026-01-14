@@ -233,174 +233,177 @@ async function searchWithAxios(query, cookies) {
 /**
  * Scrape with Puppeteer (fallback method for JS-heavy pages)
  */
-async function searchWithPuppeteer(query, cookies) {
-    let browser = null;
-    let userDataDir = null;
+let userDataDir = null;
 
-    try {
-        const searchUrl = buildSearchUrl(query);
-        const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
-        if (!fs.existsSync(downloadsDir)) {
-            fs.mkdirSync(downloadsDir, { recursive: true });
+try {
+    const isARM = process.arch === 'arm' || process.arch === 'arm64';
+    const executablePath = (process.platform === 'linux' && isARM)
+        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
+        : undefined;
+
+    const searchUrl = buildSearchUrl(query);
+    const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
+    if (!fs.existsSync(downloadsDir)) {
+        fs.mkdirSync(downloadsDir, { recursive: true });
+    }
+    userDataDir = path.join(downloadsDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+
+    if (!fs.existsSync(userDataDir)) {
+        fs.mkdirSync(userDataDir, { recursive: true });
+    }
+
+    browser = await puppeteer.launch({
+        headless: "new",
+        userDataDir,
+        pipe: true,
+        dumpio: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    });
+
+    const page = await browser.newPage();
+
+    // Set cookies if available
+    if (cookies && Array.isArray(cookies)) {
+        await page.setCookie(...cookies.map(c => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain || '.taobao.com',
+            path: c.path || '/',
+            expires: c.expires,
+            httpOnly: c.httpOnly || false,
+            secure: c.secure || false
+        })));
+    }
+
+    // Optimize: Block images and fonts
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+        if (['image', 'font', 'media'].includes(req.resourceType())) {
+            req.abort();
+        } else {
+            req.continue();
         }
-        userDataDir = path.join(downloadsDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+    });
 
-        if (!fs.existsSync(userDataDir)) {
-            fs.mkdirSync(userDataDir, { recursive: true });
-        }
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'zh-CN,zh;q=0.9' });
 
-        browser = await puppeteer.launch({
-            headless: "new",
-            userDataDir,
-            pipe: true,
-            dumpio: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        });
+    await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh'] });
+        Object.defineProperty(navigator, 'language', { get: () => 'zh-CN' });
+    });
 
-        const page = await browser.newPage();
+    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Set cookies if available
-        if (cookies && Array.isArray(cookies)) {
-            await page.setCookie(...cookies.map(c => ({
-                name: c.name,
-                value: c.value,
-                domain: c.domain || '.taobao.com',
-                path: c.path || '/',
-                expires: c.expires,
-                httpOnly: c.httpOnly || false,
-                secure: c.secure || false
-            })));
-        }
+    // Wait for JavaScript to render products
+    await new Promise(r => setTimeout(r, 5000));
 
-        // Optimize: Block images and fonts
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['image', 'font', 'media'].includes(req.resourceType())) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
+    // Extract products directly in the browser context
+    let results = await page.evaluate(() => {
+        const products = [];
+        // Use the correct selector found during testing
+        const cards = document.querySelectorAll('[class*="doubleCard"], .item');
 
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        await page.setExtraHTTPHeaders({ 'Accept-Language': 'zh-CN,zh;q=0.9' });
-
-        await page.evaluateOnNewDocument(() => {
-            Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh'] });
-            Object.defineProperty(navigator, 'language', { get: () => 'zh-CN' });
-        });
-
-        await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-        // Wait for JavaScript to render products
-        await new Promise(r => setTimeout(r, 5000));
-
-        // Extract products directly in the browser context
-        let results = await page.evaluate(() => {
-            const products = [];
-            // Use the correct selector found during testing
-            const cards = document.querySelectorAll('[class*="doubleCard"], .item');
-
-            cards.forEach((card) => {
-                try {
-                    // Get all links in the card
-                    const links = card.querySelectorAll('a');
-                    const mainLink = links[0] ? links[0].href : '';
-
-                    // Get title from card text
-                    const titleText = card.innerText.split('\n')[0]; // First line usually contains title
-
-                    // Get image
-                    const img = card.querySelector('img');
-                    const imageSrc = img ? (img.src || img.dataset.src || '') : '';
-
-                    // Get price - look for price elements
-                    const priceEl = card.querySelector('[class*="priceInt"], .price');
-                    let price = 'N/A';
-                    if (priceEl) {
-                        const priceText = priceEl.textContent.trim();
-                        if (priceText) {
-                            price = `${priceText} RMB`;
-                        }
-                    }
-
-                    // Get Shop Name
-                    let shopName = 'Unknown';
-                    const shopEl = card.querySelector('[class*="shopName"], .shop, .shop-name');
-                    if (shopEl) {
-                        shopName = shopEl.textContent.trim();
-                    }
-
-                    // Only add if we have essential data
-                    if (titleText && mainLink && titleText.length > 3) {
-                        products.push({
-                            title: titleText,
-                            link: mainLink,
-                            image: imageSrc || 'https://img.alicdn.com/tps/i1/T1OjaVFl4dXXa.JOZB-114-114.png',
-                            price: price,
-                            source: 'Taobao',
-                            shopName: shopName
-                        });
-                    }
-                } catch (err) {
-                    // Skip cards that fail to parse
-                }
-            });
-
-            // Deduplicate by link within the page context
-            const uniqueProducts = [];
-            const seenLinks = new Set();
-            for (const p of products) {
-                if (!seenLinks.has(p.link)) {
-                    seenLinks.add(p.link);
-                    uniqueProducts.push(p);
-                }
-            }
-
-            return uniqueProducts;
-        });
-
-        console.log(`[Taobao] Puppeteer found ${results.length} results`);
-
-        if (results.length === 0) {
-            // Check for Login/Baxia iframe
-            const loginIframe = await page.$('#baxia-dialog-content');
-            const loginSrc = await page.evaluate(() => {
-                const iframes = Array.from(document.querySelectorAll('iframe'));
-                return iframes.find(f => f.src && f.src.includes('login.taobao.com'));
-            });
-
-            if (loginIframe || loginSrc) {
-                console.log('[Taobao] BLOCK DETECTED: Login iframe found.');
-                // Return a single error item so the frontend knows
-                results = [{ error: 'Taobao Cookie Required', source: 'Taobao' }];
-            } else {
-                console.log('[Taobao] 0 results found AND no login detected. Saving debug dump...');
-                const content = await page.content();
-                fs.writeFileSync(path.join(__dirname, '../taobao_debug.html'), content);
-                await page.screenshot({ path: path.join(__dirname, '../taobao_debug.png') });
-                console.log('[Taobao] Saved debug dump to taobao_debug.html/png');
-            }
-        }
-
-        return results;
-
-    } catch (error) {
-        console.error('[Taobao] Puppeteer error:', error.message);
-        return [];
-    } finally {
-        if (browser) {
-            try { await browser.close(); } catch (e) { }
-        }
-        // Cleanup userDataDir
-        if (userDataDir && fs.existsSync(userDataDir)) {
+        cards.forEach((card) => {
             try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch (cleanupErr) {
-                console.error('[Taobao] Warning: Failed to clean up userDataDir:', cleanupErr.message);
+                // Get all links in the card
+                const links = card.querySelectorAll('a');
+                const mainLink = links[0] ? links[0].href : '';
+
+                // Get title from card text
+                const titleText = card.innerText.split('\n')[0]; // First line usually contains title
+
+                // Get image
+                const img = card.querySelector('img');
+                const imageSrc = img ? (img.src || img.dataset.src || '') : '';
+
+                // Get price - look for price elements
+                const priceEl = card.querySelector('[class*="priceInt"], .price');
+                let price = 'N/A';
+                if (priceEl) {
+                    const priceText = priceEl.textContent.trim();
+                    if (priceText) {
+                        price = `${priceText} RMB`;
+                    }
+                }
+
+                // Get Shop Name
+                let shopName = 'Unknown';
+                const shopEl = card.querySelector('[class*="shopName"], .shop, .shop-name');
+                if (shopEl) {
+                    shopName = shopEl.textContent.trim();
+                }
+
+                // Only add if we have essential data
+                if (titleText && mainLink && titleText.length > 3) {
+                    products.push({
+                        title: titleText,
+                        link: mainLink,
+                        image: imageSrc || 'https://img.alicdn.com/tps/i1/T1OjaVFl4dXXa.JOZB-114-114.png',
+                        price: price,
+                        source: 'Taobao',
+                        shopName: shopName
+                    });
+                }
+            } catch (err) {
+                // Skip cards that fail to parse
             }
+        });
+
+        // Deduplicate by link within the page context
+        const uniqueProducts = [];
+        const seenLinks = new Set();
+        for (const p of products) {
+            if (!seenLinks.has(p.link)) {
+                seenLinks.add(p.link);
+                uniqueProducts.push(p);
+            }
+        }
+
+        return uniqueProducts;
+    });
+
+    console.log(`[Taobao] Puppeteer found ${results.length} results`);
+
+    if (results.length === 0) {
+        // Check for Login/Baxia iframe
+        const loginIframe = await page.$('#baxia-dialog-content');
+        const loginSrc = await page.evaluate(() => {
+            const iframes = Array.from(document.querySelectorAll('iframe'));
+            return iframes.find(f => f.src && f.src.includes('login.taobao.com'));
+        });
+
+        if (loginIframe || loginSrc) {
+            console.log('[Taobao] BLOCK DETECTED: Login iframe found.');
+            // Return a single error item so the frontend knows
+            results = [{ error: 'Taobao Cookie Required', source: 'Taobao' }];
+        } else {
+            console.log('[Taobao] 0 results found AND no login detected. Saving debug dump...');
+            const content = await page.content();
+            fs.writeFileSync(path.join(__dirname, '../taobao_debug.html'), content);
+            await page.screenshot({ path: path.join(__dirname, '../taobao_debug.png') });
+            console.log('[Taobao] Saved debug dump to taobao_debug.html/png');
         }
     }
+
+    return results;
+
+} catch (error) {
+    console.error('[Taobao] Puppeteer error:', error.message);
+    return [];
+} finally {
+    if (browser) {
+        try { await browser.close(); } catch (e) { }
+    }
+    // Cleanup userDataDir
+    if (userDataDir && fs.existsSync(userDataDir)) {
+        try {
+            fs.rmSync(userDataDir, { recursive: true, force: true });
+        } catch (cleanupErr) {
+            console.error('[Taobao] Warning: Failed to clean up userDataDir:', cleanupErr.message);
+        }
+    }
+}
 }
 
 /**
