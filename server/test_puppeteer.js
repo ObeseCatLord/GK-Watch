@@ -33,4 +33,24 @@ const fs = require('fs');
     } catch (err) {
         console.error('Snap Dir Launch Failed:', err.message);
     }
+
+    // Test 4: Using Downloads Dir (often whitelisted in Snap)
+    const downloadsDir = path.join(os.homedir(), 'Downloads', `test-profile-${Date.now()}`);
+    console.log('Using Downloads Dir:', downloadsDir);
+    if (!fs.existsSync(path.join(os.homedir(), 'Downloads'))) {
+        fs.mkdirSync(path.join(os.homedir(), 'Downloads'));
+    }
+
+    try {
+        const browser = await puppeteer.launch({
+            headless: "new",
+            executablePath,
+            userDataDir: downloadsDir,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        });
+        console.log('SUCCESS: Browser launched in Downloads Dir!');
+        await browser.close();
+    } catch (err) {
+        console.error('Downloads Dir Launch Failed:', err.message);
+    }
 })();
