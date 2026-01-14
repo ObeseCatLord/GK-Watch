@@ -238,11 +238,11 @@ async function searchWithPuppeteer(query, cookies) {
 
     try {
         const searchUrl = buildSearchUrl(query);
-        const snapCommonDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium');
-        if (!fs.existsSync(snapCommonDir)) {
-            fs.mkdirSync(snapCommonDir, { recursive: true });
+        const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
+        if (!fs.existsSync(downloadsDir)) {
+            fs.mkdirSync(downloadsDir, { recursive: true });
         }
-        const userDataDir = path.join(snapCommonDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+        const userDataDir = path.join(downloadsDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
         if (!fs.existsSync(userDataDir)) {
             fs.mkdirSync(userDataDir, { recursive: true });
@@ -251,6 +251,7 @@ async function searchWithPuppeteer(query, cookies) {
         browser = await puppeteer.launch({
             headless: "new",
             userDataDir,
+            pipe: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
