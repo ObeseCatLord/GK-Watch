@@ -17,32 +17,20 @@ const fs = require('fs');
 
     console.log('Executable Path:', executablePath);
 
-    // Test 1: Using os.tmpdir() (which should be $HOME/tmp)
-    const userDataDir = path.join(os.tmpdir(), `test-profile-${Date.now()}`);
-    console.log('Using UserDataDir:', userDataDir);
+    // Test 2: Using Snap Common Dir
+    const snapDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium', `test-profile-${Date.now()}`);
+    console.log('Using Snap Dir:', snapDir);
 
     try {
         const browser = await puppeteer.launch({
             headless: "new",
             executablePath,
-            userDataDir,
+            userDataDir: snapDir,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
-        console.log('Browser launched successfully!');
-        const page = await browser.newPage();
-        console.log('Page created.');
+        console.log('SUCCESS: Browser launched in Snap Dir!');
         await browser.close();
-        console.log('Browser closed.');
     } catch (err) {
-        console.error('Launch failed:', err);
-    } finally {
-        if (fs.existsSync(userDataDir)) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-                console.log('Cleanup successful.');
-            } catch (e) {
-                console.error('Cleanup failed:', e);
-            }
-        }
+        console.error('Snap Dir Launch Failed:', err.message);
     }
 })();
