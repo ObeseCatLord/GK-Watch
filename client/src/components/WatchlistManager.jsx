@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ResultCard from './ResultCard';
 
-const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishEnabled }) => {
+const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishEnabled, handleExportClipboard }) => {
     const [watchlist, setWatchlist] = useState([]);
     const [newTerm, setNewTerm] = useState('');
     const [selectedResults, setSelectedResults] = useState(null);
@@ -1100,22 +1100,40 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                         Next →
                                     </button>
 
-                                    <button
-                                        className="page-btn"
-                                        onClick={() => exportToHtml(
-                                            filteredAndSortedResults,
-                                            selectedTerm || 'watchlist_results'
-                                        )}
-                                        style={{ marginLeft: 'auto', backgroundColor: '#333', border: '1px solid #555' }}
-                                    >
-                                        📥 Export HTML
-                                    </button>
+                                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                                        <button
+                                            className="page-btn"
+                                            onClick={() => handleExportClipboard(filteredAndSortedResults)}
+                                            style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                                            title="Copy Name - Link to Clipboard"
+                                        >
+                                            📋 Copy
+                                        </button>
+                                        <button
+                                            className="page-btn"
+                                            onClick={() => exportToHtml(
+                                                filteredAndSortedResults,
+                                                selectedTerm || 'watchlist_results'
+                                            )}
+                                            style={{ backgroundColor: '#333', border: '1px solid #555' }}
+                                        >
+                                            📥 Export HTML
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
                             {/* Export Button (shown when no pagination) */}
                             {filteredAndSortedResults.length > 0 && totalPages <= 1 && (
-                                <div style={{ textAlign: 'right', marginTop: '1rem' }}>
+                                <div style={{ textAlign: 'right', marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
+                                    <button
+                                        className="page-btn"
+                                        onClick={() => handleExportClipboard(filteredAndSortedResults)}
+                                        style={{ backgroundColor: '#555', border: '1px solid #777' }}
+                                        title="Copy Name - Link to Clipboard"
+                                    >
+                                        📋 Copy ({filteredAndSortedResults.length})
+                                    </button>
                                     <button
                                         className="page-btn"
                                         onClick={() => exportToHtml(
@@ -1124,7 +1142,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                         )}
                                         style={{ backgroundColor: '#333', border: '1px solid #555' }}
                                     >
-                                        📥 Export HTML ({filteredAndSortedResults.length} items)
+                                        📥 Export HTML ({filteredAndSortedResults.length})
                                     </button>
                                 </div>
                             )}

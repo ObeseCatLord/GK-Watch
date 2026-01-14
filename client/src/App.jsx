@@ -161,6 +161,36 @@ function App() {
     localStorage.removeItem('gkwatch_search_history');
   };
 
+  // Export results to Clipboard (Name - Price - Link)
+  const handleExportClipboard = async (items) => {
+    if (!items || items.length === 0) return;
+
+    const text = items.map(item => {
+      const price = item.price && item.price !== 'N/A' ? ` - ${item.price}` : '';
+      return `${item.title}${price}\n${item.link}\n`;
+    }).join('\n');
+
+    try {
+      await navigator.clipboard.writeText(text);
+      alert(`Copied ${items.length} items to clipboard!`);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      // Fallback for non-secure contexts (though this app is usually secure)
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        alert(`Copied ${items.length} items to clipboard!`);
+      } catch (err) {
+        alert('Failed to copy to clipboard');
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
   // Export results to HTML file with 5-column grid
   const exportToHtml = (items, filename) => {
     // Generate HTML content
@@ -804,6 +834,7 @@ function App() {
           onBlock={handleBlock}
           taobaoEnabled={taobaoEnabled}
           goofishEnabled={goofishEnabled}
+          handleExportClipboard={handleExportClipboard}
         />
       )}
 
