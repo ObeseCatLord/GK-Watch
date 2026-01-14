@@ -11,24 +11,26 @@ const NtfyService = {
 
         const serverUrl = settings.ntfyServer || 'https://ntfy.sh';
         const topic = settings.ntfyTopic;
-        const url = `${serverUrl}/${topic}`;
+        // Use JSON body payload to support Unicode (emojis) in headers/title
+        const url = serverUrl;
 
-        console.log(`[Ntfy] Sending notification to ${url}: ${title}`);
+        console.log(`[Ntfy] Sending notification to ${url} (topic: ${topic}): ${title}`);
 
         try {
-            const headers = {
-                'Title': title,
-                'Priority': priority
+            const body = {
+                topic: topic,
+                message: message,
+                title: title,
+                priority: priority,
+                tags: tags
             };
-
-            if (tags.length > 0) {
-                headers['Tags'] = tags.join(',');
-            }
 
             const response = await fetch(url, {
                 method: 'POST',
-                body: message,
-                headers: headers
+                body: JSON.stringify(body),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
             });
 
             if (!response.ok) {
