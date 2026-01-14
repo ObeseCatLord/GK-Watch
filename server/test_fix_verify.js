@@ -3,11 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// Helper to clean up
 const cleanup = (dir) => {
-    try {
-        if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
-    } catch (e) { }
+    try { if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { }
 };
 
 async function testConfig(name, usePipe, baseDir) {
@@ -15,19 +12,10 @@ async function testConfig(name, usePipe, baseDir) {
     const userDataDir = path.join(baseDir, `test-${Date.now()}-${Math.random().toString(36).substring(2)}`);
     console.log(`Dir: ${userDataDir}`);
     console.log(`Pipe: ${usePipe}`);
+    if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
 
-    if (!fs.existsSync(userDataDir)) {
-        fs.mkdirSync(userDataDir, { recursive: true });
-    }
-
-    // Only set executablePath if explicitly testing dedicated binary
-    // Otherwise verify Snap (which will fail)
-
-    // BUT for "Dedicated Binary" test, we override env var.
-    const isARM = process.arch === 'arm' || process.arch === 'arm64';
-    let executablePath = (process.platform === 'linux' && isARM)
-        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-        : undefined;
+    // Use System Chromium (Snap)
+    const executablePath = '/usr/bin/chromium-browser';
 
     let browser;
     try {
@@ -36,7 +24,7 @@ async function testConfig(name, usePipe, baseDir) {
             executablePath,
             userDataDir,
             pipe: usePipe,
-            dumpio: true, // Capture stderr to see file errors
+            dumpio: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
         console.log(`✅ SUCCESS: ${name} launched!`);
@@ -55,24 +43,8 @@ async function testConfig(name, usePipe, baseDir) {
     const downloadsDir = path.join(os.homedir(), 'Downloads');
     if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir);
 
-    const snapDir = path.join(os.homedir(), 'snap', 'chromium', 'common', 'chromium');
-    if (!fs.existsSync(snapDir)) fs.mkdirSync(snapDir, { recursive: true });
-
-    // Test 5: Dedicated Custom Binary (Bypass Snap)
-    console.log('\n--- Testing Config: Dedicated Binary ---');
-    const customBinPath = '/home/ubuntu/chrome_bin/chrome/linux-143.0.7499.192/chrome-linux64/chrome';
-
-    if (customBinPath && fs.existsSync(customBinPath)) {
-        console.log(`Found binary: ${customBinPath}`);
-        // Override executable path logic locally for this test
-        const originalEnv = process.env.PUPPETEER_EXECUTABLE_PATH;
-        process.env.PUPPETEER_EXECUTABLE_PATH = customBinPath;
-
-        await testConfig('Dedicated Binary + WS', false, downloadsDir);
-
-        process.env.PUPPETEER_EXECUTABLE_PATH = originalEnv || '';
-    } else {
-        console.log('Skipping Dedicated Binary test (not found on local FS, checking remote)');
-    }
-
+    // Test 1: Downloads + WS
+    await testConfig('Downloads + WS', false, downloadsDir);
+    // Test 2: Downloads + Pipe
+    await testConfig('Downloads + Pipe', true, downloadsDir);
 })();
