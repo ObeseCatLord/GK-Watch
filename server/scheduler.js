@@ -494,11 +494,11 @@ const Scheduler = {
 
         if (paypayToPreserve.length > 0) {
             console.log(`[Scheduler] PayPay grace period: Preserving ${paypayToPreserve.length} PayPay items for ${term || watchId}`);
-            // Mark them as not new, but NOT hidden (visible during grace period like Suruga-ya)
+            // Mark them as not new, hidden (like Yahoo)
             const preservedPayPay = paypayToPreserve.map(item => ({
                 ...item,
                 isNew: false,
-                hidden: false // Keep visible like Suruga-ya
+                hidden: true // Hide during grace period
             }));
             // Deduplicate by link before adding
             const existingLinksAfterMercari = new Set(finalResults.map(r => r.link));
