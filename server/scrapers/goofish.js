@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const GOOFISH_SEARCH_URL = 'https://www.goofish.com/search';
 const COOKIES_FILE = path.join(__dirname, '../data/goofish_cookies.json');
@@ -37,16 +38,15 @@ async function searchWithPuppeteer(query) {
     let browser = null;
     try {
         const searchUrl = buildSearchUrl(query);
-        console.log(`[Goofish] Fetching with Puppeteer: ${searchUrl}`);
+        const userDataDir = path.join('/tmp', `goofish-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
 
-        const isARM = process.arch === 'arm' || process.arch === 'arm64';
-        const executablePath = (process.platform === 'linux' && isARM)
-            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-            : undefined;
+        if (!fs.existsSync(userDataDir)) {
+            fs.mkdirSync(userDataDir, { recursive: true });
+        }
 
         browser = await puppeteer.launch({
             headless: "new",
-            executablePath,
+            userDataDir,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
@@ -255,7 +255,17 @@ async function searchWithPuppeteer(query) {
         console.error('[Goofish] Scrape error:', error.message);
         return [];
     } finally {
-        if (browser) await browser.close();
+        if (browser) {
+            try { await browser.close(); } catch (e) { }
+        }
+        // Cleanup userDataDir
+        if (userDataDir && fs.existsSync(userDataDir)) {
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+            } catch (cleanupErr) {
+                console.error('[Goofish] Warning: Failed to clean up userDataDir:', cleanupErr.message);
+            }
+        }
     }
 }
 
