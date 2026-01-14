@@ -24,7 +24,7 @@ async function search(query, strictEnabled = true) {
         console.log(`Searching Mercari for ${query}...`);
 
         let allResults = [];
-        const MAX_PAGES = 5;
+        const MAX_PAGES = 10;
 
         // Use system Chromium only on ARM Linux (bundled Chrome doesn't work on ARM)
         // On x64 Linux and other platforms, use bundled Puppeteer Chrome (faster)
