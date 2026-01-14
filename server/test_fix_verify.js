@@ -60,7 +60,10 @@ async function testConfig(name, usePipe, baseDir) {
     // Test 2: Downloads + Pipe
     await testConfig('Downloads + Pipe', true, downloadsDir);
 
-    // Test 3: Snap Common + WS (Baseline)
-    await testConfig('SnapCommon + WS', false, snapDir);
-
+    // Test 4: Downloads + TMPDIR Override
+    const customTmp = path.join(downloadsDir, 'tmp_override');
+    if (!fs.existsSync(customTmp)) fs.mkdirSync(customTmp);
+    process.env.TMPDIR = customTmp;
+    console.log(`Set TMPDIR = ${customTmp}`);
+    await testConfig('Downloads + TMPDIR', false, downloadsDir);
 })();
