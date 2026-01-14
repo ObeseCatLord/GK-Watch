@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const puppeteer = require('puppeteer');
 const { matchTitle } = require('../utils/queryMatcher');
 
@@ -22,7 +25,9 @@ async function search(query, strictEnabled = true, filters = []) {
     console.log(`[Mercari] Searching for: "${effectiveQuery}" (Filters will be applied post-fetch)`);
 
     let browser = null;
+    let browser = null;
     let timeoutHandle = null;
+    let userDataDir = null;
 
     // Search Logic Promise
     const runSearch = async () => {
@@ -38,9 +43,12 @@ async function search(query, strictEnabled = true, filters = []) {
             ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
             : undefined;
 
+        userDataDir = path.join(os.tmpdir(), `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
+
         browser = await puppeteer.launch({
             headless: "new",
             executablePath,
+            userDataDir,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
@@ -259,6 +267,14 @@ async function search(query, strictEnabled = true, filters = []) {
     } finally {
         if (browser) {
             try { await browser.close(); } catch (e) { }
+        }
+        if (userDataDir && fs.existsSync(userDataDir)) {
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+                // console.log(`[Mercari] Cleaned up temp profile: ${userDataDir}`);
+            } catch (err) {
+                console.warn(`[Mercari] Failed to clean up temp profile: ${err.message}`);
+            }
         }
         if (timeoutHandle) clearTimeout(timeoutHandle);
     }
