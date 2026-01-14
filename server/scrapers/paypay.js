@@ -73,10 +73,10 @@ async function searchLegacy(query, strictEnabled = true) {
     } catch (error) {
         if (error.response && (error.response.status === 403 || error.response.status === 500)) {
             console.warn('[PayPay Legacy] Access blocked (Status ' + error.response.status + '). Likely bot detection.');
-            return []; // Return empty array to allow other scrapers (or main Yahoo) to succeed
+            return null; // Return null to trigger Neokyo fallback
         }
         console.error('[PayPay Legacy] Scraper Error:', error.message);
-        return [];
+        return null; // Return null to trigger Neokyo fallback
     }
 }
 
@@ -230,11 +230,15 @@ async function search(query, strictEnabled = true) {
     // 1. Try Legacy scraper first (Direct PayPay)
     try {
         results = await searchLegacy(query, strictEnabled);
-        if (results && results.length > 0) {
-            console.log(`[PayPay] Legacy scraper found ${results.length} items.`);
+
+        // If results is an array (even empty), it means the scrape was successful but found nothing (or items were filtered)
+        // In this case, we do NOT want to fall back to Neokyo.
+        if (Array.isArray(results)) {
+            console.log(`[PayPay] Legacy scraper successful. Found ${results.length} items.`);
             return results;
         }
-        console.log("[PayPay] Legacy scraper found 0 items.");
+
+        console.log("[PayPay] Legacy scraper failed (returned null). Falling back to Neokyo...");
     } catch (err) {
         console.warn(`[PayPay] Legacy scraper error: ${err.message}`);
     }
