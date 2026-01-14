@@ -224,7 +224,7 @@ async function fetchFullTitle(neokyoLink) {
 }
 
 // Main Search Function - Legacy (Direct) -> Neokyo -> Yahoo Integration
-async function search(query, strictEnabled = true) {
+async function search(query, strictEnabled = true, filters = []) {
     let results = [];
 
     // 1. Try Legacy scraper first (Direct PayPay)
@@ -298,7 +298,18 @@ async function search(query, strictEnabled = true) {
     // 3. Fallback to Yahoo Integration (REMOVED per user request)
     // console.log("[PayPay] Yahoo fallback disabled.");
 
-    return [];
+    // Apply negative filtering (server-side)
+    if (filters && filters.length > 0 && results && results.length > 0) {
+        const filterTerms = filters.map(f => f.toLowerCase());
+        const preCount = results.length;
+        results = results.filter(item => {
+            const titleLower = item.title.toLowerCase();
+            return !filterTerms.some(term => titleLower.includes(term));
+        });
+        console.log(`[PayPay] Server-side negative filtering removed ${preCount - results.length} items.`);
+    }
+
+    return results || [];
 }
 
 module.exports = { search };

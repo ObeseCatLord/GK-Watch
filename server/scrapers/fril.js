@@ -2,7 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { matchTitle } = require('../utils/queryMatcher');
 
-async function search(query, strictEnabled = true) {
+async function search(query, strictEnabled = true, filters = []) {
     console.log(`Searching Fril for ${query}...`);
     const searchUrl = `https://fril.jp/s?query=${encodeURIComponent(query)}`;
 
@@ -16,7 +16,7 @@ async function search(query, strictEnabled = true) {
         });
 
         const $ = cheerio.load(res.data);
-        const results = [];
+        let results = [];
         const itemBoxes = $('.item-box');
 
         itemBoxes.each((i, el) => {
@@ -66,6 +66,17 @@ async function search(query, strictEnabled = true) {
                 // Skip bad items
             }
         });
+
+        // Apply negative filtering (server-side since Rakuma/Fril query params are limited/unreliable)
+        if (filters && filters.length > 0) {
+            const filterTerms = filters.map(f => f.toLowerCase());
+            const preCount = results.length;
+            results = results.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return !filterTerms.some(term => titleLower.includes(term));
+            });
+            console.log(`[Fril] Server-side negative filtering removed ${preCount - results.length} items.`);
+        }
 
         // Strict filtering using query matcher (supports | for OR, && for AND)
         if (strictEnabled) {

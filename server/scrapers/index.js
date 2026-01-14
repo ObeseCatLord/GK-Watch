@@ -90,11 +90,11 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     }
 
     if (enabled.paypay !== false) {
-        promises.push(paypay.search(query, strict.paypay ?? true));
+        promises.push(paypay.search(query, strict.paypay ?? true, filters));
     }
 
     if (enabled.fril !== false) {
-        promises.push(fril.search(query, strict.fril ?? true).then(res => res.map(i => ({ ...i, source: 'Fril' }))));
+        promises.push(fril.search(query, strict.fril ?? true, filters).then(res => res.map(i => ({ ...i, source: 'Fril' }))));
     }
 
     if (enabled.surugaya !== false) {
