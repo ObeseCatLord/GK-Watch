@@ -109,17 +109,15 @@ app.get('/api/search', requireAuth, async (req, res) => {
             console.log('Site override:', enabledOverride);
         }
 
-        console.log('Site override:', enabledOverride);
-    }
 
         const strict = req.query.strict !== 'false'; // Default true
-    const results = await searchAggregator.searchAll(query, enabledOverride, strict);
-    const filteredResults = BlockedItems.filterResults(results);
-    res.json(filteredResults);
-} catch (error) {
-    console.error('Search failed:', error);
-    res.status(500).json({ error: 'Internal server error during search' });
-}
+        const results = await searchAggregator.searchAll(query, enabledOverride, strict);
+        const filteredResults = BlockedItems.filterResults(results);
+        res.json(filteredResults);
+    } catch (error) {
+        console.error('Search failed:', error);
+        res.status(500).json({ error: 'Internal server error during search' });
+    }
 });
 
 // Watchlist Routes

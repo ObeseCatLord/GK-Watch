@@ -102,12 +102,12 @@ function App() {
   const authenticatedFetch = async (url, options = {}) => {
     const headers = { ...options.headers, ...getAuthHeaders() };
 
-    // Default to 60s timeout if not provided
+    // Default to 300s (5 min) timeout if not provided
     let signal = options.signal;
     let controller = null;
     if (!signal) {
       controller = new AbortController();
-      setTimeout(() => controller.abort(), 60000);
+      setTimeout(() => controller.abort(), 300000);
       signal = controller.signal;
     }
 
@@ -552,35 +552,34 @@ function App() {
                 Strict
               </label>
               <button type="submit" className="add-btn">
-                <button type="submit" className="add-btn">
-                  <span className="desktop-label">Search</span>
-                  <span className="mobile-label">🔍</span>
-                </button>
-                <button
-                  type="button"
-                  className="add-btn gk-btn"
-                  onClick={searchGK}
-                  title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
-                >
-                  <span className="desktop-label">Search GK</span>
-                  <span className="mobile-label">GK</span>
-                </button>
-                <button
-                  type="button"
-                  className="add-btn taobao-btn"
-                  onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Search Disabled: Cookies missing for both sites (check Options)') : searchCN(e, null)}
-                  title={(!taobaoEnabled && !goofishEnabled) ? "CN Search Disabled (Cookies Missing)" : "Search Taobao & Goofish"}
-                  disabled={!taobaoEnabled && !goofishEnabled}
-                  style={{
-                    backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
-                    marginLeft: '5px',
-                    cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
-                    opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
-                  }}
-                >
-                  <span className="desktop-label">Search CN</span>
-                  <span className="mobile-label">CN</span>
-                </button>
+                <span className="desktop-label">Search</span>
+                <span className="mobile-label">🔍</span>
+              </button>
+              <button
+                type="button"
+                className="add-btn gk-btn"
+                onClick={searchGK}
+                title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
+              >
+                <span className="desktop-label">Search GK</span>
+                <span className="mobile-label">GK</span>
+              </button>
+              <button
+                type="button"
+                className="add-btn taobao-btn"
+                onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Search Disabled: Cookies missing for both sites (check Options)') : searchCN(e, null)}
+                title={(!taobaoEnabled && !goofishEnabled) ? "CN Search Disabled (Cookies Missing)" : "Search Taobao & Goofish"}
+                disabled={!taobaoEnabled && !goofishEnabled}
+                style={{
+                  backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
+                  marginLeft: '5px',
+                  cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
+                  opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
+                }}
+              >
+                <span className="desktop-label">Search CN</span>
+                <span className="mobile-label">CN</span>
+              </button>
             </form>
 
             {/* Discreet Site Error Message */}
