@@ -4,7 +4,7 @@ const paypay = require('./paypay');
 const fril = require('./fril');
 const surugaya = require('./surugaya');
 const taobao = require('./taobao');
-const taobao = require('./taobao');
+
 const goofish = require('./goofish');
 // Mandarake removed as out of scope
 
@@ -88,7 +88,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     }
 
     if (enabled.yahoo !== false) {
-        promises.push(yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo').then(res => res.map(i => ({ ...i, source: 'Yahoo' }))));
+        promises.push(yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters).then(res => res.map(i => ({ ...i, source: 'Yahoo' }))));
     }
 
     if (enabled.paypay !== false) {

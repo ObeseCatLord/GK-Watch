@@ -539,6 +539,10 @@ app.post('/api/run-now', requireAuth, async (req, res) => {
 
     console.log('[Manual] Running all watchlist searches (Batch)...');
 
+    // Refresh scheduler's cache of global blacklist before running
+    // Scheduler handles this internally usually, but for manual run we might need to be sure?
+    // Actually Scheduler.runBatch uses its own logic. Let's check Scheduler.
+
     const list = Watchlist.getAll();
     const activeItems = list.filter(i => i.active !== false);
 
@@ -569,7 +573,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         let allTermResults = [];
 
         const settings = Settings.get();
-        const globalFilters = settings.globalBlacklist || [];
+        const globalFilters = Blacklist.getAll().map(i => i.term);
         // Unique merge of item filters and global filters
         const filters = [...new Set([...(item.filters || []), ...globalFilters])];
 

@@ -199,7 +199,7 @@ function calculateEndTime(timeStr) {
 }
 
 // Puppeteer-based Yahoo Auctions scraper (fallback for when Axios fails)
-async function searchYahooPuppeteer(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all') {
+async function searchYahooPuppeteer(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = []) {
     console.log(`[Yahoo Fallback] Searching Yahoo Auctions via Puppeteer for ${query} (Target: ${targetSource})...`);
     let browser;
     try {
@@ -227,7 +227,7 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
 
         const content = await page.content();
         const $ = cheerio.load(content);
-        const results = [];
+        let results = [];
 
         $('.Products__items li.Product').each((i, element) => {
             try {
@@ -277,6 +277,17 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
             }
         });
 
+        // Apply negative filtering (server-side)
+        if (filters && filters.length > 0) {
+            const filterTerms = filters.map(f => f.toLowerCase());
+            const preCount = results.length;
+            results = results.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return !filterTerms.some(term => titleLower.includes(term));
+            });
+            console.log(`[Yahoo Fallback] Server-side negative filtering removed ${preCount - results.length} items. Remaining: ${results.length}`);
+        }
+
         // Strict filtering using query matcher (supports | for OR, && for AND)
         const parsedQuery = parseQuery(query);
         const hasQuoted = hasQuotedTerms(parsedQuery);
@@ -298,7 +309,7 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
     }
 }
 
-async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all') {
+async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = []) {
     console.log(`Searching Yahoo Auctions for ${query} (Target: ${targetSource})...`);
     try {
         const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}`;
@@ -317,7 +328,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         }
 
         const $ = cheerio.load(data);
-        const results = [];
+        let results = [];
 
         $('.Products__items li.Product').each((i, element) => {
             try {
@@ -383,6 +394,17 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
             }
         });
 
+        // Apply negative filtering (server-side)
+        if (filters && filters.length > 0) {
+            const filterTerms = filters.map(f => f.toLowerCase());
+            const preCount = results.length;
+            results = results.filter(item => {
+                const titleLower = item.title.toLowerCase();
+                return !filterTerms.some(term => titleLower.includes(term));
+            });
+            console.log(`[Yahoo] Server-side negative filtering removed ${preCount - results.length} items. Remaining: ${results.length}`);
+        }
+
         // Strict filtering using query matcher (supports | for OR, && for AND, and quoted terms)
         const parsedQuery = parseQuery(query);
         const hasQuoted = hasQuotedTerms(parsedQuery);
@@ -403,7 +425,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         // Chain 1: Yahoo via Puppeteer (direct scraping with headless browser)
         // Only if targetSource is 'all' or 'yahoo' or 'paypay' (Puppeteer can handle paypay too)
         try {
-            const yahooPuppeteerResults = await searchYahooPuppeteer(query, strictEnabled, allowInternationalShipping, targetSource);
+            const yahooPuppeteerResults = await searchYahooPuppeteer(query, strictEnabled, allowInternationalShipping, targetSource, filters);
             // Return even if empty - 0 results is OK if no error
             return yahooPuppeteerResults;
         } catch (puppeteerError) {
