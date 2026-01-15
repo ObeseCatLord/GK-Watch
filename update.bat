@@ -3,7 +3,8 @@
 echo Updating GK Watcher...
 
 echo Pulling latest changes...
-git pull https://github.com/ObeseCatLord/GK-Watch
+git fetch --all
+git reset --hard origin/main
 
 
 echo Updating server dependencies...
