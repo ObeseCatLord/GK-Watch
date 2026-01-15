@@ -1,21 +1,22 @@
 @echo off
 
-echo Starting GK Watcher...
+echo Updating GK Watcher...
 
-cd /d "%~dp0"
+echo Pulling latest changes...
+git pull
 
-echo Starting backend server...
-start "GK Watcher Backend" cmd /c "cd server && node server.js"
 
-timeout /t 2 /nobreak > nul
+echo Updating server dependencies...
+cd server
+call npm install
+cd ..
 
-echo Starting frontend...
-start "GK Watcher Frontend" cmd /c "cd client && npm run dev"
+echo Building client...
+cd client
+call npm install
+call npm run build
+cd ..
 
 echo.
-echo GK Watcher is running!
-echo    Backend:  http://localhost:3000
-echo    Frontend: http://localhost:5173
-echo.
-echo Close the server windows to stop, or press any key to exit this launcher.
-pause > nul
+echo Update complete!
+pause
