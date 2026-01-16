@@ -17,5 +17,11 @@ echo GK Watcher is running!
 echo    Backend:  http://localhost:3000
 echo    Frontend: http://localhost:5173
 echo.
+
+echo Opening browser...
+timeout /t 4 /nobreak > nul
+start http://localhost:5173
+echo.
 echo Close the server windows to stop, or press any key to exit this launcher.
 pause > nul
+
