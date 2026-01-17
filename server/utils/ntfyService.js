@@ -14,14 +14,37 @@ const NtfyService = {
         // Use JSON body payload to support Unicode (emojis) in headers/title
         const url = serverUrl;
 
-        console.log(`[Ntfy] Sending notification to ${url} (topic: ${topic}): ${title}`);
+        // Ensure priority is an integer
+        let p = priority;
+        if (typeof p === 'string') {
+            const lower = p.toLowerCase();
+            const map = {
+                'max': 5,
+                'urgent': 5,
+                'high': 4,
+                'default': 3,
+                'low': 2,
+                'min': 1
+            };
+            if (map[lower]) {
+                p = map[lower];
+            } else {
+                const parsed = parseInt(p, 10);
+                if (!isNaN(parsed)) {
+                    p = parsed;
+                }
+                // If parsing fails and not in map, p remains as is (or could default to 3)
+            }
+        }
+
+        console.log(`[Ntfy] Sending notification to ${url} (topic: ${topic}): ${title} (priority: ${p})`);
 
         try {
             const body = {
                 topic: topic,
                 message: message,
                 title: title,
-                priority: priority,
+                priority: p,
                 tags: tags
             };
 
@@ -53,7 +76,7 @@ const NtfyService = {
 
         // Priority 5 (Max) triggers "Emergency" alerts usually (wakes up user)
         // Tags: 'rotating_light' (siren)
-        return await NtfyService.send(title, message, '5', ['rotating_light', 'warning']);
+        return await NtfyService.send(title, message, 5, ['rotating_light', 'warning']);
     }
 };
 

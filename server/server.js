@@ -430,7 +430,7 @@ app.post('/api/settings/test-ntfy', requireAuth, async (req, res) => {
         const success = await NtfyService.send(
             'GK Watcher Test',
             'Test Notification from GK Watcher! 🚀',
-            '5',
+            5,
             ['warning', 'skull']
         );
 
