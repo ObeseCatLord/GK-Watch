@@ -109,6 +109,9 @@ const Scheduler = {
         // Reset scrapers if starting fresh (startIndex 0 handled by caller usually, but safe to do here if 0)
         if (startIndex === 0) searchAggregator.reset();
 
+        // Pre-calculate item IDs for resume state to avoid O(N) in loop
+        const itemIds = items.map(i => i.id);
+
         try {
             for (let idx = startIndex; idx < items.length; idx++) {
                 if (Scheduler.shouldAbort) {
@@ -127,14 +130,17 @@ const Scheduler = {
 
                 // Save state BEFORE processing (so we resume at this item if we crash during it? 
                 // Or AFTER? if we crash during, we want to retry it. So BEFORE is better.)
-                try {
-                    fs.writeFileSync(RESUME_FILE, JSON.stringify({
-                        type,
-                        currentIndex: idx,
-                        items: items.map(i => i.id),
-                        timestamp: Date.now()
-                    }));
-                } catch (e) { console.error('Error saving resume state:', e); }
+                // OPTIMIZATION: Write only every 5 items or on first item to reduce disk I/O
+                if (idx === startIndex || idx % 5 === 0) {
+                    try {
+                        fs.writeFileSync(RESUME_FILE, JSON.stringify({
+                            type,
+                            currentIndex: idx,
+                            items: itemIds,
+                            timestamp: Date.now()
+                        }));
+                    } catch (e) { console.error('Error saving resume state:', e); }
+                }
 
                 // Search Logic (Refactored from previous loop)
                 const terms = item.terms || [item.term];
