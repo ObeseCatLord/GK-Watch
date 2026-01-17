@@ -594,6 +594,21 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
 
         if (sortBy === 'name') {
             results.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
+        } else if (sortBy === 'relevance') {
+            const item = watchlist.find(i => i.id === selectedId);
+            const terms = item ? (item.terms || [item.term]) : [];
+            const keywords = new Set(terms.flatMap(t => t.toLowerCase().split(/\s+/).filter(k => k)));
+
+            const countMatches = (title) => {
+                if (!title) return 0;
+                const lowerTitle = title.toLowerCase();
+                let count = 0;
+                keywords.forEach(k => {
+                    if (lowerTitle.includes(k)) count++;
+                });
+                return count;
+            };
+            results.sort((a, b) => countMatches(b.title) - countMatches(a.title));
         } else if (sortBy === 'priceHigh') {
             results.sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
         } else if (sortBy === 'priceLow') {
@@ -601,7 +616,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         }
 
         return results;
-    }, [selectedResults, resultFilter, sourceFilter, sortBy]);
+    }, [selectedResults, resultFilter, sourceFilter, sortBy, watchlist, selectedId]);
 
     const totalPages = Math.ceil(filteredAndSortedResults.length / ITEMS_PER_PAGE);
 
@@ -1047,6 +1062,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                     style={{ maxWidth: '180px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem', marginLeft: '10px' }}
                                 >
                                     <option value="time">Sort: Time Scraped</option>
+                                    <option value="relevance">Sort: Relevance</option>
                                     <option value="name">Sort: Name</option>
                                     <option value="priceHigh">Sort: Price High→Low</option>
                                     <option value="priceLow">Sort: Price Low→High</option>

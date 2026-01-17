@@ -14,6 +14,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchHistory, setSearchHistory] = useState([]);
+  const [executedQuery, setExecutedQuery] = useState('');
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sourceFilter, setSourceFilter] = useState('All');
@@ -313,9 +314,11 @@ function App() {
     setCurrentPage(1); // Reset page on new search
     setSiteErrors([]); // Clear previous errors
 
+
     // Save to history
     saveToHistory(searchTerm, 'normal');
     if (overrideQuery) setQuery(overrideQuery);
+    setExecutedQuery(searchTerm);
 
     try {
       // Check if query contains | operator for multi-search
@@ -382,7 +385,10 @@ function App() {
     setCurrentPage(1); // Reset page on new search
     setSiteErrors([]);
 
+    setSiteErrors([]);
+
     if (overrideQuery) setQuery(overrideQuery);
+    setExecutedQuery(queryTerm);
 
     // Save to history (save the base term)
     saveToHistory(queryTerm, 'gk');
@@ -444,6 +450,7 @@ function App() {
     setSiteErrors([]);
 
     if (overrideQuery) setQuery(overrideQuery);
+    setExecutedQuery(queryTerm);
     saveToHistory(queryTerm, 'cn'); // 'cn' for both
 
     try {
@@ -682,6 +689,7 @@ function App() {
                 style={{ maxWidth: '180px', fontSize: '0.9rem', padding: '0.5rem' }}
               >
                 <option value="time">Sort: Time Scraped</option>
+                <option value="relevance">Sort: Relevance</option>
                 <option value="name">Sort: Name</option>
                 <option value="priceHigh">Sort: Price High→Low</option>
                 <option value="priceLow">Sort: Price Low→High</option>
@@ -706,6 +714,14 @@ function App() {
               filteredResults = [...filteredResults].sort((a, b) =>
                 (a.title || '').localeCompare(b.title || '', 'ja')
               );
+            } else if (sortBy === 'relevance') {
+              const keywords = executedQuery.toLowerCase().split(/\s+/).filter(k => k);
+              const countMatches = (title) => {
+                if (!title) return 0;
+                const lowerTitle = title.toLowerCase();
+                return keywords.reduce((acc, k) => acc + (lowerTitle.includes(k) ? 1 : 0), 0);
+              };
+              filteredResults = [...filteredResults].sort((a, b) => countMatches(b.title) - countMatches(a.title));
             } else if (sortBy === 'priceHigh') {
               filteredResults = [...filteredResults].sort((a, b) =>
                 parsePrice(b.price) - parsePrice(a.price)
