@@ -1,23 +1,28 @@
-const fs = require('fs');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 
 const DATA_DIR = path.join(__dirname, '../data');
 const WATCHLIST_FILE = path.join(DATA_DIR, 'watchlist.json');
 
 // Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fsSync.existsSync(DATA_DIR)) {
+    fsSync.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 // Ensure watchlist file exists
-if (!fs.existsSync(WATCHLIST_FILE)) {
-    fs.writeFileSync(WATCHLIST_FILE, JSON.stringify([], null, 2));
+if (!fsSync.existsSync(WATCHLIST_FILE)) {
+    fsSync.writeFileSync(WATCHLIST_FILE, JSON.stringify([], null, 2));
 }
 
 const Watchlist = {
-    getAll: () => {
+    _save: async (list) => {
+        await fs.writeFile(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+    },
+
+    getAll: async () => {
         try {
-            const data = fs.readFileSync(WATCHLIST_FILE, 'utf8');
+            const data = await fs.readFile(WATCHLIST_FILE, 'utf8');
             const list = JSON.parse(data);
             return list.map(item => {
                 // Migration: Ensure 'terms' array exists
@@ -48,12 +53,13 @@ const Watchlist = {
         }
     },
 
-    get: (id) => {
-        return Watchlist.getAll().find(i => i.id === id) || null;
+    get: async (id) => {
+        const all = await Watchlist.getAll();
+        return all.find(i => i.id === id) || null;
     },
 
-    add: (data) => {
-        const list = Watchlist.getAll();
+    add: async (data) => {
+        const list = await Watchlist.getAll();
         // Support both simple string (legacy) and object with terms
         const terms = typeof data === 'string' ? [data] : (data.terms || [data.term]);
         const name = data.name || terms[0];
@@ -82,9 +88,6 @@ const Watchlist = {
             lastRun: null,
             active: true,
             emailNotify: true,
-            lastRun: null,
-            active: true,
-            emailNotify: true,
             strict: data.strict !== false, // Default to true
             filters: data.filters || [], // Persist filters if provided (e.g. from import)
             enabledSites: data.enabledSites || {
@@ -97,12 +100,12 @@ const Watchlist = {
             }
         };
         list.push(newItem);
-        fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+        await Watchlist._save(list);
         return newItem;
     },
 
-    update: (id, updates) => {
-        const list = Watchlist.getAll();
+    update: async (id, updates) => {
+        const list = await Watchlist.getAll();
         const index = list.findIndex(i => i.id === id);
         if (index !== -1) {
             list[index] = { ...list[index], ...updates };
@@ -111,21 +114,21 @@ const Watchlist = {
                 if (!list[index].name) list[index].name = list[index].terms[0];
                 list[index].term = list[index].name;
             }
-            fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+            await Watchlist._save(list);
             return list[index];
         }
         return null;
     },
 
-    remove: (id) => {
-        let list = Watchlist.getAll();
+    remove: async (id) => {
+        let list = await Watchlist.getAll();
         list = list.filter(item => item.id !== id);
-        fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+        await Watchlist._save(list);
         return { success: true };
     },
 
-    merge: (ids, newName) => {
-        const list = Watchlist.getAll();
+    merge: async (ids, newName) => {
+        const list = await Watchlist.getAll();
         const itemsToMerge = list.filter(i => ids.includes(i.id));
 
         if (itemsToMerge.length < 2) return null;
@@ -153,45 +156,45 @@ const Watchlist = {
         const remainingList = list.filter(i => !ids.includes(i.id));
         remainingList.push(mergedItem);
 
-        fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(remainingList, null, 2));
+        await Watchlist._save(remainingList);
         return mergedItem;
     },
 
-    updateLastRun: (id) => {
-        const list = Watchlist.getAll();
+    updateLastRun: async (id) => {
+        const list = await Watchlist.getAll();
         const item = list.find(i => i.id === id);
         if (item) {
             item.lastRun = new Date().toISOString();
-            fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+            await Watchlist._save(list);
         }
     },
 
-    toggleEmailNotify: (id) => {
-        const list = Watchlist.getAll();
+    toggleEmailNotify: async (id) => {
+        const list = await Watchlist.getAll();
         const item = list.find(i => i.id === id);
         if (item) {
             item.emailNotify = !item.emailNotify;
-            fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+            await Watchlist._save(list);
             return item.emailNotify;
         }
         return null;
     },
 
-    toggleActive: (id) => {
-        const list = Watchlist.getAll();
+    toggleActive: async (id) => {
+        const list = await Watchlist.getAll();
         const item = list.find(i => i.id === id);
         if (item) {
             // If active is undefined, default to true, so toggle makes it false
             const current = item.active !== undefined ? item.active : true;
             item.active = !current;
-            fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list, null, 2));
+            await Watchlist._save(list);
             return item.active;
         }
         return null;
     },
 
-    reorder: (orderedIds) => {
-        const list = Watchlist.getAll();
+    reorder: async (orderedIds) => {
+        const list = await Watchlist.getAll();
         const reordered = [];
 
         // Add items in the new order
@@ -209,7 +212,7 @@ const Watchlist = {
             }
         }
 
-        fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(reordered, null, 2));
+        await Watchlist._save(reordered);
         return reordered;
     }
 };
