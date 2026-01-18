@@ -398,7 +398,7 @@ async function searchWithPuppeteer(query, cookies) {
                 const bodyText = await page.evaluate(() => document.body.innerText);
                 if (bodyText.includes('没有找到') || bodyText.includes('抱歉')) {
                     console.log('[Taobao] "No results" message found. Returning empty array.');
-                    return [];
+                    return []; // Explicit success with 0 items (no retry)
                 }
 
                 console.log('[Taobao] 0 results found, no login detected, and no "No results" message. Potential parsing error.');
@@ -407,7 +407,7 @@ async function searchWithPuppeteer(query, cookies) {
                 fs.writeFileSync(path.join(__dirname, '../taobao_debug.html'), content);
                 await page.screenshot({ path: path.join(__dirname, '../taobao_debug.png') });
                 console.log('[Taobao] Saved debug dump. Returning NULL to trigger retry.');
-                return null;
+                return null; // Return null to signal retry
             }
         }
 
@@ -420,7 +420,7 @@ async function searchWithPuppeteer(query, cookies) {
         } else {
             console.error('[Taobao] Puppeteer error:', error.message);
         }
-        return null; // Return null to signal retry
+        return null; // Return null on error to signal retry
     } finally {
         if (page) {
             try { await page.close(); } catch (e) { }
