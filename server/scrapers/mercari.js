@@ -139,8 +139,13 @@ async function performSearch(query, strictEnabled, filters) {
                 });
             });
 
-            // Wait a bit more for final items to render
-            await new Promise(r => setTimeout(r, 4000));
+            // Optimize: Wait for network idle instead of hardcoded 4s delay
+            // This handles lazy loading more efficiently.
+            try {
+                await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 });
+            } catch (e) {
+                // Ignore timeout, just proceed
+            }
 
             const pageResults = await page.evaluate(() => {
                 const items = document.querySelectorAll('li[data-testid="item-cell"]');
