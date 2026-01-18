@@ -230,38 +230,53 @@ async function searchWithAxios(query, cookies) {
     }
 }
 
+let browserPromise = null;
+
+async function getBrowser() {
+    if (browserPromise) {
+        const browser = await browserPromise;
+        if (browser.isConnected()) {
+            return browser;
+        }
+        // If disconnected, clear promise and retry
+        try {
+            await browser.close();
+        } catch (e) {}
+        browserPromise = null;
+    }
+
+    const isARM = process.arch === 'arm' || process.arch === 'arm64';
+    const executablePath = (process.platform === 'linux' && isARM)
+        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
+        : undefined;
+
+    browserPromise = puppeteer.launch({
+        headless: "new",
+        executablePath,
+        pipe: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    }).catch(err => {
+        // If launch fails, clear the promise so next attempt can try again
+        browserPromise = null;
+        throw err;
+    });
+
+    return browserPromise;
+}
+
 /**
  * Scrape with Puppeteer (fallback method for JS-heavy pages)
  */
 async function searchWithPuppeteer(query, cookies) {
-    let userDataDir = null;
+    let context = null;
+    let page = null;
 
     try {
-        const isARM = process.arch === 'arm' || process.arch === 'arm64';
-        const executablePath = (process.platform === 'linux' && isARM)
-            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-            : undefined;
+        const browser = await getBrowser();
+        context = await browser.createIncognitoBrowserContext();
+        page = await context.newPage();
 
         const searchUrl = buildSearchUrl(query);
-        const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
-        if (!fs.existsSync(downloadsDir)) {
-            fs.mkdirSync(downloadsDir, { recursive: true });
-        }
-        userDataDir = path.join(downloadsDir, `taobao-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
-
-        if (!fs.existsSync(userDataDir)) {
-            fs.mkdirSync(userDataDir, { recursive: true });
-        }
-
-        browser = await puppeteer.launch({
-            headless: "new",
-            executablePath,
-            userDataDir,
-            pipe: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        });
-
-        const page = await browser.newPage();
 
         // Set cookies if available
         if (cookies && Array.isArray(cookies)) {
@@ -398,20 +413,11 @@ async function searchWithPuppeteer(query, cookies) {
         }
         return null; // Return null to signal retry
     } finally {
-        if (browser) {
-            try { await browser.close(); } catch (e) { }
+        if (page) {
+            try { await page.close(); } catch (e) { }
         }
-
-        // Small delay to ensure processes release locks (Fixes ENOTEMPTY)
-        await new Promise(r => setTimeout(r, 2000));
-
-        // Cleanup userDataDir
-        if (userDataDir && fs.existsSync(userDataDir)) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch (cleanupErr) {
-                console.error('[Taobao] Warning: Failed to clean up userDataDir:', cleanupErr.message);
-            }
+        if (context) {
+            try { await context.close(); } catch (e) { }
         }
     }
 }

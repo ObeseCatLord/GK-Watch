@@ -7,6 +7,38 @@ const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery, getSearchTerms } =
 let consecutiveTimeouts = 0;
 let isDisabled = false;
 
+let browserPromise = null;
+
+async function getBrowser() {
+    if (browserPromise) {
+        const browser = await browserPromise;
+        if (browser.isConnected()) {
+            return browser;
+        }
+        try {
+            await browser.close();
+        } catch (e) {}
+        browserPromise = null;
+    }
+
+    const isARM = process.arch === 'arm' || process.arch === 'arm64';
+    const executablePath = (process.platform === 'linux' && isARM)
+        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
+        : undefined;
+
+    browserPromise = puppeteer.launch({
+        headless: "new",
+        executablePath,
+        pipe: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    }).catch(err => {
+        browserPromise = null;
+        throw err;
+    });
+
+    return browserPromise;
+}
+
 function reset() {
     consecutiveTimeouts = 0;
     isDisabled = false;
@@ -20,9 +52,9 @@ async function performSearch(query, strictEnabled, filters) {
     let effectiveQuery = getSearchTerms(query).replace(/"/g, ' ').replace(/\s+/g, ' ').trim();
     console.log(`[Mercari] Searching for: "${effectiveQuery}" (Original: "${query}", Filters applied post-fetch)`);
 
-    let browser = null;
+    let context = null;
+    let page = null;
     let timeoutHandle = null;
-    let userDataDir = null;
 
     // Search Logic Promise
     const runSearch = async () => {
@@ -31,33 +63,9 @@ async function performSearch(query, strictEnabled, filters) {
         let allResults = [];
         const MAX_PAGES = 10;
 
-        // Use system Chromium only on ARM Linux (bundled Chrome doesn't work on ARM)
-        // On x64 Linux and other platforms, use bundled Puppeteer Chrome (faster)
-        const isARM = process.arch === 'arm' || process.arch === 'arm64';
-        const executablePath = (process.platform === 'linux' && isARM)
-            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-            : undefined;
-
-        // Use Downloads directory (Snap safe)
-        const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
-        if (!fs.existsSync(downloadsDir)) {
-            fs.mkdirSync(downloadsDir, { recursive: true });
-        }
-        userDataDir = path.join(downloadsDir, `mercari-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
-
-        if (!fs.existsSync(userDataDir)) {
-            fs.mkdirSync(userDataDir, { recursive: true });
-        }
-
-        browser = await puppeteer.launch({
-            headless: "new",
-            executablePath,
-            userDataDir,
-            pipe: true, // Confirmed working with Snap in Downloads
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        });
-
-        const page = await browser.newPage();
+        const browser = await getBrowser();
+        context = await browser.createIncognitoBrowserContext();
+        page = await context.newPage();
 
         // Optimize: Block images and fonts
         await page.setRequestInterception(true);
@@ -256,15 +264,11 @@ async function performSearch(query, strictEnabled, filters) {
         return result;
 
     } finally {
-        if (browser) {
-            try { await browser.close(); } catch (e) { }
+        if (page) {
+            try { await page.close(); } catch (e) { }
         }
-        if (userDataDir && fs.existsSync(userDataDir)) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch (err) {
-                console.warn(`[Mercari] Failed to clean up temp profile: ${err.message}`);
-            }
+        if (context) {
+            try { await context.close(); } catch (e) { }
         }
         if (timeoutHandle) clearTimeout(timeoutHandle);
     }
