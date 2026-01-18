@@ -84,11 +84,11 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     const promises = [];
 
     if (enabled.mercari !== false) {
-        promises.push(mercari.search(query, strict.mercari ?? true, filters).then(res => res.map(i => ({ ...i, source: 'Mercari' }))));
+        promises.push(mercari.search(query, strict.mercari ?? true, filters).then(res => (res || []).map(i => ({ ...i, source: 'Mercari' }))));
     }
 
     if (enabled.yahoo !== false) {
-        promises.push(yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters).then(res => res.map(i => ({ ...i, source: 'Yahoo' }))));
+        promises.push(yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters).then(res => (res || []).map(i => ({ ...i, source: 'Yahoo' }))));
     }
 
     if (enabled.paypay !== false) {
@@ -96,21 +96,21 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     }
 
     if (enabled.fril !== false) {
-        promises.push(fril.search(query, strict.fril ?? true, filters).then(res => res.map(i => ({ ...i, source: 'Fril' }))));
+        promises.push(fril.search(query, strict.fril ?? true, filters).then(res => (res || []).map(i => ({ ...i, source: 'Fril' }))));
     }
 
     if (enabled.surugaya !== false) {
         // Pass filters to Suruga-ya for negative searching
-        promises.push(surugaya.search(query, strict.surugaya ?? true, filters).then(res => res.map(i => ({ ...i, source: 'Suruga-ya' }))));
+        promises.push(surugaya.search(query, strict.surugaya ?? true, filters).then(res => (res || []).map(i => ({ ...i, source: 'Suruga-ya' }))));
     }
 
     if (enabled.taobao !== false) {
-        promises.push(taobao.search(query, strict.taobao ?? true).then(res => res.map(i => ({ ...i, source: 'Taobao' }))));
+        promises.push(taobao.search(query, strict.taobao ?? true).then(res => (res || []).map(i => ({ ...i, source: 'Taobao' }))));
     }
 
     if (enabled.goofish !== false) {
         // Goofish strict filtering same as others? defaulting to true for now
-        promises.push(goofish.search(query, strict.goofish ?? true).then(res => res.map(i => ({ ...i, source: 'Goofish' }))));
+        promises.push(goofish.search(query, strict.goofish ?? true).then(res => (res || []).map(i => ({ ...i, source: 'Goofish' }))));
     }
 
     const results = await Promise.allSettled(promises);

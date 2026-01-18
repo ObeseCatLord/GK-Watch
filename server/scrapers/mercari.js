@@ -304,7 +304,7 @@ async function search(query, strictEnabled = true, filters = []) {
                 await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
                 console.error('[Mercari] All attempts failed. Returning empty.');
-                return [];
+                return null;
             }
         }
     }

@@ -467,7 +467,7 @@ async function search(query, strict = true) {
 
     if (!results || results.length === 0) {
         console.log('[Taobao] No results found after retries');
-        return [];
+        return null;
     }
 
     // Apply strict filtering if enabled or if quoted terms are present

@@ -265,7 +265,7 @@ async function searchWithPuppeteer(query) {
 
     } catch (error) {
         console.error('[Goofish] Scrape error:', error.message);
-        return [];
+        return null;
     } finally {
         if (browser) {
             try { await browser.close(); } catch (e) { }
