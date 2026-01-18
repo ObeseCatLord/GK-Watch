@@ -368,214 +368,81 @@ const Scheduler = {
 
         let finalResults = processedResults;
 
-        // Yahoo Auctions Grace Period: Preserve Yahoo items for 3 days after they disappear
-        // This handles listings that are temporarily taken down and relisted
-        const existingYahooItems = existingItems.filter(item =>
-            item.source && item.source.toLowerCase().includes('yahoo')
-        );
+        // Unified Grace Period Logic (Optimized)
+        // Instead of multiple passes, iterate existing items once and check against preservation rules
 
-        const yahooToPreserve = existingYahooItems.filter(item => {
-            // Skip if this title is already in new results
-            if (item.title && newYahooTitles.has(item.title.trim())) {
-                return false;
-            }
+        const processedLinks = new Set(processedResults.map(r => r.link));
+        const preservedItems = [];
 
-            // Check if within grace period
+        for (const item of existingItems) {
+            // If item is already in processedResults (updated), skip preservation check
+            if (processedLinks.has(item.link)) continue;
+
+            const source = item.source ? item.source.toLowerCase() : '';
+            let preserve = false;
+            let hidden = true; // Default to hidden unless specified (Suruga-ya)
+
             const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
                 item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
             const ageMs = nowMs - lastSeenTime;
 
-            return ageMs < YAHOO_GRACE_PERIOD_MS;
-        });
+            if (source.includes('yahoo')) {
+                if (ageMs < YAHOO_GRACE_PERIOD_MS) {
+                    // Skip if title exists in new results
+                    if (!item.title || !newYahooTitles.has(item.title.trim())) {
+                        preserve = true;
+                    }
+                }
+            } else if (source.includes('suruga')) {
+                // Exclude placeholder
+                if (item.title && item.title.startsWith('Search Suruga-ya for')) continue;
 
-        if (yahooToPreserve.length > 0) {
-            console.log(`[Scheduler] Yahoo grace period: Preserving ${yahooToPreserve.length} hidden Yahoo items for ${term || watchId}`);
-            // Mark them as not new, hidden, and preserve their lastSeen (don't update it since they weren't found)
-            const preservedYahoo = yahooToPreserve.map(item => ({
-                ...item,
-                isNew: false,
-                hidden: true // Hide until found again
-            }));
-            // Deduplicate by link before adding
-            const existingLinks = new Set(finalResults.map(r => r.link));
-            const uniquePreserved = preservedYahoo.filter(item => !existingLinks.has(item.link));
-            finalResults = [...finalResults, ...uniquePreserved];
-        }
-
-        // Suruga-ya Grace Period: Preserve Suruga-ya items for 2 days after they disappear
-        // Similar to Yahoo but NOT hidden - items remain visible during grace period
-        const existingSurugayaItems = existingItems.filter(item =>
-            item.source && item.source.toLowerCase().includes('suruga')
-        );
-
-        const surugayaToPreserve = existingSurugayaItems.filter(item => {
-            // Exclude placeholder "Search Suruga-ya for" items
-            if (item.title && item.title.startsWith('Search Suruga-ya for')) {
-                return false;
+                if (ageMs < SURUGAYA_GRACE_PERIOD_MS) {
+                     if (!item.title || !newSurugayaTitles.has(item.title.trim())) {
+                        preserve = true;
+                        hidden = false; // Suruga-ya items remain visible
+                     }
+                }
+            } else if (source.includes('mercari')) {
+                if (ageMs < MERCARI_GRACE_PERIOD_MS) {
+                    if (!item.title || !newMercariTitles.has(item.title.trim())) {
+                        preserve = true;
+                    }
+                }
+            } else if (source.includes('paypay')) {
+                if (ageMs < PAYPAY_GRACE_PERIOD_MS) {
+                    if (!item.title || !newPayPayTitles.has(item.title.trim())) {
+                        preserve = true;
+                    }
+                }
+            } else if (source === 'taobao') {
+                if (ageMs < TAOBAO_GRACE_PERIOD_MS) {
+                    if (!item.title || !newTaobaoTitles.has(item.title.trim())) {
+                        preserve = true;
+                    }
+                }
+            } else if (source === 'goofish') {
+                if (ageMs < GOOFISH_GRACE_PERIOD_MS) {
+                    if (!item.title || !newGoofishTitles.has(item.title.trim())) {
+                        preserve = true;
+                    }
+                }
             }
 
-            // Skip if this title is already in new results
-            if (item.title && newSurugayaTitles.has(item.title.trim())) {
-                return false;
+            if (preserve) {
+                preservedItems.push({
+                    ...item,
+                    isNew: false,
+                    hidden: hidden
+                });
             }
-
-            // Check if within grace period
-            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
-                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
-            const ageMs = nowMs - lastSeenTime;
-
-            return ageMs < SURUGAYA_GRACE_PERIOD_MS;
-        });
-
-        if (surugayaToPreserve.length > 0) {
-            console.log(`[Scheduler] Suruga-ya grace period: Preserving ${surugayaToPreserve.length} Suruga-ya items for ${term || watchId}`);
-            // Mark them as not new, but NOT hidden (visible during grace period)
-            const preservedSurugaya = surugayaToPreserve.map(item => ({
-                ...item,
-                isNew: false,
-                hidden: false // Keep visible unlike Yahoo
-            }));
-            // Deduplicate by link before adding
-            const existingLinksAfterYahoo = new Set(finalResults.map(r => r.link));
-            const uniquePreservedSurugaya = preservedSurugaya.filter(item => !existingLinksAfterYahoo.has(item.link));
-            finalResults = [...finalResults, ...uniquePreservedSurugaya];
         }
 
-        // Mercari Grace Period: Preserve Mercari items for 2 days after they disappear
-        // Similar to Yahoo - items are HIDDEN during grace period
-        const existingMercariItems = existingItems.filter(item =>
-            item.source && item.source.toLowerCase().includes('mercari')
-        );
-
-        const mercariToPreserve = existingMercariItems.filter(item => {
-            // Skip if this title is already in new results
-            if (item.title && newMercariTitles.has(item.title.trim())) {
-                return false;
-            }
-
-            // Check if within grace period
-            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
-                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
-            const ageMs = nowMs - lastSeenTime;
-
-            return ageMs < MERCARI_GRACE_PERIOD_MS;
-        });
-
-        if (mercariToPreserve.length > 0) {
-            console.log(`[Scheduler] Mercari grace period: Preserving ${mercariToPreserve.length} hidden Mercari items for ${term || watchId}`);
-            // Mark them as not new, hidden (like Yahoo)
-            const preservedMercari = mercariToPreserve.map(item => ({
-                ...item,
-                isNew: false,
-                hidden: true // Hide during grace period like Yahoo
-            }));
-            // Deduplicate by link before adding
-            const existingLinksAfterSurugaya = new Set(finalResults.map(r => r.link));
-            const uniquePreservedMercari = preservedMercari.filter(item => !existingLinksAfterSurugaya.has(item.link));
-            finalResults = [...finalResults, ...uniquePreservedMercari];
+        if (preservedItems.length > 0) {
+            console.log(`[Scheduler] Grace period: Preserved ${preservedItems.length} items total for ${term || watchId}`);
         }
 
-        // PayPay Grace Period: Preserve PayPay items for 2 days after they disappear
-        // Similar to Suruga-ya - items remain VISIBLE during grace period
-        const existingPayPayItems = existingItems.filter(item =>
-            item.source && item.source.toLowerCase().includes('paypay')
-        );
-
-        const paypayToPreserve = existingPayPayItems.filter(item => {
-            // Skip if this title is already in new results
-            if (item.title && newPayPayTitles.has(item.title.trim())) {
-                return false;
-            }
-
-            // Check if within grace period
-            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
-                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
-            const ageMs = nowMs - lastSeenTime;
-
-            return ageMs < PAYPAY_GRACE_PERIOD_MS;
-        });
-
-        if (paypayToPreserve.length > 0) {
-            console.log(`[Scheduler] PayPay grace period: Preserving ${paypayToPreserve.length} PayPay items for ${term || watchId}`);
-            // Mark them as not new, hidden (like Yahoo)
-            const preservedPayPay = paypayToPreserve.map(item => ({
-                ...item,
-                isNew: false,
-                hidden: true // Hide during grace period
-            }));
-            // Deduplicate by link before adding
-            const existingLinksAfterMercari = new Set(finalResults.map(r => r.link));
-            const uniquePreservedPayPay = preservedPayPay.filter(item => !existingLinksAfterMercari.has(item.link));
-            finalResults = [...finalResults, ...uniquePreservedPayPay];
-        }
-
-        // Taobao Grace Period: Preserve Taobao items for 3 days after they disappear
-        // Similar to Yahoo/Mercari - items are HIDDEN during grace period
-        const existingTaobaoItems = existingItems.filter(item =>
-            item.source && item.source.toLowerCase() === 'taobao'
-        );
-
-        const taobaoToPreserve = existingTaobaoItems.filter(item => {
-            // Skip if this title is already in new results
-            if (item.title && newTaobaoTitles.has(item.title.trim())) {
-                return false;
-            }
-
-            // Check if within grace period
-            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
-                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
-            const ageMs = nowMs - lastSeenTime;
-
-            return ageMs < TAOBAO_GRACE_PERIOD_MS;
-        });
-
-        if (taobaoToPreserve.length > 0) {
-            console.log(`[Scheduler] Taobao grace period: Preserving ${taobaoToPreserve.length} hidden Taobao items for ${term || watchId}`);
-            // Mark them as not new, hidden (like Yahoo/Mercari)
-            const preservedTaobao = taobaoToPreserve.map(item => ({
-                ...item,
-                isNew: false,
-                hidden: true // Hide during grace period like Yahoo/Mercari
-            }));
-            // Deduplicate by link before adding
-            const existingLinksAfterPayPay = new Set(finalResults.map(r => r.link));
-            const uniquePreservedTaobao = preservedTaobao.filter(item => !existingLinksAfterPayPay.has(item.link));
-            finalResults = [...finalResults, ...uniquePreservedTaobao];
-        }
-
-        // Goofish Grace Period: Preserve Goofish items for 3 days after they disappear
-        // Similar to Yahoo/Mercari/Taobao - items are HIDDEN during grace period
-        const existingGoofishItems = existingItems.filter(item =>
-            item.source && item.source.toLowerCase() === 'goofish'
-        );
-
-        const goofishToPreserve = existingGoofishItems.filter(item => {
-            // Skip if this title is already in new results
-            if (item.title && newGoofishTitles.has(item.title.trim())) {
-                return false;
-            }
-
-            // Check if within grace period
-            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
-                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
-            const ageMs = nowMs - lastSeenTime;
-
-            return ageMs < GOOFISH_GRACE_PERIOD_MS;
-        });
-
-        if (goofishToPreserve.length > 0) {
-            console.log(`[Scheduler] Goofish grace period: Preserving ${goofishToPreserve.length} hidden Goofish items for ${term || watchId}`);
-            // Mark them as not new, hidden (like Yahoo/Mercari/Taobao)
-            const preservedGoofish = goofishToPreserve.map(item => ({
-                ...item,
-                isNew: false,
-                hidden: true // Hide during grace period
-            }));
-            // Deduplicate by link before adding
-            const existingLinksAfterTaobao = new Set(finalResults.map(r => r.link));
-            const uniquePreservedGoofish = preservedGoofish.filter(item => !existingLinksAfterTaobao.has(item.link));
-            finalResults = [...finalResults, ...uniquePreservedGoofish];
-        }
+        finalResults = [...processedResults, ...preservedItems];
 
         // Save results with newCount
         allResults[watchId] = {
