@@ -81,54 +81,64 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
 
     // Run all scrapers in parallel
     // using Promise.allSettled so one failure doesn't stop others
-    const promises = [];
+    const scraperTasks = [];
 
     if (enabled.mercari !== false) {
-        promises.push(mercari.search(query, strict.mercari ?? true, filters).then(res => (res || []).map(i => ({ ...i, source: 'Mercari' }))));
+        scraperTasks.push({ name: 'Mercari', promise: mercari.search(query, strict.mercari ?? true, filters) });
     }
 
     if (enabled.yahoo !== false) {
-        promises.push(yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters).then(res => (res || []).map(i => ({ ...i, source: 'Yahoo' }))));
+        scraperTasks.push({ name: 'Yahoo', promise: yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters) });
     }
 
     if (enabled.paypay !== false) {
-        promises.push(paypay.search(query, strict.paypay ?? true, filters));
+        scraperTasks.push({ name: 'PayPay Flea Market', promise: paypay.search(query, strict.paypay ?? true, filters) });
     }
 
     if (enabled.fril !== false) {
-        promises.push(fril.search(query, strict.fril ?? true, filters).then(res => (res || []).map(i => ({ ...i, source: 'Fril' }))));
+        scraperTasks.push({ name: 'Fril', promise: fril.search(query, strict.fril ?? true, filters) });
     }
 
     if (enabled.surugaya !== false) {
         // Pass filters to Suruga-ya for negative searching
-        promises.push(surugaya.search(query, strict.surugaya ?? true, filters).then(res => (res || []).map(i => ({ ...i, source: 'Suruga-ya' }))));
+        scraperTasks.push({ name: 'Suruga-ya', promise: surugaya.search(query, strict.surugaya ?? true, filters) });
     }
 
     if (enabled.taobao !== false) {
-        promises.push(taobao.search(query, strict.taobao ?? true).then(res => (res || []).map(i => ({ ...i, source: 'Taobao' }))));
+        scraperTasks.push({ name: 'Taobao', promise: taobao.search(query, strict.taobao ?? true) });
     }
 
     if (enabled.goofish !== false) {
         // Goofish strict filtering same as others? defaulting to true for now
-        promises.push(goofish.search(query, strict.goofish ?? true).then(res => (res || []).map(i => ({ ...i, source: 'Goofish' }))));
+        scraperTasks.push({ name: 'Goofish', promise: goofish.search(query, strict.goofish ?? true) });
     }
 
-    const results = await Promise.allSettled(promises);
+    const results = await Promise.allSettled(scraperTasks.map(t => t.promise));
     let flatResults = [];
 
     results.forEach((res, index) => {
+        const taskName = scraperTasks[index].name;
         if (res.status === 'fulfilled') {
             const val = res.value;
-            // Handle PayPay error object specially
-            if (val && !Array.isArray(val) && val.error) {
-                // It's a paypay error
-                payPayFailed = true;
-                console.log('[Scraper] PayPay failed:', val.status);
+
+            if (val === null) {
+                console.log(`[Scraper] ${taskName} failed and returned null.`);
+                if (taskName === 'PayPay Flea Market') payPayFailed = true;
+
             } else if (Array.isArray(val)) {
                 if (val.length > 0) {
-                    flatResults.push(...val);
+                    const itemsWithSource = val.map(i => ({ ...i, source: taskName }));
+                    flatResults.push(...itemsWithSource);
                 }
+            } else if (val && val.error) {
+                // Handle PayPay error object specially
+                payPayFailed = true;
+                console.log(`[Scraper] ${taskName} failed:`, val.status);
             }
+        } else {
+            // Promise was rejected
+            console.error(`[Scraper] ${taskName} promise was rejected:`, res.reason);
+            if (taskName === 'PayPay Flea Market') payPayFailed = true;
         }
     });
 

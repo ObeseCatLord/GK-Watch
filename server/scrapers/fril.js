@@ -96,7 +96,7 @@ async function search(query, strictEnabled = true, filters = []) {
         if (error.response && error.response.status === 404) {
             return []; // No results found often returns 404 on some sites, though Fril usually just empty list
         }
-        return [];
+        return null;
     }
 }
 

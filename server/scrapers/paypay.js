@@ -53,8 +53,7 @@ async function searchLegacy(query, strictEnabled = true) {
                     title,
                     link: itemLink,
                     image,
-                    price,
-                    source: 'PayPay Flea Market'
+                    price
                 });
             } catch (e) {
                 // Skip bad items
@@ -167,8 +166,7 @@ async function searchNeokyo(query) {
                         link: paypayLink,
                         neokyoLink: (relativeLink && relativeLink.startsWith('http')) ? relativeLink : `https://neokyo.com${relativeLink || ''}`,
                         image: img || '',
-                        price,
-                        source: 'PayPay Flea Market' // Matched to source filter
+                        price
                     });
                 }
             });

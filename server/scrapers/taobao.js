@@ -465,7 +465,7 @@ async function search(query, strict = true) {
         // But better to retry safely.
     }
 
-    if (!results || results.length === 0) {
+    if (!results) {
         console.log('[Taobao] No results found after retries');
         return null;
     }
