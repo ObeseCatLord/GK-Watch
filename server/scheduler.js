@@ -144,8 +144,7 @@ const Scheduler = {
 
                 // Search Logic (Refactored from previous loop)
                 const terms = item.terms || [item.term];
-                const uniqueResults = [];
-                const seenLinks = new Set();
+                const uniqueResultsMap = new Map();
                 let payPayErrorOccurred = false;
 
                 console.log(`[Batch] Processing: ${item.name}`);
@@ -162,9 +161,8 @@ const Scheduler = {
                         }
                         if (results && results.length > 0) {
                             for (const res of results) {
-                                if (!seenLinks.has(res.link)) {
-                                    seenLinks.add(res.link);
-                                    uniqueResults.push(res);
+                                if (!uniqueResultsMap.has(res.link)) {
+                                    uniqueResultsMap.set(res.link, res);
                                 }
                             }
                         }
@@ -172,6 +170,8 @@ const Scheduler = {
                         console.error(`[Batch] Error searching for ${term}:`, err);
                     }
                 }
+
+                const uniqueResults = Array.from(uniqueResultsMap.values());
 
                 try {
                     let filtered = BlockedItems.filterResults(uniqueResults);
