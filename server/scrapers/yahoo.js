@@ -161,7 +161,7 @@ async function searchNeokyo(query) {
 
     } catch (err) {
         console.error('Neokyo Fallback Error:', err.message);
-        return [];
+        return null;
     } finally {
         if (browser) await browser.close();
     }
@@ -303,7 +303,7 @@ async function searchYahooPuppeteer(query, strictEnabled = true, allowInternatio
 
     } catch (err) {
         console.error('Yahoo Puppeteer Fallback Error:', err.message);
-        return [];
+        return null;
     } finally {
         if (browser) await browser.close();
     }

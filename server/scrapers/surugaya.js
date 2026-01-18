@@ -261,22 +261,23 @@ async function searchWithAxios(query) {
  * Main search function - tries Axios first, falls back to Puppeteer
  */
 async function search(query, strict = true, filters = []) {
-    // Append negative filters to query for optimized searching
-    // e.g. "Gundam -Plastic -Model"
-    let effectiveQuery = query;
-    if (filters && filters.length > 0) {
-        const negativeTerms = filters.map(f => `-${f}`).join(' ');
-        effectiveQuery = `${query} ${negativeTerms}`;
-        console.log(`[Suruga-ya] Optimized search with negative terms: "${effectiveQuery}"`);
-    }
+    try {
+        // Append negative filters to query for optimized searching
+        // e.g. "Gundam -Plastic -Model"
+        let effectiveQuery = query;
+        if (filters && filters.length > 0) {
+            const negativeTerms = filters.map(f => `-${f}`).join(' ');
+            effectiveQuery = `${query} ${negativeTerms}`;
+            console.log(`[Suruga-ya] Optimized search with negative terms: "${effectiveQuery}"`);
+        }
 
-    console.log(`Searching Suruga-ya for ${effectiveQuery}...`);
+        console.log(`Searching Suruga-ya for ${effectiveQuery}...`);
 
-    // Try Axios (only)
-    let results = await searchWithAxios(effectiveQuery);
+        // Try Axios (only)
+        let results = await searchWithAxios(effectiveQuery);
 
-    // Filter results if strict mode is on or if query contains quoted terms
-    const parsedQuery = queryMatcher.parseQuery(query);
+        // Filter results if strict mode is on or if query contains quoted terms
+        const parsedQuery = queryMatcher.parseQuery(query);
     const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
 
     // Strict filtering applies if strict mode is ON, OR if we have quoted terms that must be enforced
@@ -362,6 +363,10 @@ async function search(query, strict = true, filters = []) {
 
     // Return results (or empty if none)
     return results;
+    } catch (error) {
+        console.error('Suruga-ya Scraper Error:', error.message);
+        return null;
+    }
 }
 
 module.exports = { search };
