@@ -394,11 +394,20 @@ async function searchWithPuppeteer(query, cookies) {
                 // Return a single error item so the frontend knows
                 results = [{ error: 'Taobao Cookie Required', source: 'Taobao' }];
             } else {
-                console.log('[Taobao] 0 results found AND no login detected. Saving debug dump...');
+                // Check if it's genuinely no results
+                const bodyText = await page.evaluate(() => document.body.innerText);
+                if (bodyText.includes('没有找到') || bodyText.includes('抱歉')) {
+                    console.log('[Taobao] "No results" message found. Returning empty array.');
+                    return [];
+                }
+
+                console.log('[Taobao] 0 results found, no login detected, and no "No results" message. Potential parsing error.');
+                console.log('[Taobao] Saving debug dump...');
                 const content = await page.content();
                 fs.writeFileSync(path.join(__dirname, '../taobao_debug.html'), content);
                 await page.screenshot({ path: path.join(__dirname, '../taobao_debug.png') });
-                console.log('[Taobao] Saved debug dump to taobao_debug.html/png');
+                console.log('[Taobao] Saved debug dump. Returning NULL to trigger retry.');
+                return null;
             }
         }
 
@@ -452,23 +461,7 @@ async function search(query, strict = true) {
 
         // If we got results (or explicit empty array from successful parse), break
         // If null (error), we retry
-        if (results !== null && results.length > 0) break;
-
-        // If results is empty array, it might be valid "no results", or error caught inside and returned as [].
-        // Currently searchWithPuppeteer returns [] on error.
-        // We should probably check if it was a catastrophic failure?
-        // For now, let's assume if it returns [], it's "Done". 
-        // But wait, the previous code returned [] on error logs.
-        // Let's rely on the logs for debugging, but if it returns [], we accept it.
-        // The issue is "detached frame" returns [].
-        // We can't distinguish "0 items found" vs "Crashed and returned []".
-
-        // Actually, searchWithPuppeteer returns [] on catch.
-        // I should modify searchWithPuppeteer to return NULL on error so we know to retry.
-        if (results && results.length > 0) break;
-
-        // If we really found 0 items, we might be retrying unnecessarily if we don't distinguish errors.
-        // But better to retry safely.
+        if (results !== null) break;
     }
 
     if (!results) {
