@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const fsp = fs.promises;
 const searchAggregator = require('./scrapers');
 const Settings = require('./models/settings');
 
@@ -32,7 +33,7 @@ const requireAuth = (req, res, next) => {
 
     const token = req.header('x-auth-token');
 
-    // Always allow localhost/loopback without token if standard auth is bypassed? 
+    // Always allow localhost/loopback without token if standard auth is bypassed?
     // No, strictly require token if loginEnabled is true.
 
     if (!token) {
@@ -130,32 +131,38 @@ const Scheduler = require('./scheduler');
 // Initialize Scheduler
 Scheduler.start();
 
-// Initialize Scheduler
-Scheduler.start();
-
-app.get('/api/watchlist', requireAuth, (req, res) => {
-    res.json(Watchlist.getAll());
-});
-
-app.post('/api/watchlist', requireAuth, (req, res) => {
-    const { term, terms } = req.body;
-    if (!term && (!terms || terms.length === 0)) {
-        return res.status(400).json({ error: 'Term or terms required' });
+app.get('/api/watchlist', requireAuth, async (req, res) => {
+    try {
+        res.json(await Watchlist.getAll());
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to get watchlist' });
     }
-    const item = Watchlist.add(req.body);
-    res.json(item);
 });
 
-app.put('/api/watchlist/:id', requireAuth, (req, res) => {
-    const updated = Watchlist.update(req.params.id, req.body);
-    if (!updated) return res.status(404).json({ error: 'Item not found' });
+app.post('/api/watchlist', requireAuth, async (req, res) => {
+    try {
+        const { term, terms } = req.body;
+        if (!term && (!terms || terms.length === 0)) {
+            return res.status(400).json({ error: 'Term or terms required' });
+        }
+        const item = await Watchlist.add(req.body);
+        res.json(item);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to add to watchlist' });
+    }
+});
 
-    // If enabledSites changed, remove results from disabled sites
-    if (req.body.enabledSites) {
-        try {
+app.put('/api/watchlist/:id', requireAuth, async (req, res) => {
+    try {
+        const updated = await Watchlist.update(req.params.id, req.body);
+        if (!updated) return res.status(404).json({ error: 'Item not found' });
+
+        // If enabledSites changed, remove results from disabled sites
+        if (req.body.enabledSites) {
             const RESULTS_FILE = path.join(__dirname, 'data/results.json');
-            if (fs.existsSync(RESULTS_FILE)) {
-                const resultsData = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
+            try {
+                const rawData = await fsp.readFile(RESULTS_FILE, 'utf8');
+                const resultsData = JSON.parse(rawData);
                 const id = req.params.id;
 
                 if (resultsData[id] && resultsData[id].items) {
@@ -175,47 +182,60 @@ app.put('/api/watchlist/:id', requireAuth, (req, res) => {
                     });
 
                     if (resultsData[id].items.length !== beforeCount) {
-                        resultsData[id].newCount = Math.max(0, resultsData[id].newCount - (beforeCount - resultsData[id].items.length)); // Rough adjustment
-                        // Better: just recount or leave newCount? newCount tracks "unseen".
-                        // If we remove items, newCount might need adjustment if removed items were "new".
-                        // Safest is to just clamp it or reset if empty.
+                        resultsData[id].newCount = Math.max(0, resultsData[id].newCount - (beforeCount - resultsData[id].items.length));
                         if (resultsData[id].items.length === 0) resultsData[id].newCount = 0;
-
-                        fs.writeFileSync(RESULTS_FILE, JSON.stringify(resultsData, null, 2));
+                        await fsp.writeFile(RESULTS_FILE, JSON.stringify(resultsData, null, 2));
                         console.log(`[Watchlist] Cleaned up ${beforeCount - resultsData[id].items.length} disabled items for ${id}`);
                     }
                 }
+            } catch (err) {
+                if (err.code !== 'ENOENT') {
+                    console.error('[Watchlist] Error cleaning up disabled results:', err);
+                }
             }
-        } catch (err) {
-            console.error('[Watchlist] Error cleaning up disabled results:', err);
         }
-    }
 
-    res.json(updated);
+        res.json(updated);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update watchlist' });
+    }
 });
 
-app.post('/api/watchlist/merge', requireAuth, (req, res) => {
-    const { ids, newName } = req.body;
-    if (!ids || !Array.isArray(ids) || ids.length < 2) {
-        return res.status(400).json({ error: 'At least two IDs required for merge' });
+
+app.post('/api/watchlist/merge', requireAuth, async (req, res) => {
+    try {
+        const { ids, newName } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length < 2) {
+            return res.status(400).json({ error: 'At least two IDs required for merge' });
+        }
+        const merged = await Watchlist.merge(ids, newName);
+        if (!merged) return res.status(500).json({ error: 'Merge failed' });
+        res.json(merged);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to merge watchlist items' });
     }
-    const merged = Watchlist.merge(ids, newName);
-    if (!merged) return res.status(500).json({ error: 'Merge failed' });
-    res.json(merged);
 });
 
-app.delete('/api/watchlist/:id', requireAuth, (req, res) => {
-    Watchlist.remove(req.params.id);
-    res.json({ success: true });
+app.delete('/api/watchlist/:id', requireAuth, async (req, res) => {
+    try {
+        await Watchlist.remove(req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to remove from watchlist' });
+    }
 });
 
-app.post('/api/watchlist/reorder', requireAuth, (req, res) => {
-    const { orderedIds } = req.body;
-    if (!orderedIds || !Array.isArray(orderedIds)) {
-        return res.status(400).json({ error: 'orderedIds array required' });
+app.post('/api/watchlist/reorder', requireAuth, async (req, res) => {
+    try {
+        const { orderedIds } = req.body;
+        if (!orderedIds || !Array.isArray(orderedIds)) {
+            return res.status(400).json({ error: 'orderedIds array required' });
+        }
+        const reordered = await Watchlist.reorder(orderedIds);
+        res.json(reordered);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to reorder watchlist' });
     }
-    const reordered = Watchlist.reorder(orderedIds);
-    res.json(reordered);
 });
 
 app.get('/api/results/:id', requireAuth, (req, res) => {
@@ -243,34 +263,46 @@ app.get('/api/watchlist/newcounts', requireAuth, (req, res) => {
 });
 
 // Toggle email notifications for a watchlist item
-app.post('/api/watchlist/:id/toggle-email', requireAuth, (req, res) => {
-    const { id } = req.params;
-    const item = Watchlist.get(id);
-    if (!item) return res.status(404).json({ error: 'Item not found' });
+app.post('/api/watchlist/:id/toggle-email', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const item = await Watchlist.get(id);
+        if (!item) return res.status(404).json({ error: 'Item not found' });
 
-    const newState = item.emailNotify === false ? true : false;
-    Watchlist.update(id, { emailNotify: newState });
-    res.json({ emailNotify: newState });
+        const newState = item.emailNotify === false ? true : false;
+        await Watchlist.update(id, { emailNotify: newState });
+        res.json({ emailNotify: newState });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to toggle email' });
+    }
 });
 
-app.post('/api/watchlist/:id/toggle-priority', requireAuth, (req, res) => {
-    const { id } = req.params;
-    const item = Watchlist.get(id);
-    if (!item) return res.status(404).json({ error: 'Item not found' });
+app.post('/api/watchlist/:id/toggle-priority', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const item = await Watchlist.get(id);
+        if (!item) return res.status(404).json({ error: 'Item not found' });
 
-    // Default to false if undefined
-    const newState = !item.priority;
-    Watchlist.update(id, { priority: newState });
-    res.json({ priority: newState });
+        // Default to false if undefined
+        const newState = !item.priority;
+        await Watchlist.update(id, { priority: newState });
+        res.json({ priority: newState });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to toggle priority' });
+    }
 });
 
 // Toggle active status for a watchlist item
-app.post('/api/watchlist/:id/toggle-active', requireAuth, (req, res) => {
-    const newState = Watchlist.toggleActive(req.params.id);
-    if (newState === null) {
-        return res.status(404).json({ error: 'Watchlist item not found' });
+app.post('/api/watchlist/:id/toggle-active', requireAuth, async (req, res) => {
+    try {
+        const newState = await Watchlist.toggleActive(req.params.id);
+        if (newState === null) {
+            return res.status(404).json({ error: 'Watchlist item not found' });
+        }
+        res.json({ active: newState });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to toggle active' });
     }
-    res.json({ active: newState });
 });
 
 // Blocked Items Routes
@@ -482,8 +514,6 @@ app.post('/api/cookies/:site', requireAuth, (req, res) => {
         }
 
         // Write to file
-        const fs = require('fs');
-        const path = require('path');
         const filePath = path.join(__dirname, 'data', `${site}_cookies.json`);
 
         fs.writeFileSync(filePath, JSON.stringify(cookieJson, null, 2));
@@ -539,19 +569,19 @@ app.post('/api/run-now', requireAuth, async (req, res) => {
 
     console.log('[Manual] Running all watchlist searches (Batch)...');
 
-    // Refresh scheduler's cache of global blacklist before running
-    // Scheduler handles this internally usually, but for manual run we might need to be sure?
-    // Actually Scheduler.runBatch uses its own logic. Let's check Scheduler.
+    try {
+        const list = await Watchlist.getAll();
+        const activeItems = list.filter(i => i.active !== false);
 
-    const list = Watchlist.getAll();
-    const activeItems = list.filter(i => i.active !== false);
+        // Fire and forget - results tracked via Scheduler.progress
+        Scheduler.runBatch(activeItems, 'manual').catch(err => {
+            console.error('Error in manual batch run:', err);
+        });
 
-    // Fire and forget - results tracked via Scheduler.progress
-    Scheduler.runBatch(activeItems, 'manual').catch(err => {
-        console.error('Error in manual batch run:', err);
-    });
-
-    res.json({ success: true, message: 'Batch run started', total: activeItems.length });
+        res.json({ success: true, message: 'Batch run started', total: activeItems.length });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to run now' });
+    }
 });
 
 // Manual Run - Single item
@@ -560,15 +590,17 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         return res.status(409).json({ error: 'Search already running' });
     }
 
-    const item = Watchlist.getAll().find(i => i.id === req.params.id);
-    if (!item) {
-        return res.status(404).json({ error: 'Watchlist item not found' });
-    }
-
-    console.log(`[Manual Single] Searching for: ${item.name}`);
-    Scheduler.isRunning = true;
-
     try {
+        const allItems = await Watchlist.getAll();
+        const item = allItems.find(i => i.id === req.params.id);
+
+        if (!item) {
+            return res.status(404).json({ error: 'Watchlist item not found' });
+        }
+
+        console.log(`[Manual Single] Searching for: ${item.name}`);
+        Scheduler.isRunning = true;
+
         const terms = item.terms || [item.term];
         let allTermResults = [];
 
@@ -596,7 +628,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
 
         const filtered = BlockedItems.filterResults(uniqueResults);
         const newItems = Scheduler.saveResults(item.id, filtered, item.name);
-        Watchlist.updateLastRun(item.id);
+        await Watchlist.updateLastRun(item.id);
         res.json({ success: true, resultCount: filtered.length, newCount: newItems.length });
     } catch (err) {
         console.error(`[Manual Single] Error:`, err);
@@ -622,4 +654,3 @@ app.post('/api/settings/test-email', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
-
