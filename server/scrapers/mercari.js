@@ -91,7 +91,6 @@ async function performSearch(query, strictEnabled, filters) {
         for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
             if (pageNum > 1) {
                 console.log(`Mercari: Navigating to page ${pageNum}...`);
-                await new Promise(r => setTimeout(r, 2000)); // Delay between pages
             }
 
             await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
