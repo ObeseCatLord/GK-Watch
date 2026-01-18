@@ -138,7 +138,8 @@ const Scheduler = {
 
                 // Search Logic (Refactored from previous loop)
                 const terms = item.terms || [item.term];
-                let allTermResults = [];
+                const uniqueResults = [];
+                const seenLinks = new Set();
                 let payPayErrorOccurred = false;
 
                 console.log(`[Batch] Processing: ${item.name}`);
@@ -154,20 +155,15 @@ const Scheduler = {
                             payPayErrorOccurred = true;
                         }
                         if (results && results.length > 0) {
-                            allTermResults = [...allTermResults, ...results];
+                            for (const res of results) {
+                                if (!seenLinks.has(res.link)) {
+                                    seenLinks.add(res.link);
+                                    uniqueResults.push(res);
+                                }
+                            }
                         }
                     } catch (err) {
                         console.error(`[Batch] Error searching for ${term}:`, err);
-                    }
-                }
-
-                // Deduplicate logic
-                const uniqueResults = [];
-                const seenLinks = new Set();
-                for (const res of allTermResults) {
-                    if (!seenLinks.has(res.link)) {
-                        seenLinks.add(res.link);
-                        uniqueResults.push(res);
                     }
                 }
 
