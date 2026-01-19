@@ -19,7 +19,7 @@ install_dependency() {
     if command -v "$CMD_NAME" &> /dev/null || command -v "$PKG_NAME" &> /dev/null; then
         echo "✅ $PKG_NAME is already installed."
         return 0
-    }
+    fi
 
     echo "⚙️  $PKG_NAME not found. Attempting install..."
 
