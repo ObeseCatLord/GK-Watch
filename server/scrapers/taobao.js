@@ -420,7 +420,8 @@ async function searchWithPuppeteer(query, cookies) {
         } else {
             console.error('[Taobao] Puppeteer error:', error.message);
         }
-        return null; // Return null on error to signal retry
+        // Explicitly return null on error to signal retry (vs empty array for valid 0 results)
+        return null;
     } finally {
         if (page) {
             try { await page.close(); } catch (e) { }
