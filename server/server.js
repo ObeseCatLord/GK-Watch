@@ -602,8 +602,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         Scheduler.isRunning = true;
 
         const terms = item.terms || [item.term];
-        const uniqueResults = [];
-        const seenLinks = new Set();
+        const uniqueResultsMap = new Map();
 
         const settings = Settings.get();
         const globalFilters = Blacklist.getAll().map(i => i.term);
@@ -614,13 +613,14 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
             const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, filters);
             if (results && results.length > 0) {
                 for (const res of results) {
-                    if (!seenLinks.has(res.link)) {
-                        seenLinks.add(res.link);
-                        uniqueResults.push(res);
+                    if (!uniqueResultsMap.has(res.link)) {
+                        uniqueResultsMap.set(res.link, res);
                     }
                 }
             }
         }
+
+        const uniqueResults = Array.from(uniqueResultsMap.values());
 
         const filtered = BlockedItems.filterResults(uniqueResults);
         const newItems = Scheduler.saveResults(item.id, filtered, item.name);
