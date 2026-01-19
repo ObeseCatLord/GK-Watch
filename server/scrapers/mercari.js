@@ -89,10 +89,6 @@ async function performSearch(query, strictEnabled, filters) {
         let currentUrl = `https://jp.mercari.com/search?keyword=${encodeURIComponent(effectiveQuery)}&status=on_sale`;
 
         for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
-            if (pageNum > 1) {
-                console.log(`Mercari: Navigating to page ${pageNum}...`);
-            }
-
             await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
             // Race check: Wait for either items OR no-results text
@@ -102,7 +98,7 @@ async function performSearch(query, strictEnabled, filters) {
                     const matchesNoResults = text.includes('検索結果 0件') ||
                         text.includes('該当する商品は見つかりませんでした') ||
                         text.includes('出品された商品がありません');
-                    const hasItems = document.querySelectorAll('li[data-testid="item-cell"]').length > 0;
+                    const hasItems = !!document.querySelector('li[data-testid="item-cell"]');
 
                     if (matchesNoResults) return 'NO_RESULTS';
                     if (hasItems) return 'HAS_ITEMS';
