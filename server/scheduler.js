@@ -258,49 +258,29 @@ const Scheduler = {
 
         // Track which Yahoo items are in the new results (by title)
         const newYahooTitles = new Set();
-        newResults.forEach(result => {
-            if (result.source && result.source.toLowerCase().includes('yahoo') && result.title) {
-                newYahooTitles.add(result.title.trim());
-            }
-        });
-
-        // Track which Suruga-ya items are in the new results (by title)
         const newSurugayaTitles = new Set();
-        newResults.forEach(result => {
-            if (result.source && result.source.toLowerCase().includes('suruga') && result.title) {
-                newSurugayaTitles.add(result.title.trim());
-            }
-        });
-
-        // Track which Mercari items are in the new results (by title)
         const newMercariTitles = new Set();
-        newResults.forEach(result => {
-            if (result.source && result.source.toLowerCase().includes('mercari') && result.title) {
-                newMercariTitles.add(result.title.trim());
-            }
-        });
-
-        // Track which PayPay items are in the new results (by title)
         const newPayPayTitles = new Set();
-        newResults.forEach(result => {
-            if (result.source && result.source.toLowerCase().includes('paypay') && result.title) {
-                newPayPayTitles.add(result.title.trim());
-            }
-        });
-
-        // Track which Taobao items are in the new results (by title)
         const newTaobaoTitles = new Set();
-        newResults.forEach(result => {
-            if (result.source && result.source.toLowerCase() === 'taobao' && result.title) {
-                newTaobaoTitles.add(result.title.trim());
-            }
-        });
-
-        // Track which Goofish items are in the new results (by title)
         const newGoofishTitles = new Set();
+
         newResults.forEach(result => {
-            if (result.source && result.source.toLowerCase() === 'goofish' && result.title) {
-                newGoofishTitles.add(result.title.trim());
+            if (!result.title) return;
+            const title = result.title.trim();
+            const source = result.source ? result.source.toLowerCase() : '';
+
+            if (source.includes('yahoo')) {
+                newYahooTitles.add(title);
+            } else if (source.includes('suruga')) {
+                newSurugayaTitles.add(title);
+            } else if (source.includes('mercari')) {
+                newMercariTitles.add(title);
+            } else if (source.includes('paypay')) {
+                newPayPayTitles.add(title);
+            } else if (source === 'taobao') {
+                newTaobaoTitles.add(title);
+            } else if (source === 'goofish') {
+                newGoofishTitles.add(title);
             }
         });
 
