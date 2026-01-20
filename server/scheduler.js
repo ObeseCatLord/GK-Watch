@@ -55,7 +55,7 @@ const Scheduler = {
             }
 
             console.log('Running scheduled searches...');
-            const list = Watchlist.getAll();
+            const list = await Watchlist.getAll();
             const activeItems = list.filter(i => i.active !== false);
 
             await Scheduler.runBatch(activeItems, 'scheduled');
@@ -77,7 +77,7 @@ const Scheduler = {
                 console.log(`Resuming ${state.type} search from index ${state.currentIndex}...`);
 
                 // Reconstruct items list
-                const allItems = Watchlist.getAll();
+                const allItems = await Watchlist.getAll();
                 const itemsToRun = state.items.map(id => allItems.find(i => i.id === id)).filter(Boolean);
 
                 if (itemsToRun.length > 0) {
@@ -378,10 +378,10 @@ const Scheduler = {
                 if (item.title && item.title.startsWith('Search Suruga-ya for')) continue;
 
                 if (ageMs < SURUGAYA_GRACE_PERIOD_MS) {
-                     if (!item.title || !newSurugayaTitles.has(item.title.trim())) {
+                    if (!item.title || !newSurugayaTitles.has(item.title.trim())) {
                         preserve = true;
                         hidden = false; // Suruga-ya items remain visible
-                     }
+                    }
                 }
             } else if (source.includes('mercari')) {
                 if (ageMs < MERCARI_GRACE_PERIOD_MS) {
