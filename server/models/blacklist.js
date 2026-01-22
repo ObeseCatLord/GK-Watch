@@ -71,6 +71,7 @@ const Blacklist = {
 
     // Check if a title contains any blacklisted terms
     isBlacklisted: (title) => {
+        if (!title) return false;
         const list = Blacklist.getAll();
         const titleLower = title.toLowerCase();
         return list.some(item => titleLower.includes(item.term.toLowerCase()));
@@ -83,6 +84,7 @@ const Blacklist = {
 
         const blacklistTerms = list.map(item => item.term.toLowerCase());
         return results.filter(item => {
+            if (!item.title) return false; // Filter out items without titles safely
             const titleLower = item.title.toLowerCase();
             return !blacklistTerms.some(term => titleLower.includes(term));
         });
