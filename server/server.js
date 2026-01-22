@@ -115,7 +115,8 @@ app.get('/api/search', requireAuth, async (req, res) => {
         // Live search doesn't support complex filters array yet (only query string), so pass empty []
         // Optional: Could parse filters from query if added later.
         const results = await searchAggregator.searchAll(query, enabledOverride, strict, []);
-        const filteredResults = BlockedItems.filterResults(results);
+        let filteredResults = BlockedItems.filterResults(results);
+        filteredResults = Blacklist.filterResults(filteredResults);
         res.json(filteredResults);
     } catch (error) {
         console.error('Search failed:', error);
@@ -340,6 +341,15 @@ app.post('/api/blacklist', requireAuth, (req, res) => {
 app.delete('/api/blacklist/:id', requireAuth, (req, res) => {
     Blacklist.remove(req.params.id);
     res.json({ success: true });
+});
+
+app.put('/api/blacklist', requireAuth, (req, res) => {
+    const { terms } = req.body;
+    if (!Array.isArray(terms)) {
+        return res.status(400).json({ error: 'Terms array is required' });
+    }
+    const newList = Blacklist.replaceAll(terms);
+    res.json(newList);
 });
 
 // Schedule Settings Routes

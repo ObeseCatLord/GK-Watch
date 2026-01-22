@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 
 const BlockedManager = ({ authenticatedFetch }) => {
     const [blockedItems, setBlockedItems] = useState([]);
-    const [blacklist, setBlacklist] = useState([]);
-    const [newTerm, setNewTerm] = useState('');
+    // blacklist state is now just for tracking changes if needed, but we mainly use newTerm for the textarea
+    // to avoid confusion, let's rename newTerm to blacklistText
+    const [blacklistText, setNewTerm] = useState(''); // Reusing setNewTerm setter to minimize diff, but essentially it's the text block 
 
     useEffect(() => {
         fetchBlockedItems();
@@ -24,9 +25,32 @@ const BlockedManager = ({ authenticatedFetch }) => {
         try {
             const res = await authenticatedFetch('/api/blacklist');
             const data = await res.json();
-            setBlacklist(data);
+            // Convert list to newline-separated string
+            const text = data.map(item => item.term).join('\n');
+            setNewTerm(text);
         } catch (err) {
             console.error('Error fetching blacklist:', err);
+        }
+    };
+
+    const saveBulkBlacklist = async () => {
+        const terms = blacklistText.split('\n').map(t => t.trim()).filter(t => t);
+        try {
+            const res = await authenticatedFetch('/api/blacklist', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ terms })
+            });
+            if (res.ok) {
+                alert('Blacklist updated!');
+                fetchBlacklist(); // Refresh to normalize formatting
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to update blacklist');
+            }
+        } catch (err) {
+            console.error('Error saving blacklist:', err);
+            alert('Failed to save blacklist');
         }
     };
 
@@ -41,39 +65,6 @@ const BlockedManager = ({ authenticatedFetch }) => {
         }
     };
 
-    const addToBlacklist = async (e) => {
-        e.preventDefault();
-        if (!newTerm.trim()) return;
-
-        try {
-            const res = await authenticatedFetch('/api/blacklist', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ term: newTerm })
-            });
-            if (res.ok) {
-                setNewTerm('');
-                fetchBlacklist();
-            } else {
-                const data = await res.json();
-                alert(data.error || 'Failed to add term');
-            }
-        } catch (err) {
-            console.error('Error adding to blacklist:', err);
-        }
-    };
-
-    const removeFromBlacklist = async (id) => {
-        try {
-            await authenticatedFetch(`/api/blacklist/${id}`, {
-                method: 'DELETE'
-            });
-            fetchBlacklist();
-        } catch (err) {
-            console.error('Error removing from blacklist:', err);
-        }
-    };
-
     return (
         <div className="watchlist-container">
             {/* Desktop: Side-by-side grid, Mobile: Stack */}
@@ -82,51 +73,41 @@ const BlockedManager = ({ authenticatedFetch }) => {
                 <div className="blocked-section">
                     <h2>🚫 Universal Blacklist</h2>
                     <p style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#888' }}>
-                        Items containing these terms will be hidden from <strong>all</strong> search results.
+                        Items containing these terms will be hidden from <strong>all</strong> search results.<br />
+                        <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>One term per line.</span>
                     </p>
 
-                    <form onSubmit={addToBlacklist} style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginBottom: '1.5rem' }}>
-                        <input
-                            type="text"
-                            value={newTerm}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <textarea
+                            value={blacklistText}
                             onChange={(e) => setNewTerm(e.target.value)}
-                            placeholder="Enter term to filter..."
-                            className="search-input"
-                            style={{ maxWidth: '300px' }}
+                            placeholder="Enter terms to block (one per line)..."
+                            className="settings-input"
+                            rows={10}
+                            style={{
+                                width: '100%',
+                                minHeight: '200px',
+                                fontFamily: 'monospace',
+                                lineHeight: '1.5',
+                                padding: '10px'
+                            }}
                         />
-                        <button type="submit" className="add-btn">+ Add</button>
-                    </form>
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
-                        {blacklist.length === 0 && <p style={{ color: '#666' }}>No blacklisted terms yet.</p>}
-                        {blacklist.map(item => (
-                            <span
-                                key={item.id}
-                                className="history-chip"
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <button
+                                onClick={saveBulkBlacklist}
+                                className="save-btn"
                                 style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    background: 'rgba(255, 68, 68, 0.2)',
-                                    borderColor: '#ff4444'
+                                    padding: '8px 24px',
+                                    borderRadius: '4px',
+                                    fontSize: '0.9rem',
+                                    fontWeight: 'bold',
+                                    background: '#e53935' // Red to indicate blocking
                                 }}
                             >
-                                {item.term}
-                                <button
-                                    onClick={() => removeFromBlacklist(item.id)}
-                                    style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        padding: 0,
-                                        fontSize: '1rem'
-                                    }}
-                                    title="Remove"
-                                >
-                                    ✕
-                                </button>
-                            </span>
-                        ))}
+                                Save Blacklist
+                            </button>
+                        </div>
                     </div>
                 </div>
 

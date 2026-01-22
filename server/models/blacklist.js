@@ -51,6 +51,24 @@ const Blacklist = {
         return { success: true };
     },
 
+    replaceAll: (terms) => {
+        // Terms is an array of strings
+        if (!Array.isArray(terms)) return { error: 'Terms must be an array' };
+
+        const newList = terms
+            .map(t => t.trim())
+            .filter(t => t.length > 0)
+            .filter((val, index, self) => self.indexOf(val) === index) // Unique
+            .map(term => ({
+                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                term: term,
+                addedAt: new Date().toISOString()
+            }));
+
+        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(newList, null, 2));
+        return newList;
+    },
+
     // Check if a title contains any blacklisted terms
     isBlacklisted: (title) => {
         const list = Blacklist.getAll();

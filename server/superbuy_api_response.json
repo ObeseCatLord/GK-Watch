@@ -1,0 +1,235 @@
+{
+  "app": {
+    "name": "Superbuy",
+    "audio_enabled": true,
+    "show_powered_by": false,
+    "team_intro": "Our human customer service time is from 9:00 AM to 6:00 PM, Beijing Time.",
+    "team_greeting": "Hi there👋",
+    "messenger_background": "background-1",
+    "expected_response_delay_translation_key": "a_few_minutes",
+    "launcher_expected_response_delay_translation_key": "the_team_typically_replies_in_minutes",
+    "sms_notifications_enabled": false,
+    "inbound_conversations_disabled": false,
+    "office_hours_response": "Later today",
+    "help_center_site_url": "https://intercom.help/staritgp",
+    "messenger_logo_url": "https://downloads.intercomcdn.com/i/o/hz9epbqr/709296/ba7a2076cc5c4e8f6170f99a5de8/e1e96219645d2c0658973305cfc640ec.png",
+    "user_conversation_gifs_enabled": true,
+    "user_conversation_voice_notes_enabled": true,
+    "developer_workspace": false,
+    "upfront_email_collection_setting": "never",
+    "temporary_expectations_message": null,
+    "localized_expected_response_delay_short_text": "Back later today",
+    "localized_expected_response_delay_long_text": "We'll be back online later today",
+    "help_center_id": null,
+    "article_auto_reaction_enabled": true,
+    "use_cache_for": []
+  },
+  "user": {
+    "id": "69728cfcb2dd6aeed85a448e",
+    "role": "visitor_role",
+    "locale": "en",
+    "has_conversations": false,
+    "anonymous_id": "2c453e83-0c04-494b-9112-6afa92ba747c",
+    "country_code": "us",
+    "new_session": true,
+    "help_center_require_search": false,
+    "requires_cookie_consent": false,
+    "prevent_multiple_inbound_conversation": true,
+    "user_assignments": {}
+  },
+  "client_matches": [],
+  "launcher_settings": {
+    "alignment": "right",
+    "color": "#0083EF",
+    "color_dark": "#1a9dff",
+    "has_required_features": true,
+    "horizontal_padding": 25,
+    "instant_boot_enabled": true,
+    "launcher_logo_url": "https://downloads.intercomcdn.com/i/o/hz9epbqr/709987/085a387df0be4e43a1b0ef84de4b/e1e96219645d2c0658973305cfc640ec.png",
+    "launcher_logo_dark_url": null,
+    "secondary_color": "#0083ef",
+    "secondary_color_dark": "#0083ef",
+    "show_launcher": true,
+    "theme_mode": "light",
+    "updated_at": 1769066354,
+    "vertical_padding": 25
+  },
+  "modules": {
+    "messages": {
+      "google_analytics_tracking_id": null
+    },
+    "rtm": {
+      "endpoints": [
+        "https://nexus-websocket-a.intercom.io/pubsub/5-v8A1zq0SBzZxay15DeVS05bMgGC-HZJAMrORtxEfcDy03aFLuPDqazUNLI5NZTMyEzXHRF2_38i4tp9FhGr6tLCpPNdBg5J7vX3v"
+      ],
+      "options": {
+        "PING_TIMEOUT": 45000,
+        "PONG_TIMEOUT": 10000
+      }
+    },
+    "metrics": {
+      "enabled": false
+    },
+    "error_reporting": {
+      "disabled": false
+    },
+    "customization": {
+      "brand_name": "Superbuy",
+      "messenger_logo_url": "https://downloads.intercomcdn.com/i/o/hz9epbqr/709296/ba7a2076cc5c4e8f6170f99a5de8/e1e96219645d2c0658973305cfc640ec.png",
+      "messenger_wallpaper": "background-1",
+      "action": {
+        "background_color": "#0083EF",
+        "foreground_color": "#14161a",
+        "foreground_color_low_contrast": "#ffffff",
+        "background_color_dark": "#1a9dff",
+        "foreground_color_dark": "#14161a",
+        "foreground_color_low_contrast_dark": "#14161a"
+      },
+      "action_contrast_white": {
+        "background_color": "#14161a",
+        "foreground_color": "#ffffff"
+      },
+      "action_contrast_dark": null,
+      "header": {
+        "background_color": "#ffffff",
+        "foreground_color": "#222222",
+        "background_color_dark": "#14161a",
+        "foreground_color_dark": "#f7f7f7"
+      },
+      "theme_mode": "light",
+      "launcher_logo_dark_url": null,
+      "messenger_logo_dark_url": null,
+      "custom_font": null
+    },
+    "home": {
+      "header": {
+        "background": {
+          "enabled": false,
+          "animated": false,
+          "type": "solid",
+          "type_dark": "solid",
+          "color": "#0083ef",
+          "color_dark": "#0083ef",
+          "fade_to_white": true,
+          "fade_to_dark": false,
+          "gradient": [
+            "#0083ef",
+            "#004b89"
+          ],
+          "gradient_dark": null,
+          "image_url": null,
+          "image_dark_url": null
+        },
+        "content": {
+          "greeting": {
+            "content": "Hi there👋",
+            "text_color": "#ffffff",
+            "text_color_dark": "#14161a",
+            "opacity": 1
+          },
+          "introduction": {
+            "content": "Welcome to Superbuy. How can we help?",
+            "text_color": "#ffffff",
+            "text_color_dark": "#14161a",
+            "opacity": 1
+          },
+          "close_button": {
+            "foreground_color": "#ffffff",
+            "background_color": "#000000",
+            "background_opacity": 0.5
+          },
+          "show_avatars": false,
+          "text_color_type": "light",
+          "text_color_type_dark": "light",
+          "logo_url": "https://downloads.intercomcdn.com/i/o/hz9epbqr/709296/ba7a2076cc5c4e8f6170f99a5de8/e1e96219645d2c0658973305cfc640ec.png",
+          "logo_dark_url": null
+        },
+        "header_expanded": true,
+        "identity": "ai_agent"
+      },
+      "open_config": null
+    },
+    "features": {
+      "checklists": true,
+      "checklists_reminders": true,
+      "inbound_messages": true,
+      "inbound_lead_messaging": true,
+      "inbound_lead_messaging_docs_site": true,
+      "launcher_discovery_mode": true,
+      "marketo_enrichment_installed": false,
+      "hubspot_installed": false,
+      "google_analytics": false,
+      "single_page_app_rate_limiting": false,
+      "cross_site_cookies": false,
+      "cookie_secure_flag": false,
+      "ticket_creation": false,
+      "google_analytics_4_integration": true,
+      "view_in_help_center_button": true,
+      "customer_privacy_policy": false,
+      "eprivacy_cookie_compliance_required": false,
+      "persist_client_id_for_conversation_parts": true,
+      "composer_is_not_hiding": true,
+      "conversations_are_expandable": true,
+      "unified_reply_expectations": true,
+      "disable_fin_image_reading": false,
+      "delay_tour_render": false,
+      "disable_tickets_after_conversation_end": false,
+      "new_mobile_notifications_enabled": false,
+      "nexus_ably": true,
+      "close_ably_on_close_messenger": true,
+      "ably_bypass_connect_on_new_comment": true,
+      "fin_latency_messenger_header_revamp_enabled": false,
+      "disable_ticket_email_notification": false,
+      "team_messenger_fin_messenger": false,
+      "mercury_ui_changes": false,
+      "enable_custom_emojis": false,
+      "asana_limit_uploads_to_5mb": false,
+      "user_images_grid": false,
+      "user_images_aspect_ratio": false,
+      "fin_images_grid": true,
+      "new_privacy_policy_layout": false,
+      "fin_launcher_discovery_mode": false,
+      "ai_titles": true,
+      "always_get_salesforce_token": false,
+      "client_side_actions": false,
+      "messenger_tts": false
+    }
+  },
+  "unread_conversation_ids": [],
+  "unread_dismissed_conversation_ids": [],
+  "anonymous_session": "",
+  "identity_verified": false,
+  "origin_cookie_domain": "superbuy.com",
+  "cdas_breaching_limit": [],
+  "checklists": [],
+  "open_config": {
+    "form": "default",
+    "open_to": "home",
+    "spaces": [
+      {
+        "type": "home",
+        "label": "Home",
+        "navigation_label": "Home",
+        "badge": null
+      },
+      {
+        "type": "messages",
+        "label": "Messages",
+        "navigation_label": "Messages",
+        "badge": null
+      },
+      {
+        "type": "tickets",
+        "label": "Tickets",
+        "navigation_label": "Tickets",
+        "badge": null
+      }
+    ],
+    "user_has_tickets": false,
+    "user_has_received_checklists": false,
+    "user_has_live_newsfeed": false,
+    "unified_style": true
+  },
+  "unread_tickets_count": 0,
+  "jwt_expired": false
+}
