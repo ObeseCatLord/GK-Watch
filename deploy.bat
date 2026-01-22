@@ -11,7 +11,21 @@ echo Checking prerequisites...
 
 where node >nul 2>nul
 if %ERRORLEVEL% neq 0 goto :InstallNode
-for /f "tokens=1" %%i in ('node -v') do echo [OK] Node.js %%i
+
+for /f "tokens=1" %%i in ('node -v') do set NODE_FULL_VER=%%i
+echo [OK] Node.js %NODE_FULL_VER% pseudo-check...
+
+:: Extract major version (removing 'v')
+for /f "tokens=1 delims=." %%a in ("%NODE_FULL_VER:v=%") do set NODE_MAJOR=%%a
+
+if %NODE_MAJOR% LSS 18 (
+    echo.
+    echo [ERROR] Node.js version %NODE_FULL_VER% is too old!
+    echo         You need at least Node.js 18.
+    echo.
+    goto :InstallNode
+)
+
 goto :CheckNpm
 
 :InstallNode
