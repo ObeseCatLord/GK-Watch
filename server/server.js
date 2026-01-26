@@ -3,14 +3,32 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const searchAggregator = require('./scrapers');
 const Settings = require('./models/settings');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Security headers
+app.use(helmet({
+    contentSecurityPolicy: false, // Disable CSP for now (may break frontend)
+    crossOriginEmbedderPolicy: false
+}));
+
 app.use(cors());
 app.use(express.json());
+
+// Rate limiting for login endpoint
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // 10 attempts per window
+    message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
 
 // API Endpoint
 const crypto = require('crypto');
@@ -33,23 +51,29 @@ const requireAuth = (req, res, next) => {
 
     const token = req.header('x-auth-token');
 
-    // Always allow localhost/loopback without token if standard auth is bypassed?
-    // No, strictly require token if loginEnabled is true.
-
     if (!token) {
         return res.status(401).json({ error: 'No token, authorization denied' });
     }
 
-    if (!activeSessions.has(token)) {
+    const session = activeSessions.get(token);
+    if (!session) {
         return res.status(401).json({ error: 'Token is invalid or expired' });
     }
 
-    // Refresh timestamp? (Optional)
+    // Check session expiry
+    if (Date.now() - session.timestamp > SESSION_TIMEOUT) {
+        activeSessions.delete(token);
+        return res.status(401).json({ error: 'Session expired. Please login again.' });
+    }
+
+    // Refresh session timestamp on activity
+    session.timestamp = Date.now();
     return next();
 };
 
-// Login Routes
-app.post('/api/login', (req, res) => {
+
+// Login Routes (with rate limiting)
+app.post('/api/login', loginLimiter, (req, res) => {
     const { password } = req.body;
     const settings = Settings.get();
 
@@ -62,7 +86,21 @@ app.post('/api/login', (req, res) => {
         return res.status(400).json({ error: 'Password required' });
     }
 
-    if (password === settings.loginPassword) {
+    // Timing-safe password comparison
+    const storedPassword = settings.loginPassword || '';
+    const inputPassword = password || '';
+
+    // Pad to same length for timing-safe comparison
+    const maxLen = Math.max(storedPassword.length, inputPassword.length);
+    const paddedStored = storedPassword.padEnd(maxLen, '\0');
+    const paddedInput = inputPassword.padEnd(maxLen, '\0');
+
+    const isMatch = crypto.timingSafeEqual(
+        Buffer.from(paddedStored, 'utf8'),
+        Buffer.from(paddedInput, 'utf8')
+    );
+
+    if (isMatch && storedPassword.length === inputPassword.length) {
         const token = crypto.randomBytes(32).toString('hex');
         activeSessions.set(token, { timestamp: Date.now() });
         return res.json({ success: true, token });
@@ -70,6 +108,7 @@ app.post('/api/login', (req, res) => {
         return res.status(401).json({ error: 'Invalid password' });
     }
 });
+
 
 app.post('/api/logout', (req, res) => {
     const token = req.header('x-auth-token');
@@ -359,7 +398,7 @@ app.put('/api/blacklist', requireAuth, (req, res) => {
 // Schedule Settings Routes
 const ScheduleSettings = require('./models/schedule');
 
-app.get('/api/schedule', (req, res) => {
+app.get('/api/schedule', requireAuth, (req, res) => {
     const settings = ScheduleSettings.get();
     // Add CST equivalents for frontend display
     const hoursWithCst = settings.enabledHours.map(jstHour => ({
@@ -368,6 +407,7 @@ app.get('/api/schedule', (req, res) => {
     }));
     res.json({ enabledHours: settings.enabledHours, hoursWithCst });
 });
+
 
 app.post('/api/schedule', requireAuth, (req, res) => {
     const { enabledHours } = req.body;
@@ -379,7 +419,8 @@ app.post('/api/schedule', requireAuth, (req, res) => {
 });
 
 // Check scheduler status
-app.get('/api/status', (req, res) => {
+app.get('/api/status', requireAuth, (req, res) => {
+
     const settings = ScheduleSettings.get();
     const enabledHours = settings.enabledHours || [];
 
@@ -492,12 +533,14 @@ app.post('/api/settings/test-ntfy', requireAuth, async (req, res) => {
 
 // Taobao Status Check
 const taobaoScraper = require('./scrapers/taobao');
-app.get('/api/taobao/status', (req, res) => {
+app.get('/api/taobao/status', requireAuth, (req, res) => {
     res.json({ hasCookies: taobaoScraper.hasValidCookies() });
 });
 
+
 const goofishScraper = require('./scrapers/goofish');
-app.get('/api/goofish/status', (req, res) => {
+app.get('/api/goofish/status', requireAuth, (req, res) => {
+
     res.json({ hasCookies: goofishScraper.hasValidCookies() });
 });
 
