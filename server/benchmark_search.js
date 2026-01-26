@@ -10,8 +10,18 @@ const searchAggregator = require('./scrapers');
     const start = performance.now();
     try {
         // Search logic similar to server.js: strict=true, no blacklists for raw benchmark
-        // Enable ALL scrapers (including Taobao) for full check
-        const results = await searchAggregator.searchAll(query, {}, true, []);
+        // Disable Taobao and Goofish for faster benchmark
+        const enabledSites = {
+            mercari: true,
+            yahoo: true,
+            paypay: true,
+            fril: true,
+            surugaya: true,
+            taobao: false,
+            goofish: false
+        };
+        const results = await searchAggregator.searchAll(query, enabledSites, true, []);
+
 
 
         const end = performance.now();
