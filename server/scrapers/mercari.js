@@ -2,7 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const puppeteer = require('puppeteer');
+const cheerio = require('cheerio');
+const axios = require('axios');
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery, getSearchTerms } = require('../utils/queryMatcher');
+
+const NEOKYO_SEARCH_URL = 'https://neokyo.com/en/search/mercari';
+const DELAY_BETWEEN_PAGES = 300; // ms
+
 
 let consecutiveTimeouts = 0;
 let isDisabled = false;
@@ -17,7 +23,7 @@ async function getBrowser() {
         }
         try {
             await browser.close();
-        } catch (e) {}
+        } catch (e) { }
         browserPromise = null;
     }
 
@@ -274,7 +280,174 @@ async function performSearch(query, strictEnabled, filters) {
     }
 }
 
+
+/**
+ * Build Neokyo Search URL
+ */
+function buildNeokyoUrl(query, page = 1) {
+    const encodedQuery = encodeURIComponent(query);
+    if (page === 1) {
+        return `${NEOKYO_SEARCH_URL}?provider=mercari&translate=0&order-tag=created_time%3Adesc&keyword=${encodedQuery}`;
+    }
+    return `${NEOKYO_SEARCH_URL}?page=${page}&keyword=${encodedQuery}&translate=0&order-tag=created_time%3Adesc&google_translate=&category[level_1]=&category[level_2]=&category[level_3]=&condition=&shipping_charges=&item_shop=3`;
+}
+
+/**
+ * Convert Neokyo link to Mercari link for deduplication
+ * Neokyo: https://neokyo.com/en/product/mercari/m123456789
+ * Mercari: https://jp.mercari.com/item/m123456789
+ */
+function convertToMercariLink(neokyoLink) {
+    const match = neokyoLink.match(/\/product\/mercari\/(m\d+)/);
+    if (match && match[1]) {
+        return `https://jp.mercari.com/item/${match[1]}`;
+    }
+    return neokyoLink;
+}
+
+/**
+ * Search via Neokyo (Secondary Fallback)
+ */
+async function searchNeokyo(query, strictEnabled, filters) {
+    // Mercari doesn't support negative filters natively via API usually, but Neokyo might pass it through?
+    // User requested using '-' for filtered terms.
+    let effectiveQuery = query;
+    if (filters && filters.length > 0) {
+        const negativeTerms = filters.map(f => `-${f}`).join(' ');
+        effectiveQuery = `${query} ${negativeTerms}`;
+        console.log(`[Mercari Fallback] Optimized search with negative terms: "${effectiveQuery}"`);
+    }
+
+    console.log(`[Mercari Fallback] Searching Neokyo for ${effectiveQuery}...`);
+    const allResults = [];
+    let totalPages = 1;
+
+    try {
+        // Page 1
+        const firstUrl = buildNeokyoUrl(effectiveQuery, 1);
+        console.log(`[Mercari Fallback] Fetching Neokyo page 1`);
+
+        const response = await axios.get(firstUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Language': 'en-US,en;q=0.5'
+            },
+            timeout: 15000
+        });
+
+        const $ = cheerio.load(response.data);
+
+        // Parse results
+        const parsePageResults = ($CHEERIO) => {
+            const results = [];
+            $CHEERIO('.product-card').each((i, el) => {
+                const title = $CHEERIO(el).find('a.product-link').text().trim();
+                const relativeLink = $CHEERIO(el).find('a.product-link').attr('href');
+                const neokyoLink = relativeLink ? `https://neokyo.com${relativeLink}` : '';
+                const image = $CHEERIO(el).find('img.card-img-top').attr('src');
+
+                let price = 'N/A';
+                const priceText = $CHEERIO(el).find('.price b').text().trim();
+                if (priceText) {
+                    const priceMatch = priceText.match(/([\d,]+)/);
+                    if (priceMatch) {
+                        price = `¥${priceMatch[1]}`;
+                    }
+                }
+
+                if (title && neokyoLink) {
+                    results.push({
+                        title,
+                        link: convertToMercariLink(neokyoLink), // Convert to native link for dedup
+                        image,
+                        price,
+                        source: 'Mercari'
+                    });
+                }
+            });
+            return results;
+        };
+
+        const page1Results = parsePageResults($);
+
+        if (page1Results.length === 0) {
+            // Check for no results message
+            const hasNoResultsMsg = $('.container.no-result-container').length > 0
+                || $('body').text().includes('Sorry, we found no results');
+
+            if (hasNoResultsMsg) {
+                console.log('[Mercari Fallback] No results found on Neokyo.');
+                return [];
+            }
+            console.log('[Mercari Fallback] Found 0 items on Neokyo.');
+            return []; // or null? No, empty array means success but no items.
+        }
+
+        allResults.push(...page1Results);
+
+        // Get total pages
+        // Similar pagination logic to Suruga-ya
+        let maxPage = 1;
+        $('a[href*="page="]').each((i, link) => {
+            const href = $(link).attr('href');
+            const match = href.match(/page=(\d+)/);
+            if (match) {
+                const p = parseInt(match[1], 10);
+                if (p > maxPage) maxPage = p;
+            }
+        });
+
+        // Limit max pages to 10 for Mercari fallback (same as native limit)
+        totalPages = Math.min(maxPage, 10);
+
+        // Fetch remaining pages
+        for (let page = 2; page <= totalPages; page++) {
+            await new Promise(r => setTimeout(r, DELAY_BETWEEN_PAGES));
+            const pageUrl = buildNeokyoUrl(effectiveQuery, page);
+
+            try {
+                const pRes = await axios.get(pageUrl, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    },
+                    timeout: 15000
+                });
+                const $p = cheerio.load(pRes.data);
+                const pResults = parsePageResults($p);
+                if (pResults.length === 0) break;
+                allResults.push(...pResults);
+            } catch (err) {
+                console.error(`[Mercari Fallback] Error fetching page ${page}:`, err.message);
+            }
+        }
+
+        // Apply strict filtering locally
+        // Neokyo concat titles shouldn't be an issue for validation if we check strictness
+        // Note: The user said "Neokyo concatenates titles so titles aren't always reliable".
+        // This suggests we should be careful. 
+        // But for strict filtering, if the title found on Neokyo contains the query, it's a match.
+        // We will stick to our standard queryMatcher logic.
+
+        const parsedQuery = parseQuery(query);
+        const hasQuoted = hasQuotedTerms(parsedQuery);
+
+        if (strictEnabled || hasQuoted) {
+            const filtered = allResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+            console.log(`[Mercari Fallback] Strict filtering applied. ${allResults.length} -> ${filtered.length} items.`);
+            return filtered;
+        }
+
+        return allResults;
+
+    } catch (error) {
+        console.error(`[Mercari Fallback] Error: ${error.message}`);
+        return null;
+    }
+}
+
 async function search(query, strictEnabled = true, filters = []) {
+
     if (isDisabled) {
         console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
         return [];
@@ -307,11 +480,13 @@ async function search(query, strictEnabled = true, filters = []) {
                 console.log(`[Mercari] Retrying in 5 seconds...`);
                 await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
-                console.error('[Mercari] All attempts failed. Returning empty.');
-                return null;
+                console.error('[Mercari] All attempts failed. Falling back to Neokyo...');
+                return await searchNeokyo(query, strictEnabled, filters);
             }
+
         }
     }
 }
 
-module.exports = { search, reset };
+
+module.exports = { search, reset, searchNeokyo };
