@@ -433,7 +433,7 @@ const Scheduler = {
 
         fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
 
-        return { newItems, totalCount: finalResults.length };
+        return { newItems, totalCount: finalResults.filter(r => !r.hidden).length };
     },
 
     clearNewFlags: (watchId) => {
