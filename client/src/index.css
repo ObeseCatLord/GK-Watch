@@ -625,6 +625,19 @@ h1 {
   padding: 0 0.5rem;
 }
 
+.edit-btn {
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 0.5rem;
+}
+
+.edit-btn:hover {
+  color: var(--accent-color);
+}
+
 .delete-btn:hover {
   color: #ff4444;
 }

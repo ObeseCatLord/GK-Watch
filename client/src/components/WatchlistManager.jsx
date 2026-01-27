@@ -827,7 +827,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                         <button
                                             className="edit-btn"
                                             onClick={(e) => startEdit(e, item)}
-                                            style={{ marginRight: '5px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.2em' }}
+                                            style={{ marginRight: '5px' }}
                                             title="Edit terms"
                                         >
                                             ✎
