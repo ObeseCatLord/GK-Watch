@@ -197,7 +197,7 @@ const Scheduler = {
                             await NtfyService.sendPriorityAlert(item.name || item.term, newItems);
                         }
                     }
-                    Watchlist.updateLastRun(item.id);
+                    Watchlist.updateLastRun(item.id, filtered.length);
                 } catch (err) {
                     console.error(`[Batch] Error saving results for ${item.name}:`, err);
                 }

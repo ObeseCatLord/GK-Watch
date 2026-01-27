@@ -812,7 +812,10 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                             {item.name || item.term}
                                             {item.terms && item.terms.length > 1 && <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '5px' }}>({item.terms.length} terms)</span>}
                                         </span>
-                                        <span className="watch-meta">Last Searched: {item.lastRun ? new Date(item.lastRun).toLocaleString() : 'Pending'}</span>
+                                        <span className="watch-meta">
+                                            Last Searched: {item.lastRun ? new Date(item.lastRun).toLocaleString() : 'Pending'}
+                                            {item.lastResultCount !== undefined && ` • ${item.lastResultCount} results`}
+                                        </span>
                                         {newCounts[item.id] > 0 && (
                                             <span className="new-badge">
                                                 {newCounts[item.id]} NEW

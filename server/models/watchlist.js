@@ -160,14 +160,18 @@ const Watchlist = {
         return mergedItem;
     },
 
-    updateLastRun: async (id) => {
+    updateLastRun: async (id, resultCount = null) => {
         const list = await Watchlist.getAll();
         const item = list.find(i => i.id === id);
         if (item) {
             item.lastRun = new Date().toISOString();
+            if (resultCount !== null) {
+                item.lastResultCount = resultCount;
+            }
             await Watchlist._save(list);
         }
     },
+
 
     toggleEmailNotify: async (id) => {
         const list = await Watchlist.getAll();
