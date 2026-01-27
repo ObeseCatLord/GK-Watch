@@ -186,7 +186,7 @@ const Scheduler = {
                         });
                     }
 
-                    const newItems = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
+                    const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
 
                     if (newItems && newItems.length > 0) {
                         if (item.emailNotify !== false) {
@@ -197,7 +197,7 @@ const Scheduler = {
                             await NtfyService.sendPriorityAlert(item.name || item.term, newItems);
                         }
                     }
-                    Watchlist.updateLastRun(item.id, filtered.length);
+                    Watchlist.updateLastRun(item.id, totalCount);
                 } catch (err) {
                     console.error(`[Batch] Error saving results for ${item.name}:`, err);
                 }
@@ -433,7 +433,7 @@ const Scheduler = {
 
         fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
 
-        return newItems; // Return new items for email notification
+        return { newItems, totalCount: finalResults.length };
     },
 
     clearNewFlags: (watchId) => {

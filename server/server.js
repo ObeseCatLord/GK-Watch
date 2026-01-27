@@ -695,8 +695,8 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         const uniqueResults = Array.from(uniqueResultsMap.values());
 
         const filtered = BlockedItems.filterResults(uniqueResults);
-        const newItems = Scheduler.saveResults(item.id, filtered, item.name);
-        await Watchlist.updateLastRun(item.id);
+        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name);
+        await Watchlist.updateLastRun(item.id, totalCount);
         res.json({ success: true, resultCount: filtered.length, newCount: newItems.length });
     } catch (err) {
         console.error(`[Manual Single] Error:`, err);
