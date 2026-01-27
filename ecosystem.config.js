@@ -1,8 +1,9 @@
 module.exports = {
     apps: [{
-        name: "gkwatch-server",
-        cwd: "./server",
-        script: "server.js",
+        name: "gkwatch",
+        script: "./start.sh",
+        interpreter: "bash",
+        cwd: ".",
         instances: 1,
         autorestart: true,
         watch: false,
