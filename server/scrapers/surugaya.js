@@ -51,8 +51,15 @@ function parseResults($) {
         const title = titleLink.text().trim();
         const link = titleLink.attr('href');
 
-        // Try main price first, then fall back to marketplace price
-        let priceText = $card.find('.price b').first().text().trim();
+        // Check if item is marketplace-only (invalidates the main .price block)
+        const isMarketplaceOnly = $card.find('.buy .interval').text().includes('Only Available in the Marketplace');
+
+        // Try main price first, UNLESS it's marketplace-only
+        let priceText = null;
+        if (!isMarketplaceOnly) {
+            priceText = $card.find('.price b').first().text().trim();
+        }
+
         if (!priceText || priceText === 'N/A') {
             // Check for marketplace-only listings (class mt-1 mb-0 marketplace)
             priceText = $card.find('.mt-1.mb-0.marketplace').text().trim();
@@ -278,91 +285,91 @@ async function search(query, strict = true, filters = []) {
 
         // Filter results if strict mode is on or if query contains quoted terms
         const parsedQuery = queryMatcher.parseQuery(query);
-    const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
+        const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
 
-    // Strict filtering applies if strict mode is ON, OR if we have quoted terms that must be enforced
-    if ((strict || hasQuoted) && results && results.length > 0) {
-        console.log(`[Suruga-ya] Strict filtering enabled${hasQuoted ? ' (Quoted Terms Found)' : ''}. Checking ${results.length} items against query: "${query}"`);
-        const initialCount = results.length;
-        const filteredResults = [];
-        let rateLimitHit = false;
+        // Strict filtering applies if strict mode is ON, OR if we have quoted terms that must be enforced
+        if ((strict || hasQuoted) && results && results.length > 0) {
+            console.log(`[Suruga-ya] Strict filtering enabled${hasQuoted ? ' (Quoted Terms Found)' : ''}. Checking ${results.length} items against query: "${query}"`);
+            const initialCount = results.length;
+            const filteredResults = [];
+            let rateLimitHit = false;
 
-        for (const item of results) {
-            // Check if title matches query strictly
-            // Use ORIGINAL query (without negative terms) for positive matching
-            // Pass 'strict' matchesQuery - if strict=false but hasQuoted=true, it will only enforce quoted terms
-            const matches = queryMatcher.matchesQuery(item.title, parsedQuery, strict);
+            for (const item of results) {
+                // Check if title matches query strictly
+                // Use ORIGINAL query (without negative terms) for positive matching
+                // Pass 'strict' matchesQuery - if strict=false but hasQuoted=true, it will only enforce quoted terms
+                const matches = queryMatcher.matchesQuery(item.title, parsedQuery, strict);
 
-            // If it matches, keep it
-            if (matches) {
-                filteredResults.push(item);
-                continue;
-            }
-
-            // If it doesn't match, try fetching the full title from detail page
-            // This handles truncation AND cases where search results show partial info
-            if (item.neokyoLink) {
-                // If the Title check failed on the truncated title, and we are strict,
-                // we assume it MIGHT be a match and verify.
-
-                // Circuit Breaker: If rate limited previously, stop fetching and default to KEEP
-                if (rateLimitHit) {
-                    console.log(`[Suruga-ya] Rate limit active. Skipping verify for "${item.title}". Defaulting to KEEP.`);
+                // If it matches, keep it
+                if (matches) {
                     filteredResults.push(item);
                     continue;
                 }
 
-                const fullTitle = await fetchFullTitle(item.neokyoLink);
+                // If it doesn't match, try fetching the full title from detail page
+                // This handles truncation AND cases where search results show partial info
+                if (item.neokyoLink) {
+                    // If the Title check failed on the truncated title, and we are strict,
+                    // we assume it MIGHT be a match and verify.
 
-                if (fullTitle === 'RATE_LIMIT') {
-                    console.log(`[Suruga-ya] Rate limit hit (429/403). Activating circuit breaker.`);
-                    rateLimitHit = true;
-                    // Keep this item since we couldn't verify
-                    filteredResults.push(item);
-                    continue;
-                }
+                    // Circuit Breaker: If rate limited previously, stop fetching and default to KEEP
+                    if (rateLimitHit) {
+                        console.log(`[Suruga-ya] Rate limit active. Skipping verify for "${item.title}". Defaulting to KEEP.`);
+                        filteredResults.push(item);
+                        continue;
+                    }
 
-                if (fullTitle) {
-                    const fullMatches = queryMatcher.matchesQuery(fullTitle, parsedQuery, strict);
-                    if (fullMatches) {
-                        console.log(`[Suruga-ya] Keeping item after full title check: "${fullTitle.substring(0, 60)}..."`);
-                        // Update the item's title to the full version for display
-                        item.title = fullTitle;
+                    const fullTitle = await fetchFullTitle(item.neokyoLink);
+
+                    if (fullTitle === 'RATE_LIMIT') {
+                        console.log(`[Suruga-ya] Rate limit hit (429/403). Activating circuit breaker.`);
+                        rateLimitHit = true;
+                        // Keep this item since we couldn't verify
+                        filteredResults.push(item);
+                        continue;
+                    }
+
+                    if (fullTitle) {
+                        const fullMatches = queryMatcher.matchesQuery(fullTitle, parsedQuery, strict);
+                        if (fullMatches) {
+                            console.log(`[Suruga-ya] Keeping item after full title check: "${fullTitle.substring(0, 60)}..."`);
+                            // Update the item's title to the full version for display
+                            item.title = fullTitle;
+                            filteredResults.push(item);
+                            continue;
+                        }
+                    } else {
+                        // Fail-safe: Could not fetch title (e.g. 403 again after retry)
+                        // Default to KEEPING the item to ensure we don't miss valid items.
+                        console.log(`[Suruga-ya] WARN: Could not verify full title for "${item.title}". Defaulting to KEEP.`);
                         filteredResults.push(item);
                         continue;
                     }
                 } else {
-                    // Fail-safe: Could not fetch title (e.g. 403 again after retry)
-                    // Default to KEEPING the item to ensure we don't miss valid items.
-                    console.log(`[Suruga-ya] WARN: Could not verify full title for "${item.title}". Defaulting to KEEP.`);
-                    filteredResults.push(item);
-                    continue;
+                    // No link to verify? Should technically keep if we want to be safe,
+                    // but without link it's likely a bad scrape. 
+                    // However, we only get here if title failed match.
+                    // If default behavior is safe, we should probably keep it?
+                    // But rare case. Let's stick to fail-safe on fetch failure.
+                    // If no link, we can't verify, so we rely on initial match (which failed).
+                    // So discard.
                 }
-            } else {
-                // No link to verify? Should technically keep if we want to be safe,
-                // but without link it's likely a bad scrape. 
-                // However, we only get here if title failed match.
-                // If default behavior is safe, we should probably keep it?
-                // But rare case. Let's stick to fail-safe on fetch failure.
-                // If no link, we can't verify, so we rely on initial match (which failed).
-                // So discard.
+
+                // Item doesn't match after all checks - filter it out
             }
 
-            // Item doesn't match after all checks - filter it out
+            results = filteredResults;
+            console.log(`[Suruga-ya] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
         }
 
-        results = filteredResults;
-        console.log(`[Suruga-ya] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
-    }
+        // Remove neokyoLink from final results (internal use only)
+        results = (results || []).map(item => {
+            const { neokyoLink, ...rest } = item;
+            return rest;
+        });
 
-    // Remove neokyoLink from final results (internal use only)
-    results = (results || []).map(item => {
-        const { neokyoLink, ...rest } = item;
-        return rest;
-    });
-
-    // Return results (or empty if none)
-    return results;
+        // Return results (or empty if none)
+        return results;
     } catch (error) {
         console.error('Suruga-ya Scraper Error:', error.message);
         return null;

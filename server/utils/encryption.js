@@ -13,9 +13,23 @@ if (!fs.existsSync(DATA_DIR)) {
 
 // Get or create master key
 function getMasterKey() {
+    // Priority 1: Environment Variable
+    if (process.env.GK_MASTER_KEY) {
+        // Ensure it's a valid hex string or raw string we can convert
+        // For simplicity, assume user provides hex string like the file content
+        try {
+            return Buffer.from(process.env.GK_MASTER_KEY, 'hex');
+        } catch (e) {
+            console.error('Invalid GK_MASTER_KEY format. Expected hex string.');
+        }
+    }
+
+    // Priority 2: File System
     if (fs.existsSync(KEY_FILE)) {
         return Buffer.from(fs.readFileSync(KEY_FILE, 'utf8'), 'hex');
     }
+
+    // Priority 3: Generate New
     const key = crypto.randomBytes(32);
     fs.writeFileSync(KEY_FILE, key.toString('hex'));
     return key;

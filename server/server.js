@@ -39,6 +39,21 @@ const NtfyService = require('./utils/ntfyService');
 const activeSessions = new Map();
 const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
 
+// Periodically clean up expired sessions
+setInterval(() => {
+    const now = Date.now();
+    let removed = 0;
+    for (const [token, session] of activeSessions.entries()) {
+        if (now - session.timestamp > SESSION_TIMEOUT) {
+            activeSessions.delete(token);
+            removed++;
+        }
+    }
+    if (removed > 0) {
+        console.log(`[Session] Cleaned up ${removed} expired sessions`);
+    }
+}, 60 * 60 * 1000); // Check every hour
+
 // Middleware to check authentication
 const requireAuth = (req, res, next) => {
     // Check if login is enabled in settings
