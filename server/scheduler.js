@@ -113,6 +113,9 @@ const Scheduler = {
         const itemIds = items.map(i => i.id);
 
         try {
+            // Warmup browser (ARM optimization)
+            await searchAggregator.warmup();
+
             const CONCURRENCY = 3;
             for (let idx = startIndex; idx < items.length; idx += CONCURRENCY) {
                 if (Scheduler.shouldAbort) {
