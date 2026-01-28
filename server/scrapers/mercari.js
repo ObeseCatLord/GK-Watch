@@ -466,11 +466,11 @@ async function search(query, strictEnabled = true, filters = []) {
     // Priority 1: DEJapan (Fast/Axios + Full Titles)
     try {
         const dejapanResults = await dejapan.search(query, strictEnabled, filters);
-        if (dejapanResults !== null) {
+        if (dejapanResults !== null && dejapanResults.length > 0) {
             console.log(`[Mercari] DEJapan search successful (${dejapanResults.length} items).`);
             return dejapanResults;
         }
-        console.warn('[Mercari] DEJapan failed (returned null), falling back to Native Scraper...');
+        console.warn(`[Mercari] DEJapan found ${dejapanResults ? dejapanResults.length : 'null'} items, falling back to Native Scraper...`);
     } catch (err) {
         console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to Native Scraper...`);
     }
