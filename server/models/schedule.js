@@ -20,14 +20,21 @@ if (!fs.existsSync(SCHEDULE_FILE)) {
     fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(DEFAULT_SCHEDULE, null, 2));
 }
 
+let cachedSchedule = null;
+
 const ScheduleSettings = {
     get: () => {
+        if (cachedSchedule) {
+            return { ...cachedSchedule };
+        }
+
         try {
             const data = fs.readFileSync(SCHEDULE_FILE, 'utf8');
-            return JSON.parse(data);
+            cachedSchedule = JSON.parse(data);
+            return { ...cachedSchedule };
         } catch (err) {
             console.error('Error reading schedule:', err);
-            return DEFAULT_SCHEDULE;
+            return { ...DEFAULT_SCHEDULE };
         }
     },
 
@@ -35,7 +42,11 @@ const ScheduleSettings = {
         const settings = ScheduleSettings.get();
         settings.enabledHours = hours;
         fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(settings, null, 2));
-        return settings;
+
+        // Update cache
+        cachedSchedule = settings;
+
+        return { ...settings };
     },
 
     // Check if current JST hour is in enabled list
