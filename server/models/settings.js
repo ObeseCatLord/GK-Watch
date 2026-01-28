@@ -71,11 +71,13 @@ const Settings = {
             return { ...parsed };
         } catch (err) {
             console.error('Error reading settings:', err);
+            // Cache defaults on error to prevent performance degradation from repeated sync I/O
+            cachedSettings = { ...DEFAULT_SETTINGS };
             return DEFAULT_SETTINGS;
         }
     },
 
-    update: (newSettings) => {
+    update: async (newSettings) => {
         const current = Settings.get(); // this returns decrypted
 
         // Validation: Password length
@@ -108,7 +110,7 @@ const Settings = {
             toSave.loginPassword = Encryption.encrypt(toSave.loginPassword);
         }
 
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+        await fs.promises.writeFile(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
 
         // Update cache with the new decrypted state only after successful save
         cachedSettings = updated;

@@ -505,7 +505,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
     res.json(safeSettings);
 });
 
-app.post('/api/settings', requireAuth, (req, res) => {
+app.post('/api/settings', requireAuth, async (req, res) => {
     // Filter out computed fields that shouldn't be saved
     const { hasLoginPassword, hasSmtpPass, ...settingsToUpdate } = req.body;
 
@@ -517,8 +517,13 @@ app.post('/api/settings', requireAuth, (req, res) => {
         }
     }
 
-    const updated = Settings.update(filtered);
-    res.json(updated);
+    try {
+        const updated = await Settings.update(filtered);
+        res.json(updated);
+    } catch (err) {
+        console.error('Error updating settings:', err);
+        res.status(500).json({ error: 'Failed to update settings' });
+    }
 });
 
 // Test Ntfy Notification
