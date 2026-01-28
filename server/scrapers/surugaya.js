@@ -269,31 +269,13 @@ async function searchWithAxios(query) {
  * Main search function - tries Axios first, falls back to Puppeteer
  */
 async function search(query, strict = true, filters = []) {
-    // Priority 1: DEJapan (Surugaya via DEJapan)
+    // Priority 1: Neokyo (Axios)
     try {
-        // Passing strict setting to DEJapan
-        const dejapanResults = await dejapan.searchSurugaya(query, strict, filters);
-        if (dejapanResults !== null) {
-            console.log(`[Suruga-ya] DEJapan search successful (${dejapanResults.length} items).`);
-            return dejapanResults;
-        }
-        console.log('[Suruga-ya] DEJapan failed (returned null), falling back to Neokyo...');
-    } catch (err) {
-        console.warn(`[Suruga-ya] DEJapan error: ${err.message}. Falling back to Neokyo...`);
-    }
-
-    try {
-        // Priority 2: Neokyo (Axios)
         // User requested: "Suruga-ya Neokyo shouldn't be strict"
-        // We will force strict=false for the fallback path, UNLESS quoted terms exist (which usually implies intent).
-        // Actually, let's respect the user's explicit instruction "shouldn't be strict".
-        // But we probably still want to filter completely irrelevant junk?
-        // Existing logic applies strict filtering if strict=true.
-        // We will override strict to false for this fallback section.
+        // We will override strict to false for this path.
         const fallbackStrict = false;
 
         // Append negative filters to query for optimized searching
-        // e.g. "Gundam -Plastic -Model"
         let effectiveQuery = query;
         if (filters && filters.length > 0) {
             const negativeTerms = filters.map(f => `-${f}`).join(' ');
@@ -303,7 +285,6 @@ async function search(query, strict = true, filters = []) {
 
         console.log(`Searching Suruga-ya (Neokyo) for ${effectiveQuery}...`);
 
-        // Try Axios (only)
         let results = await searchWithAxios(effectiveQuery);
 
         // Filter results if strict mode is on or if query contains quoted terms
@@ -320,26 +301,15 @@ async function search(query, strict = true, filters = []) {
 
             for (const item of results) {
                 // Check if title matches query strictly
-                // Use ORIGINAL query (without negative terms) for positive matching
-                // Pass 'strict' matchesQuery - if strict=false but hasQuoted=true, it will only enforce quoted terms
                 const matches = queryMatcher.matchesQuery(item.title, parsedQuery, fallbackStrict);
 
-
-                // If it matches, keep it
                 if (matches) {
                     filteredResults.push(item);
                     continue;
                 }
 
-                // If it doesn't match, try fetching the full title from detail page
-                // This handles truncation AND cases where search results show partial info
                 if (item.neokyoLink) {
-                    // If the Title check failed on the truncated title, and we are strict,
-                    // we assume it MIGHT be a match and verify.
-
-                    // Circuit Breaker: If rate limited previously, stop fetching and default to KEEP
                     if (rateLimitHit) {
-                        console.log(`[Suruga-ya] Rate limit active. Skipping verify for "${item.title}". Defaulting to KEEP.`);
                         filteredResults.push(item);
                         continue;
                     }
@@ -347,9 +317,7 @@ async function search(query, strict = true, filters = []) {
                     const fullTitle = await fetchFullTitle(item.neokyoLink);
 
                     if (fullTitle === 'RATE_LIMIT') {
-                        console.log(`[Suruga-ya] Rate limit hit (429/403). Activating circuit breaker.`);
                         rateLimitHit = true;
-                        // Keep this item since we couldn't verify
                         filteredResults.push(item);
                         continue;
                     }
@@ -357,48 +325,49 @@ async function search(query, strict = true, filters = []) {
                     if (fullTitle) {
                         const fullMatches = queryMatcher.matchesQuery(fullTitle, parsedQuery, strict);
                         if (fullMatches) {
-                            console.log(`[Suruga-ya] Keeping item after full title check: "${fullTitle.substring(0, 60)}..."`);
-                            // Update the item's title to the full version for display
                             item.title = fullTitle;
                             filteredResults.push(item);
                             continue;
                         }
                     } else {
-                        // Fail-safe: Could not fetch title (e.g. 403 again after retry)
-                        // Default to KEEPING the item to ensure we don't miss valid items.
-                        console.log(`[Suruga-ya] WARN: Could not verify full title for "${item.title}". Defaulting to KEEP.`);
                         filteredResults.push(item);
                         continue;
                     }
-                } else {
-                    // No link to verify? Should technically keep if we want to be safe,
-                    // but without link it's likely a bad scrape. 
-                    // However, we only get here if title failed match.
-                    // If default behavior is safe, we should probably keep it?
-                    // But rare case. Let's stick to fail-safe on fetch failure.
-                    // If no link, we can't verify, so we rely on initial match (which failed).
-                    // So discard.
                 }
-
-                // Item doesn't match after all checks - filter it out
             }
-
             results = filteredResults;
             console.log(`[Suruga-ya] Filtered ${initialCount - results.length} items. Remaining: ${results.length}`);
         }
 
         // Remove neokyoLink from final results (internal use only)
-        results = (results || []).map(item => {
-            const { neokyoLink, ...rest } = item;
-            return rest;
-        });
-
-        // Return results (or empty if none)
-        return results;
-    } catch (error) {
-        console.error('Suruga-ya Scraper Error:', error.message);
-        return null;
+        if (results !== null) {
+            results = (results || []).map(item => {
+                const { neokyoLink, ...rest } = item;
+                return rest;
+            });
+            console.log(`[Suruga-ya] Neokyo search successful (${results.length} items).`);
+            return results;
+        }
+        console.log('[Suruga-ya] Neokyo failed (returned null), falling back to DEJapan...');
+    } catch (err) {
+        console.warn(`[Suruga-ya] Neokyo error: ${err.message}. Falling back to DEJapan...`);
     }
+
+    // Priority 2: DEJapan (Surugaya via DEJapan)
+    try {
+        console.log('[Suruga-ya] Attempting Fallback: DEJapan...');
+        const dejapanResults = await dejapan.searchSurugaya(query, strict, filters);
+        if (dejapanResults !== null) {
+            console.log(`[Suruga-ya] DEJapan search successful (${dejapanResults.length} items).`);
+            return dejapanResults;
+        }
+    } catch (err) {
+        console.warn(`[Suruga-ya] DEJapan error: ${err.message}. All methods failed.`);
+    }
+
+    return [];
+
+    return [];
 }
 
 module.exports = { search };
