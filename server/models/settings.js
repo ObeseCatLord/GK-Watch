@@ -49,8 +49,14 @@ if (!fs.existsSync(SETTINGS_FILE)) {
 
 const Encryption = require('../utils/encryption');
 
+let cachedSettings = null;
+
 const Settings = {
     get: () => {
+        if (cachedSettings) {
+            return { ...cachedSettings };
+        }
+
         try {
             const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
             const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
@@ -61,7 +67,8 @@ const Settings = {
             if (parsed.loginPassword) {
                 parsed.loginPassword = Encryption.decrypt(parsed.loginPassword);
             }
-            return parsed;
+            cachedSettings = parsed;
+            return { ...parsed };
         } catch (err) {
             console.error('Error reading settings:', err);
             return DEFAULT_SETTINGS;
@@ -102,6 +109,9 @@ const Settings = {
         }
 
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+
+        // Update cache with the new decrypted state only after successful save
+        cachedSettings = updated;
 
         // Return decrypted version to the app/caller
         return updated;
