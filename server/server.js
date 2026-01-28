@@ -166,9 +166,10 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
 
         const strict = req.query.strict !== 'false'; // Default true
-        // Live search doesn't support complex filters array yet (only query string), so pass empty []
-        // Optional: Could parse filters from query if added later.
-        const results = await searchAggregator.searchAll(query, enabledOverride, strict, []);
+        // Live search doesn't support complex filters array yet (only query string).
+        // Pass global blacklist filters for scraper optimization.
+        const globalFilters = Blacklist.getAll().map(i => i.term);
+        const results = await searchAggregator.searchAll(query, enabledOverride, strict, globalFilters);
         let filteredResults = BlockedItems.filterResults(results);
         filteredResults = Blacklist.filterResults(filteredResults);
         res.json(filteredResults);
