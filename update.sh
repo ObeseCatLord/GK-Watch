@@ -21,4 +21,10 @@ npm install
 npm run build
 cd ..
 
+# Install server dependencies
+echo "📦 Installing server dependencies..."
+cd server
+npm install
+cd ..
+
 echo "✅ Update complete!"
