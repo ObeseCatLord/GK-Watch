@@ -470,24 +470,12 @@ async function search(query, strictEnabled = true, filters = []) {
             console.log(`[Mercari] DEJapan search successful (${dejapanResults.length} items).`);
             return dejapanResults;
         }
-        console.warn('[Mercari] DEJapan failed (returned null), falling back to Neokyo...');
+        console.warn('[Mercari] DEJapan failed (returned null), falling back to Native Scraper...');
     } catch (err) {
-        console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to Neokyo...`);
+        console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to Native Scraper...`);
     }
 
-    // Priority 2: Neokyo (Fast/Axios)
-    try {
-        const neokyoResults = await searchNeokyo(query, strictEnabled, filters);
-        if (neokyoResults !== null) {
-            console.log(`[Mercari] Neokyo search successful (${neokyoResults.length} items).`);
-            return neokyoResults;
-        }
-        console.warn('[Mercari] Neokyo failed (returned null), falling back to native scraper...');
-    } catch (err) {
-        console.warn(`[Mercari] Neokyo error: ${err.message}, falling back to native scraper...`);
-    }
-
-    // Priority 3: Native Scraper (Puppeteer) - Fallback
+    // Priority 2: Native Scraper (Puppeteer)
     const MAX_RETRIES = 1; // 1 retry = 2 attempts total
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
         try {
@@ -497,7 +485,6 @@ async function search(query, strictEnabled = true, filters = []) {
 
             // If it's a timeout, track consecutive timeouts logic
             if (error.message === 'TIMEOUT') {
-                // If it's the LAST attempt
                 if (attempt === MAX_RETRIES + 1) {
                     consecutiveTimeouts++;
                     console.log(`Mercari Consecutive Timeouts: ${consecutiveTimeouts}`);
@@ -512,11 +499,24 @@ async function search(query, strictEnabled = true, filters = []) {
                 console.log(`[Mercari] Retrying native in 5 seconds...`);
                 await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
-                console.error('[Mercari] All native attempts failed.');
-                return []; // Return empty if both Neokyo and Native fail
+                console.error('[Mercari] All native attempts failed. Falling back to Neokyo...');
             }
         }
     }
+
+    // Priority 3: Neokyo (Fast/Axios) - Final Fallback
+    try {
+        console.log('[Mercari] Attempting Final Fallback: Neokyo...');
+        const neokyoResults = await searchNeokyo(query, strictEnabled, filters);
+        if (neokyoResults !== null) {
+            console.log(`[Mercari] Neokyo search successful (${neokyoResults.length} items).`);
+            return neokyoResults;
+        }
+    } catch (err) {
+        console.warn(`[Mercari] Neokyo error: ${err.message}. All Mercari methods failed.`);
+    }
+
+    return [];
 }
 
 
