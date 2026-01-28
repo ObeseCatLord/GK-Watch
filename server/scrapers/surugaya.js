@@ -273,11 +273,11 @@ async function search(query, strict = true, filters = []) {
     try {
         // Passing strict setting to DEJapan
         const dejapanResults = await dejapan.searchSurugaya(query, strict, filters);
-        if (dejapanResults && dejapanResults.length > 0) {
+        if (dejapanResults !== null) {
             console.log(`[Suruga-ya] DEJapan search successful (${dejapanResults.length} items).`);
             return dejapanResults;
         }
-        console.log('[Suruga-ya] DEJapan found 0 items or failed. Falling back to Neokyo...');
+        console.log('[Suruga-ya] DEJapan failed (returned null), falling back to Neokyo...');
     } catch (err) {
         console.warn(`[Suruga-ya] DEJapan error: ${err.message}. Falling back to Neokyo...`);
     }
