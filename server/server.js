@@ -306,20 +306,20 @@ app.get('/api/results/:id', requireAuth, async (req, res) => {
 });
 
 // Mark results as seen (clear new flags)
-app.post('/api/results/:id/seen', requireAuth, (req, res) => {
-    Scheduler.clearNewFlags(req.params.id);
+app.post('/api/results/:id/seen', requireAuth, async (req, res) => {
+    await Scheduler.clearNewFlags(req.params.id);
     res.json({ success: true });
 });
 
 // Mark ALL results as seen
-app.post('/api/results/mark-all-seen', requireAuth, (req, res) => {
-    Scheduler.markAllSeen();
+app.post('/api/results/mark-all-seen', requireAuth, async (req, res) => {
+    await Scheduler.markAllSeen();
     res.json({ success: true });
 });
 
 // Get new counts for all watchlist items
-app.get('/api/watchlist/newcounts', requireAuth, (req, res) => {
-    res.json(Scheduler.getNewCounts());
+app.get('/api/watchlist/newcounts', requireAuth, async (req, res) => {
+    res.json(await Scheduler.getNewCounts());
 });
 
 // Toggle email notifications for a watchlist item
@@ -696,7 +696,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         const uniqueResults = Array.from(uniqueResultsMap.values());
 
         const filtered = BlockedItems.filterResults(uniqueResults);
-        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name);
+        const { newItems, totalCount } = await Scheduler.saveResults(item.id, filtered, item.name);
         await Watchlist.updateLastRun(item.id, totalCount);
         res.json({ success: true, resultCount: filtered.length, newCount: newItems.length });
     } catch (err) {

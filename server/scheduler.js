@@ -17,6 +17,15 @@ if (!fs.existsSync(RESULTS_FILE)) {
     fs.writeFileSync(RESULTS_FILE, JSON.stringify({}, null, 2));
 }
 
+const resultsLock = {
+    _chain: Promise.resolve(),
+    run: function(task) {
+        const p = this._chain.then(() => task());
+        this._chain = p.catch(() => {});
+        return p;
+    }
+};
+
 const Scheduler = {
     isRunning: false,
     progress: null,  // { current: number, total: number, currentItem: string }
@@ -186,7 +195,7 @@ const Scheduler = {
                         });
                     }
 
-                    const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
+                    const { newItems, totalCount } = await Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
 
                     if (newItems && newItems.length > 0) {
                         if (item.emailNotify !== false) {
@@ -224,6 +233,7 @@ const Scheduler = {
     },
 
     saveResults: (watchId, newResults, term = '', payPayError = false) => {
+        return resultsLock.run(async () => {
         let allResults = {};
         let newItems = [];
         const now = new Date().toISOString();
@@ -236,11 +246,10 @@ const Scheduler = {
         const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
 
         try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
-            }
+            const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+            allResults = JSON.parse(content);
         } catch (e) {
-            console.error('Error reading results file:', e);
+            if (e.code !== 'ENOENT') console.error('Error reading results file:', e);
         }
 
         // Get existing items with their firstSeen timestamps
@@ -431,15 +440,17 @@ const Scheduler = {
             items: finalResults
         };
 
-        fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+        await fs.promises.writeFile(RESULTS_FILE, JSON.stringify(allResults, null, 2));
 
         return { newItems, totalCount: finalResults.filter(r => !r.hidden).length };
+        });
     },
 
     clearNewFlags: (watchId) => {
-        try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                const allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
+        return resultsLock.run(async () => {
+            try {
+                const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+                const allResults = JSON.parse(content);
                 if (allResults[watchId]) {
                     // Clear isNew flags and reset newCount
                     allResults[watchId].items = allResults[watchId].items.map(item => ({
@@ -447,44 +458,47 @@ const Scheduler = {
                         isNew: false
                     }));
                     allResults[watchId].newCount = 0;
-                    fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+                    await fs.promises.writeFile(RESULTS_FILE, JSON.stringify(allResults, null, 2));
                 }
+            } catch (e) {
+                if (e.code !== 'ENOENT') console.error('Error clearing new flags:', e);
             }
-        } catch (e) {
-            console.error('Error clearing new flags:', e);
-        }
+        });
     },
 
-    getResults: async (watchId) => {
-        try {
-            const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
-            const allResults = JSON.parse(content);
-            return allResults[watchId] || null;
-        } catch (e) {
-            return null;
-        }
+    getResults: (watchId) => {
+        return resultsLock.run(async () => {
+            try {
+                const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+                const allResults = JSON.parse(content);
+                return allResults[watchId] || null;
+            } catch (e) {
+                return null;
+            }
+        });
     },
 
     getNewCounts: () => {
-        try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                const allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
+        return resultsLock.run(async () => {
+            try {
+                const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+                const allResults = JSON.parse(content);
                 const counts = {};
                 for (const [id, data] of Object.entries(allResults)) {
                     counts[id] = data.newCount || 0;
                 }
                 return counts;
+            } catch (e) {
+                return {};
             }
-        } catch (e) {
-            return {};
-        }
-        return {};
+        });
     },
 
     markAllSeen: () => {
-        try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                const allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
+        return resultsLock.run(async () => {
+            try {
+                const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+                const allResults = JSON.parse(content);
                 let updated = false;
 
                 for (const id in allResults) {
@@ -499,15 +513,14 @@ const Scheduler = {
                 }
 
                 if (updated) {
-                    fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+                    await fs.promises.writeFile(RESULTS_FILE, JSON.stringify(allResults, null, 2));
                 }
                 return true;
+            } catch (e) {
+                if (e.code !== 'ENOENT') console.error('Error marking all seen:', e);
+                return false;
             }
-        } catch (e) {
-            console.error('Error marking all seen:', e);
-            return false;
-        }
-        return false;
+        });
     }
 };
 
