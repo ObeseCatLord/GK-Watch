@@ -215,39 +215,10 @@ app.put('/api/watchlist/:id', requireAuth, async (req, res) => {
 
         // If enabledSites changed, remove results from disabled sites
         if (req.body.enabledSites) {
-            const RESULTS_FILE = path.join(__dirname, 'data/results.json');
             try {
-                const rawData = await fsp.readFile(RESULTS_FILE, 'utf8');
-                const resultsData = JSON.parse(rawData);
-                const id = req.params.id;
-
-                if (resultsData[id] && resultsData[id].items) {
-                    const enabled = req.body.enabledSites;
-                    const beforeCount = resultsData[id].items.length;
-
-                    resultsData[id].items = resultsData[id].items.filter(item => {
-                        const source = (item.source || '').toLowerCase();
-                        if (source.includes('mercari') && enabled.mercari === false) return false;
-                        if (source.includes('yahoo') && enabled.yahoo === false) return false;
-                        if (source.includes('paypay') && enabled.paypay === false) return false;
-                        if ((source.includes('fril') || source.includes('rakuma')) && enabled.fril === false) return false;
-                        if (source.includes('suruga') && enabled.surugaya === false) return false;
-                        if (source.includes('taobao') && enabled.taobao === false) return false;
-                        if (source.includes('goofish') && enabled.goofish === false) return false;
-                        return true;
-                    });
-
-                    if (resultsData[id].items.length !== beforeCount) {
-                        resultsData[id].newCount = Math.max(0, resultsData[id].newCount - (beforeCount - resultsData[id].items.length));
-                        if (resultsData[id].items.length === 0) resultsData[id].newCount = 0;
-                        await fsp.writeFile(RESULTS_FILE, JSON.stringify(resultsData, null, 2));
-                        console.log(`[Watchlist] Cleaned up ${beforeCount - resultsData[id].items.length} disabled items for ${id}`);
-                    }
-                }
+                await Scheduler.pruneResults(req.params.id, req.body.enabledSites);
             } catch (err) {
-                if (err.code !== 'ENOENT') {
-                    console.error('[Watchlist] Error cleaning up disabled results:', err);
-                }
+                console.error('[Watchlist] Error cleaning up disabled results:', err);
             }
         }
 

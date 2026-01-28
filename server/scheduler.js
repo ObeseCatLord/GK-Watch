@@ -21,6 +21,66 @@ const Scheduler = {
     isRunning: false,
     progress: null,  // { current: number, total: number, currentItem: string }
     shouldAbort: false,
+    resultsCache: null, // In-memory cache for results.json
+
+    // Load results into cache (lazy load)
+    loadResults: () => {
+        if (Scheduler.resultsCache === null) {
+            try {
+                if (fs.existsSync(RESULTS_FILE)) {
+                    Scheduler.resultsCache = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
+                } else {
+                    Scheduler.resultsCache = {};
+                }
+            } catch (e) {
+                console.error('Error loading results cache:', e);
+                Scheduler.resultsCache = {};
+            }
+        }
+        return Scheduler.resultsCache;
+    },
+
+    // Persist cache to disk
+    persistResults: async () => {
+        if (Scheduler.resultsCache === null) return;
+        try {
+            // Using async write to avoid blocking event loop
+            await fs.promises.writeFile(RESULTS_FILE, JSON.stringify(Scheduler.resultsCache, null, 2));
+        } catch (e) {
+            console.error('Error persisting results:', e);
+        }
+    },
+
+    // Prune results for a watchId (remove disabled sites)
+    pruneResults: async (watchId, enabledSites) => {
+        Scheduler.loadResults();
+        const allResults = Scheduler.resultsCache;
+
+        if (allResults[watchId] && allResults[watchId].items) {
+            const beforeCount = allResults[watchId].items.length;
+
+            allResults[watchId].items = allResults[watchId].items.filter(item => {
+                const source = (item.source || '').toLowerCase();
+                if (source.includes('mercari') && enabledSites.mercari === false) return false;
+                if (source.includes('yahoo') && enabledSites.yahoo === false) return false;
+                if (source.includes('paypay') && enabledSites.paypay === false) return false;
+                if ((source.includes('fril') || source.includes('rakuma')) && enabledSites.fril === false) return false;
+                if (source.includes('suruga') && enabledSites.surugaya === false) return false;
+                if (source.includes('taobao') && enabledSites.taobao === false) return false;
+                if (source.includes('goofish') && enabledSites.goofish === false) return false;
+                return true;
+            });
+
+            if (allResults[watchId].items.length !== beforeCount) {
+                // Update count if reduced
+                allResults[watchId].newCount = Math.max(0, allResults[watchId].newCount - (beforeCount - allResults[watchId].items.length));
+                if (allResults[watchId].items.length === 0) allResults[watchId].newCount = 0;
+
+                await Scheduler.persistResults();
+                console.log(`[Watchlist] Cleaned up ${beforeCount - allResults[watchId].items.length} disabled items for ${watchId}`);
+            }
+        }
+    },
 
     abort: () => {
         if (Scheduler.isRunning) {
@@ -189,7 +249,8 @@ const Scheduler = {
                             });
                         }
 
-                        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
+                        // Save to memory only (persist=false), wait for chunk end to persist
+                        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred, false);
 
                         if (newItems && newItems.length > 0) {
                             if (item.emailNotify !== false) {
@@ -204,6 +265,9 @@ const Scheduler = {
                         console.error(`[Batch] Error saving results for ${item.name}:`, err);
                     }
                 }));
+
+                // Persist results to disk after each chunk
+                await Scheduler.persistResults();
             }
 
             // Send digest if completed successfully (and not aborted) - ONLY for scheduled runs
@@ -226,8 +290,10 @@ const Scheduler = {
         }
     },
 
-    saveResults: (watchId, newResults, term = '', payPayError = false) => {
-        let allResults = {};
+    saveResults: (watchId, newResults, term = '', payPayError = false, persist = true) => {
+        // Ensure cache is loaded
+        const allResults = Scheduler.loadResults();
+
         let newItems = [];
         const now = new Date().toISOString();
         const nowMs = Date.now();
@@ -237,14 +303,6 @@ const Scheduler = {
         const PAYPAY_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
         const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
         const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
-
-        try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
-            }
-        } catch (e) {
-            console.error('Error reading results file:', e);
-        }
 
         // Get existing items with their firstSeen timestamps
         const existingItems = allResults[watchId]?.items || [];
@@ -434,81 +492,73 @@ const Scheduler = {
             items: finalResults
         };
 
-        fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+        if (persist) {
+            try {
+                fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+            } catch (e) {
+                console.error('Error writing results file:', e);
+            }
+        }
 
         return { newItems, totalCount: finalResults.filter(r => !r.hidden).length };
     },
 
     clearNewFlags: (watchId) => {
-        try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                const allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
-                if (allResults[watchId]) {
-                    // Clear isNew flags and reset newCount
-                    allResults[watchId].items = allResults[watchId].items.map(item => ({
-                        ...item,
-                        isNew: false
-                    }));
-                    allResults[watchId].newCount = 0;
-                    fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
-                }
+        const allResults = Scheduler.loadResults();
+        if (allResults[watchId]) {
+            // Clear isNew flags and reset newCount
+            allResults[watchId].items = allResults[watchId].items.map(item => ({
+                ...item,
+                isNew: false
+            }));
+            allResults[watchId].newCount = 0;
+
+            try {
+                fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+            } catch (e) {
+                console.error('Error clearing new flags:', e);
             }
-        } catch (e) {
-            console.error('Error clearing new flags:', e);
         }
     },
 
     getResults: async (watchId) => {
-        try {
-            const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
-            const allResults = JSON.parse(content);
-            return allResults[watchId] || null;
-        } catch (e) {
-            return null;
-        }
+        const allResults = Scheduler.loadResults();
+        return allResults[watchId] || null;
     },
 
     getNewCounts: async () => {
-        try {
-            const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
-            const allResults = JSON.parse(content);
-            const counts = {};
-            for (const [id, data] of Object.entries(allResults)) {
-                counts[id] = data.newCount || 0;
-            }
-            return counts;
-        } catch (e) {
-            return {};
+        const allResults = Scheduler.loadResults();
+        const counts = {};
+        for (const [id, data] of Object.entries(allResults)) {
+            counts[id] = data.newCount || 0;
         }
+        return counts;
     },
 
     markAllSeen: () => {
-        try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                const allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
-                let updated = false;
+        const allResults = Scheduler.loadResults();
+        let updated = false;
 
-                for (const id in allResults) {
-                    if (allResults[id].newCount > 0) {
-                        allResults[id].newCount = 0;
-                        allResults[id].items = allResults[id].items.map(item => ({
-                            ...item,
-                            isNew: false
-                        }));
-                        updated = true;
-                    }
-                }
-
-                if (updated) {
-                    fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
-                }
-                return true;
+        for (const id in allResults) {
+            if (allResults[id].newCount > 0) {
+                allResults[id].newCount = 0;
+                allResults[id].items = allResults[id].items.map(item => ({
+                    ...item,
+                    isNew: false
+                }));
+                updated = true;
             }
-        } catch (e) {
-            console.error('Error marking all seen:', e);
-            return false;
         }
-        return false;
+
+        if (updated) {
+            try {
+                fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
+            } catch (e) {
+                console.error('Error marking all seen:', e);
+                return false;
+            }
+        }
+        return true;
     }
 };
 
