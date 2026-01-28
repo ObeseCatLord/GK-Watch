@@ -454,12 +454,25 @@ async function search(query, strictEnabled = true, filters = []) {
         return [];
     }
 
+    // Priority 1: Neokyo (Fast/Axios)
+    try {
+        const neokyoResults = await searchNeokyo(query, strictEnabled, filters);
+        if (neokyoResults !== null) {
+            console.log(`[Mercari] Neokyo search successful (${neokyoResults.length} items).`);
+            return neokyoResults;
+        }
+        console.warn('[Mercari] Neokyo failed (returned null), falling back to native scraper...');
+    } catch (err) {
+        console.warn(`[Mercari] Neokyo error: ${err.message}, falling back to native scraper...`);
+    }
+
+    // Priority 2: Native Scraper (Puppeteer) - Fallback
     const MAX_RETRIES = 1; // 1 retry = 2 attempts total
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
         try {
             return await performSearch(query, strictEnabled, filters);
         } catch (error) {
-            console.error(`[Mercari] Attempt ${attempt}/${MAX_RETRIES + 1} failed: ${error.message}`);
+            console.error(`[Mercari] Native Attempt ${attempt}/${MAX_RETRIES + 1} failed: ${error.message}`);
 
             // If it's a timeout, track consecutive timeouts logic
             if (error.message === 'TIMEOUT') {
@@ -472,19 +485,15 @@ async function search(query, strictEnabled = true, filters = []) {
                         console.warn('Mercari scraper DISABLED for remainder of run due to 5 consecutive timeouts.');
                     }
                 }
-            } else {
-                // If it was NOT a timeout (some other error), reset consecutive timeouts because the scraper is "alive" but failing? 
-                // Or preserve it? Probably preserve. If it errors out, it's not a timeout.
             }
 
             if (attempt <= MAX_RETRIES) {
-                console.log(`[Mercari] Retrying in 5 seconds...`);
+                console.log(`[Mercari] Retrying native in 5 seconds...`);
                 await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
-                console.error('[Mercari] All attempts failed. Falling back to Neokyo...');
-                return await searchNeokyo(query, strictEnabled, filters);
+                console.error('[Mercari] All native attempts failed.');
+                return []; // Return empty if both Neokyo and Native fail
             }
-
         }
     }
 }
