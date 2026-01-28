@@ -560,7 +560,7 @@ app.get('/api/goofish/status', requireAuth, (req, res) => {
 });
 
 // Update Cookies
-app.post('/api/cookies/:site', requireAuth, (req, res) => {
+app.post('/api/cookies/:site', requireAuth, async (req, res) => {
     try {
         const { site } = req.params;
         const { cookies } = req.body;
@@ -588,7 +588,7 @@ app.post('/api/cookies/:site', requireAuth, (req, res) => {
         // Write to file
         const filePath = path.join(__dirname, 'data', `${site}_cookies.json`);
 
-        fs.writeFileSync(filePath, JSON.stringify(cookieJson, null, 2));
+        await fsp.writeFile(filePath, JSON.stringify(cookieJson, null, 2));
         console.log(`[API] Updated cookies for ${site}`);
 
         res.json({ success: true, message: 'Cookies saved successfully' });
