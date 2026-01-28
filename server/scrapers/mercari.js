@@ -436,11 +436,18 @@ async function searchNeokyo(query, strictEnabled, filters) {
         const parsedQuery = parseQuery(query);
         const hasQuoted = hasQuotedTerms(parsedQuery);
 
+        // Strict filtering logic removed for Neokyo.
+        // Reason: Neokyo often truncates titles (e.g. "Some Item Na...") which causes 
+        // our strict "token-must-exist" check to fail even for valid matches.
+        // We rely on Neokyo's search engine (which usually defaults to AND) to return relevant results.
+
+        /*
         if (strictEnabled || hasQuoted) {
             const filtered = allResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
             console.log(`[Mercari Fallback] Strict filtering applied. ${allResults.length} -> ${filtered.length} items.`);
             return filtered;
         }
+        */
 
         return allResults;
 
