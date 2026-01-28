@@ -83,34 +83,50 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     // using Promise.allSettled so one failure doesn't stop others
     const scraperTasks = [];
 
+    // Helper to log duration
+    const loggedPromise = async (name, promise) => {
+        const start = Date.now();
+        console.log(`[Scraper] ${name} started (First run optimization check)`);
+        try {
+            const result = await promise;
+            const duration = Date.now() - start;
+            console.log(`[Scraper] ${name} finished in ${duration}ms`);
+            return result;
+        } catch (err) {
+            const duration = Date.now() - start;
+            console.log(`[Scraper] ${name} failed after ${duration}ms`);
+            throw err;
+        }
+    };
+
     if (enabled.mercari !== false) {
-        scraperTasks.push({ name: 'Mercari', promise: mercari.search(query, strict.mercari ?? true, filters) });
+        scraperTasks.push({ name: 'Mercari', promise: loggedPromise('Mercari', mercari.search(query, strict.mercari ?? true, filters)) });
     }
 
     if (enabled.yahoo !== false) {
-        scraperTasks.push({ name: 'Yahoo', promise: yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters) });
+        scraperTasks.push({ name: 'Yahoo', promise: loggedPromise('Yahoo', yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters)) });
     }
 
     if (enabled.paypay !== false) {
-        scraperTasks.push({ name: 'PayPay Flea Market', promise: paypay.search(query, strict.paypay ?? true, filters) });
+        scraperTasks.push({ name: 'PayPay Flea Market', promise: loggedPromise('PayPay Flea Market', paypay.search(query, strict.paypay ?? true, filters)) });
     }
 
     if (enabled.fril !== false) {
-        scraperTasks.push({ name: 'Fril', promise: fril.search(query, strict.fril ?? true, filters) });
+        scraperTasks.push({ name: 'Fril', promise: loggedPromise('Fril', fril.search(query, strict.fril ?? true, filters)) });
     }
 
     if (enabled.surugaya !== false) {
         // Pass filters to Suruga-ya for negative searching
-        scraperTasks.push({ name: 'Suruga-ya', promise: surugaya.search(query, strict.surugaya ?? true, filters) });
+        scraperTasks.push({ name: 'Suruga-ya', promise: loggedPromise('Suruga-ya', surugaya.search(query, strict.surugaya ?? true, filters)) });
     }
 
     if (enabled.taobao !== false) {
-        scraperTasks.push({ name: 'Taobao', promise: taobao.search(query, strict.taobao ?? true) });
+        scraperTasks.push({ name: 'Taobao', promise: loggedPromise('Taobao', taobao.search(query, strict.taobao ?? true)) });
     }
 
     if (enabled.goofish !== false) {
         // Goofish strict filtering same as others? defaulting to true for now
-        scraperTasks.push({ name: 'Goofish', promise: goofish.search(query, strict.goofish ?? true) });
+        scraperTasks.push({ name: 'Goofish', promise: loggedPromise('Goofish', goofish.search(query, strict.goofish ?? true)) });
     }
 
     const results = await Promise.allSettled(scraperTasks.map(t => t.promise));
