@@ -433,23 +433,21 @@ async function searchNeokyo(query, strictEnabled, filters) {
         // But for strict filtering, if the title found on Neokyo contains the query, it's a match.
         // We will stick to our standard queryMatcher logic.
 
-        const parsedQuery = parseQuery(query);
+        const parsedQuery = parseQuery(effectiveQuery);
         const hasQuoted = hasQuotedTerms(parsedQuery);
 
-        // Strict filtering logic removed for Neokyo.
-        // Reason: Neokyo often truncates titles (e.g. "Some Item Na...") which causes 
-        // our strict "token-must-exist" check to fail even for valid matches.
-        // We rely on Neokyo's search engine (which usually defaults to AND) to return relevant results.
+        // Filter results locally.
+        // We pass strict=false to matchesQuery, which means:
+        // 1. Positive terms are ignored (unless quoted), allowing truncated titles to pass.
+        // 2. Negative terms are ENFORCED.
+        // 3. Quoted terms are ENFORCED.
+        const filtered = allResults.filter(item => matchesQuery(item.title, parsedQuery, false));
 
-        /*
-        if (strictEnabled || hasQuoted) {
-            const filtered = allResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
-            console.log(`[Mercari Fallback] Strict filtering applied. ${allResults.length} -> ${filtered.length} items.`);
-            return filtered;
+        if (allResults.length !== filtered.length) {
+            console.log(`[Mercari Fallback] Local filtering applied (strict=false). ${allResults.length} -> ${filtered.length} items.`);
         }
-        */
 
-        return allResults;
+        return filtered;
 
     } catch (error) {
         console.error(`[Mercari Fallback] Error: ${error.message}`);

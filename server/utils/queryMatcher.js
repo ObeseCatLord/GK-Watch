@@ -124,19 +124,19 @@ function matchesQuery(title, parsedQuery, strict = true) {
 
     switch (parsedQuery.type) {
         case 'TERM': {
-            // If NOT strict mode, we ONLY check if the term is quoted.
-            // If it's NOT quoted, we return true (pass) because we assume
-            // non-strict mode relies on the scraper's fuzzy search.
-            if (!strict && !parsedQuery.quoted) {
-                return true;
-            }
-
             let termLower = parsedQuery.value.toLowerCase();
             let isNegated = false;
 
             if (termLower.startsWith('-') && termLower.length > 1) {
                 isNegated = true;
                 termLower = termLower.slice(1);
+            }
+
+            // If NOT strict mode, we ONLY check if the term is quoted or negated.
+            // If it's NOT quoted and NOT negated, we return true (pass) because we assume
+            // non-strict mode relies on the scraper's fuzzy search.
+            if (!strict && !parsedQuery.quoted && !isNegated) {
+                return true;
             }
 
             // Check for GK synonym match
