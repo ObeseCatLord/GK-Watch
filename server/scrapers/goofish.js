@@ -55,7 +55,7 @@ async function searchWithPuppeteer(query) {
         }
 
         browser = await puppeteer.launch({
-            headless: "new",
+            headless: true,
             executablePath,
             userDataDir,
             pipe: true,
