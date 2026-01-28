@@ -113,7 +113,8 @@ const Scheduler = {
         const itemIds = items.map(i => i.id);
 
         try {
-            for (let idx = startIndex; idx < items.length; idx++) {
+            const CONCURRENCY = 3;
+            for (let idx = startIndex; idx < items.length; idx += CONCURRENCY) {
                 if (Scheduler.shouldAbort) {
                     console.log('[Scheduler] Aborted by user');
                     // Delete resume file on abort
@@ -121,86 +122,83 @@ const Scheduler = {
                     break;
                 }
 
-                const item = items[idx];
-                Scheduler.progress = {
-                    current: idx + 1,
-                    total: items.length,
-                    currentItem: item.name || item.term
-                };
+                // Process chunk
+                const chunk = items.slice(idx, idx + CONCURRENCY);
+                console.log(`[Batch] Processing chunk ${idx / CONCURRENCY + 1} (${chunk.length} items)...`);
 
-                // Save state BEFORE processing (so we resume at this item if we crash during it? 
-                // Or AFTER? if we crash during, we want to retry it. So BEFORE is better.)
-                // OPTIMIZATION: Write only every 5 items or on first item to reduce disk I/O
-                if (idx === startIndex || idx % 5 === 0) {
-                    try {
-                        fs.writeFileSync(RESUME_FILE, JSON.stringify({
-                            type,
-                            currentIndex: idx,
-                            items: itemIds,
-                            timestamp: Date.now()
-                        }));
-                    } catch (e) { console.error('Error saving resume state:', e); }
-                }
+                // Save resume state at start of chunk
+                try {
+                    fs.writeFileSync(RESUME_FILE, JSON.stringify({
+                        type,
+                        currentIndex: idx,
+                        items: itemIds,
+                        timestamp: Date.now()
+                    }));
+                } catch (e) { console.error('Error saving resume state:', e); }
 
-                // Search Logic (Refactored from previous loop)
-                const terms = item.terms || [item.term];
-                const uniqueResultsMap = new Map();
-                let payPayErrorOccurred = false;
+                // Run chunk in parallel
+                await Promise.all(chunk.map(async (item, chunkOffset) => {
+                    const currentItemIndex = idx + chunkOffset;
+                    Scheduler.progress = {
+                        current: currentItemIndex + 1,
+                        total: items.length,
+                        currentItem: item.name || item.term
+                    };
 
-                console.log(`[Batch] Processing: ${item.name}`);
+                    const terms = item.terms || [item.term];
+                    const uniqueResultsMap = new Map();
+                    let payPayErrorOccurred = false;
 
-                for (const term of terms) {
-                    console.log(`[Batch] - Searching: ${term}`);
-                    try {
-                        // Pass item's enabledSites to override global settings if present
-                        // If item.enabledSites is undefined (legacy items), searchAll falls back to global settings
-                        // Also pass item.filters for Suruga-ya optimization
-                        const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || []);
-                        if (searchAggregator.isPayPayFailed && searchAggregator.isPayPayFailed()) {
-                            payPayErrorOccurred = true;
-                        }
-                        if (results && results.length > 0) {
-                            for (const res of results) {
-                                if (!uniqueResultsMap.has(res.link)) {
-                                    uniqueResultsMap.set(res.link, res);
+                    console.log(`[Batch] Processing: ${item.name}`);
+
+                    for (const term of terms) {
+                        console.log(`[Batch] - Searching: ${term}`);
+                        try {
+                            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || []);
+                            if (searchAggregator.isPayPayFailed && searchAggregator.isPayPayFailed()) {
+                                payPayErrorOccurred = true;
+                            }
+                            if (results && results.length > 0) {
+                                for (const res of results) {
+                                    if (!uniqueResultsMap.has(res.link)) {
+                                        uniqueResultsMap.set(res.link, res);
+                                    }
                                 }
                             }
+                        } catch (err) {
+                            console.error(`[Batch] Error searching for ${term}:`, err);
                         }
+                    }
+
+                    const uniqueResults = Array.from(uniqueResultsMap.values());
+
+                    try {
+                        let filtered = BlockedItems.filterResults(uniqueResults);
+                        filtered = Blacklist.filterResults(filtered);
+
+                        if (item.filters && item.filters.length > 0) {
+                            const filterTerms = item.filters.map(f => f.toLowerCase());
+                            filtered = filtered.filter(result => {
+                                const titleLower = result.title.toLowerCase();
+                                return !filterTerms.some(term => titleLower.includes(term));
+                            });
+                        }
+
+                        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
+
+                        if (newItems && newItems.length > 0) {
+                            if (item.emailNotify !== false) {
+                                allNewItems[item.name] = newItems;
+                            }
+                            if (item.priority === true) {
+                                await NtfyService.sendPriorityAlert(item.name || item.term, newItems);
+                            }
+                        }
+                        Watchlist.updateLastRun(item.id, totalCount);
                     } catch (err) {
-                        console.error(`[Batch] Error searching for ${term}:`, err);
+                        console.error(`[Batch] Error saving results for ${item.name}:`, err);
                     }
-                }
-
-                const uniqueResults = Array.from(uniqueResultsMap.values());
-
-                try {
-                    let filtered = BlockedItems.filterResults(uniqueResults);
-                    filtered = Blacklist.filterResults(filtered);
-
-                    // Apply per-watch filter terms
-                    if (item.filters && item.filters.length > 0) {
-                        const filterTerms = item.filters.map(f => f.toLowerCase());
-                        filtered = filtered.filter(result => {
-                            const titleLower = result.title.toLowerCase();
-                            return !filterTerms.some(term => titleLower.includes(term));
-                        });
-                    }
-
-                    const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
-
-                    if (newItems && newItems.length > 0) {
-                        if (item.emailNotify !== false) {
-                            allNewItems[item.name] = newItems;
-                        }
-                        if (item.priority === true) {
-                            // Trigger Ntfy Priority Alert IMMEDIATELY
-                            await NtfyService.sendPriorityAlert(item.name || item.term, newItems);
-                        }
-                    }
-                    Watchlist.updateLastRun(item.id, totalCount);
-                } catch (err) {
-                    console.error(`[Batch] Error saving results for ${item.name}:`, err);
-                }
+                }));
             }
 
             // Send digest if completed successfully (and not aborted) - ONLY for scheduled runs
