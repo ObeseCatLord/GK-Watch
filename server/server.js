@@ -318,8 +318,8 @@ app.post('/api/results/mark-all-seen', requireAuth, (req, res) => {
 });
 
 // Get new counts for all watchlist items
-app.get('/api/watchlist/newcounts', requireAuth, (req, res) => {
-    res.json(Scheduler.getNewCounts());
+app.get('/api/watchlist/newcounts', requireAuth, async (req, res) => {
+    res.json(await Scheduler.getNewCounts());
 });
 
 // Toggle email notifications for a watchlist item

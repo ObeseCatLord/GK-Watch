@@ -468,20 +468,18 @@ const Scheduler = {
         }
     },
 
-    getNewCounts: () => {
+    getNewCounts: async () => {
         try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                const allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
-                const counts = {};
-                for (const [id, data] of Object.entries(allResults)) {
-                    counts[id] = data.newCount || 0;
-                }
-                return counts;
+            const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+            const allResults = JSON.parse(content);
+            const counts = {};
+            for (const [id, data] of Object.entries(allResults)) {
+                counts[id] = data.newCount || 0;
             }
+            return counts;
         } catch (e) {
             return {};
         }
-        return {};
     },
 
     markAllSeen: () => {
