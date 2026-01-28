@@ -294,8 +294,8 @@ app.post('/api/watchlist/reorder', requireAuth, async (req, res) => {
     }
 });
 
-app.get('/api/results/:id', requireAuth, (req, res) => {
-    const results = Scheduler.getResults(req.params.id);
+app.get('/api/results/:id', requireAuth, async (req, res) => {
+    const results = await Scheduler.getResults(req.params.id);
     // Filter results on read as well, in case we just blocked something
     // Also filter out HIDDEN items (grace period preservation)
     let items = results ? results.items : [];
