@@ -455,16 +455,14 @@ const Scheduler = {
         }
     },
 
-    getResults: (watchId) => {
+    getResults: async (watchId) => {
         try {
-            if (fs.existsSync(RESULTS_FILE)) {
-                const allResults = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
-                return allResults[watchId] || null;
-            }
+            const content = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+            const allResults = JSON.parse(content);
+            return allResults[watchId] || null;
         } catch (e) {
             return null;
         }
-        return null;
     },
 
     getNewCounts: () => {
