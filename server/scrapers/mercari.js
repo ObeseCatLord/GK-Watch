@@ -154,13 +154,21 @@ async function searchAxios(query, strictEnabled, filters) {
             }
 
             // Map to common format
-            const mapped = items.map(i => ({
-                title: i.name,
-                link: `https://jp.mercari.com/item/${i.id}`,
-                image: i.thumbnails ? i.thumbnails[0] : '',
-                price: `¥${Number(i.price).toLocaleString()}`,
-                source: 'Mercari'
-            }));
+            const mapped = items.map(i => {
+                let link = `https://jp.mercari.com/item/${i.id}`;
+                // Shops items have alphanumeric IDs (not m + digits)
+                if (!i.id.match(/^m\d+$/)) {
+                    link = `https://jp.mercari.com/shops/product/${i.id}`;
+                }
+
+                return {
+                    title: i.name,
+                    link,
+                    image: i.thumbnails ? i.thumbnails[0] : '',
+                    price: `¥${Number(i.price).toLocaleString()}`,
+                    source: 'Mercari'
+                };
+            });
 
             allResults.push(...mapped);
             console.log(`[Mercari Axios] Page ${page + 1} found ${items.length} items.`);
