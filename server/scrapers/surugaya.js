@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const queryMatcher = require('../utils/queryMatcher');
+const dejapan = require('./dejapan');
 
 /**
  * Suruga-ya scraper using Neokyo as a proxy
@@ -268,7 +269,29 @@ async function searchWithAxios(query) {
  * Main search function - tries Axios first, falls back to Puppeteer
  */
 async function search(query, strict = true, filters = []) {
+    // Priority 1: DEJapan (Surugaya via DEJapan)
     try {
+        // Passing strict setting to DEJapan
+        const dejapanResults = await dejapan.searchSurugaya(query, strict, filters);
+        if (dejapanResults && dejapanResults.length > 0) {
+            console.log(`[Suruga-ya] DEJapan search successful (${dejapanResults.length} items).`);
+            return dejapanResults;
+        }
+        console.log('[Suruga-ya] DEJapan found 0 items or failed. Falling back to Neokyo...');
+    } catch (err) {
+        console.warn(`[Suruga-ya] DEJapan error: ${err.message}. Falling back to Neokyo...`);
+    }
+
+    try {
+        // Priority 2: Neokyo (Axios)
+        // User requested: "Suruga-ya Neokyo shouldn't be strict"
+        // We will force strict=false for the fallback path, UNLESS quoted terms exist (which usually implies intent).
+        // Actually, let's respect the user's explicit instruction "shouldn't be strict".
+        // But we probably still want to filter completely irrelevant junk?
+        // Existing logic applies strict filtering if strict=true.
+        // We will override strict to false for this fallback section.
+        const fallbackStrict = false;
+
         // Append negative filters to query for optimized searching
         // e.g. "Gundam -Plastic -Model"
         let effectiveQuery = query;
@@ -278,7 +301,7 @@ async function search(query, strict = true, filters = []) {
             console.log(`[Suruga-ya] Optimized search with negative terms: "${effectiveQuery}"`);
         }
 
-        console.log(`Searching Suruga-ya for ${effectiveQuery}...`);
+        console.log(`Searching Suruga-ya (Neokyo) for ${effectiveQuery}...`);
 
         // Try Axios (only)
         let results = await searchWithAxios(effectiveQuery);
@@ -288,7 +311,8 @@ async function search(query, strict = true, filters = []) {
         const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
 
         // Strict filtering applies if strict mode is ON, OR if we have quoted terms that must be enforced
-        if ((strict || hasQuoted) && results && results.length > 0) {
+        // We use fallbackStrict (false) here unless hasQuoted forces it.
+        if ((fallbackStrict || hasQuoted) && results && results.length > 0) {
             console.log(`[Suruga-ya] Strict filtering enabled${hasQuoted ? ' (Quoted Terms Found)' : ''}. Checking ${results.length} items against query: "${query}"`);
             const initialCount = results.length;
             const filteredResults = [];
@@ -298,7 +322,8 @@ async function search(query, strict = true, filters = []) {
                 // Check if title matches query strictly
                 // Use ORIGINAL query (without negative terms) for positive matching
                 // Pass 'strict' matchesQuery - if strict=false but hasQuoted=true, it will only enforce quoted terms
-                const matches = queryMatcher.matchesQuery(item.title, parsedQuery, strict);
+                const matches = queryMatcher.matchesQuery(item.title, parsedQuery, fallbackStrict);
+
 
                 // If it matches, keep it
                 if (matches) {
