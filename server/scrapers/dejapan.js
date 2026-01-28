@@ -8,13 +8,20 @@ const DELAY_BETWEEN_PAGES = 500;
 
 /**
  * Convert DEJapan link to Mercari canonical link
- * DEJapan format: https://www.dejapan.com/.../m123456789
+ * DEJapan format: https://www.dejapan.com/.../m123456789 (Canonical)
+ * OR: .../encryptedID (Non-canonical)
  */
 function convertToMercariLink(dejapanLink) {
     if (!dejapanLink) return null;
-    const match = dejapanLink.match(/(m\d+)$/);
+    // Canonical Check: m followed by digits (allow trailing slash or query)
+    const match = dejapanLink.match(/(m\d+)(\/|\?|$)/);
     if (match) {
         return `https://jp.mercari.com/item/${match[1]}`;
+    }
+    // Fallback: If it looks like a DEJapan item link but we can't extract ID,
+    // return the DEJapan link itself so the item isn't lost.
+    if (dejapanLink.includes('/shopping/mercari/item/')) {
+        return dejapanLink;
     }
     return null;
 }
@@ -26,10 +33,19 @@ function convertToMercariLink(dejapanLink) {
  */
 function convertToSurugayaLink(dejapanLink) {
     if (!dejapanLink) return null;
-    // Extract ID (last segment after slash)
-    const match = dejapanLink.match(/\/([^\/]+)$/);
+    // Extract ID (last segment after slash, ignoring query)
+    // Clean query first
+    const cleanLink = dejapanLink.split('?')[0].replace(/\/$/, '');
+    const match = cleanLink.match(/\/([^\/]+)$/);
     if (match) {
+        // If ID seems valid (digits only usually, but sometimes alphanum for suruga?)
+        // Suruga-ya IDs are usually digits, e.g. 602299956
+        // But let's assume if it extracts, we try providing the canonical link
         return `https://www.suruga-ya.jp/product/detail/${match[1]}`;
+    }
+    // Fallback
+    if (dejapanLink.includes('/shopping/surugaya/item/')) {
+        return dejapanLink;
     }
     return null;
 }
@@ -108,11 +124,28 @@ async function searchGeneric(query, strictEnabled, filters, source, baseUrl, lin
 
             const $ = cheerio.load(data);
 
-            // Logic: Parse items. If 0 items, likely end of pagination.
             const pageResults = parseDejapanItems($, 'a', linkFilter, source);
 
             if (pageResults.length === 0) {
                 console.log(`[DEJapan] No items found on page ${page}. Stopping.`);
+
+                // Softblock Check
+                // If page 1 and 0 items, check for block indicators
+                if (page === 1) {
+                    const title = $('title').text().trim().toLowerCase();
+                    const body = $('body').text().toLowerCase();
+
+                    // Indicators of blocking/errors
+                    const blockKeywords = ['access denied', '403 forbidden', 'captcha', 'security check', 'too many requests', 'maintenance'];
+                    const isBlocked = blockKeywords.some(kw => title.includes(kw) || body.includes(kw));
+
+                    if (isBlocked) {
+                        console.warn(`[DEJapan] Softblock detected (Keywords found). Returning null to trigger fallback.`);
+                        return null;
+                    }
+                    // If no block keywords, we assume it's a valid 0-result page.
+                    // IMPORTANT: Since we improved parsing, 0 items likely means truly 0 items.
+                }
                 break;
             }
 
@@ -121,6 +154,10 @@ async function searchGeneric(query, strictEnabled, filters, source, baseUrl, lin
 
         } catch (error) {
             console.error(`[DEJapan] Error on page ${page}: ${error.message}`);
+            // If error is 403 or similar, it's a hard block
+            if (error.response && [403, 429, 503].includes(error.response.status)) {
+                return null; // Trigger fallback
+            }
             break;
         }
     }
