@@ -442,7 +442,7 @@ async function searchNeokyo(query, strictEnabled, filters) {
         // 1. Positive terms are ignored (unless quoted), allowing truncated titles to pass.
         // 2. Negative terms are ENFORCED.
         // 3. Quoted terms are ENFORCED.
-        const filtered = allResults.filter(item => matchesQuery(item.title, parsedQuery, false));
+        const filtered = allResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
 
         if (allResults.length !== filtered.length) {
             console.log(`[Mercari Fallback] Local filtering applied (strict=false). ${allResults.length} -> ${filtered.length} items.`);
