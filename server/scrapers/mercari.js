@@ -1,4 +1,5 @@
 const fs = require('fs');
+const dejapan = require('./dejapan');
 const path = require('path');
 const os = require('os');
 const puppeteer = require('puppeteer');
@@ -462,7 +463,19 @@ async function search(query, strictEnabled = true, filters = []) {
         return [];
     }
 
-    // Priority 1: Neokyo (Fast/Axios)
+    // Priority 1: DEJapan (Fast/Axios + Full Titles)
+    try {
+        const dejapanResults = await dejapan.search(query, strictEnabled, filters);
+        if (dejapanResults !== null) {
+            console.log(`[Mercari] DEJapan search successful (${dejapanResults.length} items).`);
+            return dejapanResults;
+        }
+        console.warn('[Mercari] DEJapan failed (returned null), falling back to Neokyo...');
+    } catch (err) {
+        console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to Neokyo...`);
+    }
+
+    // Priority 2: Neokyo (Fast/Axios)
     try {
         const neokyoResults = await searchNeokyo(query, strictEnabled, filters);
         if (neokyoResults !== null) {
@@ -474,7 +487,7 @@ async function search(query, strictEnabled = true, filters = []) {
         console.warn(`[Mercari] Neokyo error: ${err.message}, falling back to native scraper...`);
     }
 
-    // Priority 2: Native Scraper (Puppeteer) - Fallback
+    // Priority 3: Native Scraper (Puppeteer) - Fallback
     const MAX_RETRIES = 1; // 1 retry = 2 attempts total
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
         try {
