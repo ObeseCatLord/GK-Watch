@@ -5,7 +5,196 @@ const os = require('os');
 const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 const axios = require('axios');
+const { webcrypto, randomUUID } = require('node:crypto');
+const { subtle } = webcrypto;
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery, getSearchTerms } = require('../utils/queryMatcher');
+
+// --- DPoP Utils ---
+function encodeBase64Url(buffer) {
+    return Buffer.from(buffer)
+        .toString('base64')
+        .replace(/=/g, "")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_");
+}
+
+function encodeJwtInfo(str) {
+    return new TextEncoder().encode(str);
+}
+
+async function generateDPoP(url, method, keyPair) {
+    const { publicKey, privateKey } = keyPair;
+    // Export public key to JWK for header
+    const jwk = await subtle.exportKey("jwk", publicKey);
+
+    const header = JSON.stringify({
+        typ: "dpop+jwt",
+        alg: "ES256",
+        jwk: {
+            crv: jwk.crv,
+            kty: jwk.kty,
+            x: jwk.x,
+            y: jwk.y
+        }
+    });
+
+    const iat = Math.ceil(Date.now() / 1000);
+    const jti = randomUUID();
+
+    const payload = JSON.stringify({
+        iat: iat,
+        jti: jti,
+        htu: url,
+        htm: method,
+        uuid: randomUUID()
+    });
+
+    const encodedHeader = encodeBase64Url(encodeJwtInfo(header));
+    const encodedPayload = encodeBase64Url(encodeJwtInfo(payload));
+    const jwtWrap = `${encodedHeader}.${encodedPayload}`;
+
+    const signature = await subtle.sign(
+        {
+            name: "ECDSA",
+            hash: { name: "SHA-256" },
+        },
+        privateKey,
+        encodeJwtInfo(jwtWrap)
+    );
+
+    return `${jwtWrap}.${encodeBase64Url(signature)}`;
+}
+
+// --- Helper to flatten query tree for API ---
+function flattenQuery(node, acc = { include: [], exclude: [] }) {
+    if (!node) return acc;
+    if (node.type === 'TERM') {
+        let val = node.value;
+        if (val.startsWith('-') && val.length > 1) {
+            acc.exclude.push(val.slice(1));
+        } else {
+            if (node.quoted) val = `"${val}"`;
+            acc.include.push(val);
+        }
+    } else if (node.children) {
+        node.children.forEach(child => flattenQuery(child, acc));
+    }
+    return acc;
+}
+
+// --- Direct Axios Search ---
+async function searchAxios(query, strictEnabled, filters) {
+    console.log(`[Mercari Axios] Searching for: "${query}"`);
+
+    // Generate Ephemeral Keys
+    const keyPair = await subtle.generateKey(
+        { name: "ECDSA", namedCurve: "P-256" },
+        true,
+        ["sign", "verify"]
+    );
+
+    const targetUrl = "https://api.mercari.jp/v2/entities:search";
+    const method = "POST";
+    const MAX_PAGES = 5; // Direct API is fast/large, 5 pages (600 items) is usually plenty
+    let allResults = [];
+
+    // Check keyword structure
+    const parsedQuery = parseQuery(query);
+    const { include, exclude } = flattenQuery(parsedQuery);
+
+    const positiveTerms = include.join(' ');
+    const negativeTermsList = [...exclude, ...(filters || [])];
+    const excludeKeyword = negativeTermsList.join(' ');
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+        // Generate Token per request (good practice, though RFC allows reuse within time window)
+        const dpopToken = await generateDPoP(targetUrl, method, keyPair);
+
+        const searchPayload = {
+            "pageSize": 120,
+            "searchSessionId": "axios_session_" + Date.now(),
+            "pageToken": page > 0 ? (allResults._nextPageToken || "") : undefined,
+            "searchCondition": {
+                "keyword": positiveTerms,
+                "sort": "SORT_SCORE",
+                "order": "ORDER_DESC",
+                "status": ["STATUS_ON_SALE"],
+                "excludeKeyword": excludeKeyword,
+            },
+        };
+
+        // If passed page 0 and no next token, stop
+        if (page > 0 && !allResults._nextPageToken) break;
+
+        try {
+            const response = await axios.post(targetUrl, searchPayload, {
+                headers: {
+                    "X-Platform": "web",
+                    "Content-Type": "application/json",
+                    "DPoP": dpopToken,
+                    "Origin": "https://jp.mercari.com",
+                    "Referer": "https://jp.mercari.com/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                timeout: 10000
+            });
+
+            // Extract Items
+            let items = [];
+            if (response.data.items) {
+                items = response.data.items;
+            } else if (response.data.components) {
+                const itemsComp = response.data.components.find(c => c.items);
+                if (itemsComp) items = itemsComp.items;
+            }
+
+            if (items.length === 0) {
+                console.log(`[Mercari Axios] Page ${page + 1} returned 0 items. Stopping.`);
+                break;
+            }
+
+            // Map to common format
+            const mapped = items.map(i => ({
+                title: i.name,
+                link: `https://jp.mercari.com/item/${i.id}`,
+                image: i.thumbnails ? i.thumbnails[0] : '',
+                price: `¥${Number(i.price).toLocaleString()}`,
+                source: 'Mercari'
+            }));
+
+            allResults.push(...mapped);
+            console.log(`[Mercari Axios] Page ${page + 1} found ${items.length} items.`);
+
+            // Update Page Token
+            if (response.data.meta && response.data.meta.nextPageToken) {
+                allResults._nextPageToken = response.data.meta.nextPageToken;
+            } else {
+                allResults._nextPageToken = null;
+            }
+
+            // Safety break if token didn't change (prevent loop)
+            if (page > 0 && !allResults._nextPageToken) break;
+
+            await new Promise(r => setTimeout(r, 500)); // Polite delay
+
+        } catch (err) {
+            console.error(`[Mercari Axios] Error on page ${page + 1}: ${err.message}`);
+            if (allResults.length === 0) return null; // If first page fails, return null to trigger fallback
+            break; // Otherwise return what we have
+        }
+    }
+
+    // Client-side Strict Filtering (Double check)
+    // Even though we excluded keywords at API level, we still run matchesQuery for Quotes & strict logic
+    const hasQuoted = hasQuotedTerms(parsedQuery);
+    if (strictEnabled || hasQuoted) {
+        const filtered = allResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+        console.log(`[Mercari Axios] Strict filtering: ${allResults.length} -> ${filtered.length} items.`);
+        return filtered;
+    }
+
+    return allResults;
+}
 
 const NEOKYO_SEARCH_URL = 'https://neokyo.com/en/search/mercari';
 const DELAY_BETWEEN_PAGES = 300; // ms
@@ -463,57 +652,57 @@ async function search(query, strictEnabled = true, filters = []) {
         return [];
     }
 
-    // Priority 1: DEJapan (Fast/Axios + Full Titles)
+    // Priority 1: Direct Axios (Fastest, DPoP Auth)
+    try {
+        const axiosResults = await searchAxios(query, strictEnabled, filters);
+        if (axiosResults !== null) {
+            console.log(`[Mercari] Axios search successful (${axiosResults.length} items).`);
+            return axiosResults;
+        }
+        console.warn('[Mercari] Axios failed (returned null), falling back to DEJapan...');
+    } catch (err) {
+        console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to DEJapan...`);
+    }
+
+    // Priority 2: DEJapan (Fast/Axios + Full Titles)
     try {
         const dejapanResults = await dejapan.search(query, strictEnabled, filters);
         if (dejapanResults !== null) {
             console.log(`[Mercari] DEJapan search successful (${dejapanResults.length} items).`);
             return dejapanResults;
         }
-        console.warn('[Mercari] DEJapan failed (returned null), falling back to Native Scraper...');
+        console.warn('[Mercari] DEJapan failed (returned null), falling back to Neokyo...');
     } catch (err) {
-        console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to Native Scraper...`);
+        console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to Neokyo...`);
     }
 
-    // Priority 2: Native Scraper (Puppeteer)
-    const MAX_RETRIES = 1; // 1 retry = 2 attempts total
-    for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
-        try {
-            return await performSearch(query, strictEnabled, filters);
-        } catch (error) {
-            console.error(`[Mercari] Native Attempt ${attempt}/${MAX_RETRIES + 1} failed: ${error.message}`);
-
-            // If it's a timeout, track consecutive timeouts logic
-            if (error.message === 'TIMEOUT') {
-                if (attempt === MAX_RETRIES + 1) {
-                    consecutiveTimeouts++;
-                    console.log(`Mercari Consecutive Timeouts: ${consecutiveTimeouts}`);
-                    if (consecutiveTimeouts >= 5) {
-                        isDisabled = true;
-                        console.warn('Mercari scraper DISABLED for remainder of run due to 5 consecutive timeouts.');
-                    }
-                }
-            }
-
-            if (attempt <= MAX_RETRIES) {
-                console.log(`[Mercari] Retrying native in 5 seconds...`);
-                await new Promise(resolve => setTimeout(resolve, 5000));
-            } else {
-                console.error('[Mercari] All native attempts failed. Falling back to Neokyo...');
-            }
-        }
-    }
-
-    // Priority 3: Neokyo (Fast/Axios) - Final Fallback
+    // Priority 3: Neokyo (Fast/Axios)
     try {
-        console.log('[Mercari] Attempting Final Fallback: Neokyo...');
+        console.log('[Mercari] Attempting Fallback: Neokyo...');
         const neokyoResults = await searchNeokyo(query, strictEnabled, filters);
         if (neokyoResults !== null) {
             console.log(`[Mercari] Neokyo search successful (${neokyoResults.length} items).`);
             return neokyoResults;
         }
     } catch (err) {
-        console.warn(`[Mercari] Neokyo error: ${err.message}. All Mercari methods failed.`);
+        console.warn(`[Mercari] Neokyo error: ${err.message}.`);
+    }
+
+    // Priority 4: Native Scraper (Puppeteer) - Ultimate Fallback
+    // Only used if ALL direct/proxy methods fail.
+    console.log('[Mercari] All Axios methods failed. Attempting Native (Puppeteer) fallback...');
+    const MAX_RETRIES = 1;
+    for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+        try {
+            return await performSearch(query, strictEnabled, filters);
+        } catch (error) {
+            console.error(`[Mercari] Native Attempt ${attempt}/${MAX_RETRIES + 1} failed: ${error.message}`);
+            if (error.message === 'TIMEOUT' && attempt === MAX_RETRIES + 1) {
+                consecutiveTimeouts++;
+                if (consecutiveTimeouts >= 5) isDisabled = true;
+            }
+            if (attempt <= MAX_RETRIES) await new Promise(resolve => setTimeout(resolve, 5000));
+        }
     }
 
     return [];
