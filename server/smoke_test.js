@@ -10,7 +10,7 @@ const Watchlist = require('./models/watchlist');
 const Settings = require('./models/settings');
 const BlockedItems = require('./models/blocked_items');
 
-const TEST_QUERY = '東方 フィギュア';
+const TEST_QUERY = '東方 ガレージキット';
 const TIMEOUT_MS = 60000;
 
 // Skip scrapers in CI to avoid geo-blocking and network issues
