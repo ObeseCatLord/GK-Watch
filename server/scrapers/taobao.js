@@ -241,7 +241,7 @@ async function getBrowser() {
         // If disconnected, clear promise and retry
         try {
             await browser.close();
-        } catch (e) {}
+        } catch (e) { }
         browserPromise = null;
     }
 
@@ -273,7 +273,7 @@ async function searchWithPuppeteer(query, cookies) {
 
     try {
         const browser = await getBrowser();
-        context = await browser.createIncognitoBrowserContext();
+        context = await browser.createBrowserContext();
         page = await context.newPage();
 
         const searchUrl = buildSearchUrl(query);

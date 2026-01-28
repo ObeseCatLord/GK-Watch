@@ -71,7 +71,7 @@ async function performSearch(query, strictEnabled, filters) {
         const MAX_PAGES = 10;
 
         const browser = await getBrowser();
-        context = await browser.createIncognitoBrowserContext();
+        context = await browser.createBrowserContext();
         page = await context.newPage();
 
         // Optimize: Block images and fonts
