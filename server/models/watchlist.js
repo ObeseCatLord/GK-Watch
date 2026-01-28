@@ -199,19 +199,22 @@ const Watchlist = {
 
     reorder: async (orderedIds) => {
         const list = await Watchlist.getAll();
+        const itemMap = new Map(list.map(item => [item.id, item]));
         const reordered = [];
+        const processedIds = new Set();
 
         // Add items in the new order
         for (const id of orderedIds) {
-            const item = list.find(i => i.id === id);
+            const item = itemMap.get(id);
             if (item) {
                 reordered.push(item);
+                processedIds.add(id);
             }
         }
 
         // Add any items that weren't in orderedIds
         for (const item of list) {
-            if (!orderedIds.includes(item.id)) {
+            if (!processedIds.has(item.id)) {
                 reordered.push(item);
             }
         }
