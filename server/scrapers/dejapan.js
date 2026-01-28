@@ -9,17 +9,30 @@ const DELAY_BETWEEN_PAGES = 500;
 /**
  * Convert DEJapan link to Mercari canonical link
  * DEJapan format: https://www.dejapan.com/.../m123456789 (Canonical)
- * OR: .../encryptedID (Non-canonical)
+ * OR: .../encryptedID -> https://jp.mercari.com/shops/product/encryptedID
  */
 function convertToMercariLink(dejapanLink) {
     if (!dejapanLink) return null;
-    // Canonical Check: m followed by digits (allow trailing slash or query)
-    const match = dejapanLink.match(/(m\d+)(\/|\?|$)/);
-    if (match) {
-        return `https://jp.mercari.com/item/${match[1]}`;
+
+    // Clean query and trailing slash
+    const cleanLink = dejapanLink.split('?')[0].replace(/\/$/, '');
+    const id = cleanLink.split('/').pop();
+
+    if (!id) return null;
+
+    // Standard Mercari Item (m + digits)
+    if (id.match(/^m\d+$/)) {
+        return `https://jp.mercari.com/item/${id}`;
     }
-    // Fallback: If it looks like a DEJapan item link but we can't extract ID,
-    // return the DEJapan link itself so the item isn't lost.
+
+    // Mercari Shops Item (Alphanumeric, usually hash-like)
+    // Example: 2JL9tqWMY5D4n4mU2SWXAB
+    // We assume any non-standard ID is a Shops item if it comes from the Mercari section
+    if (id.match(/^[A-Za-z0-9]+$/)) {
+        return `https://jp.mercari.com/shops/product/${id}`;
+    }
+
+    // Fallback: Return DEJapan link if we can't determine type
     if (dejapanLink.includes('/shopping/mercari/item/')) {
         return dejapanLink;
     }
