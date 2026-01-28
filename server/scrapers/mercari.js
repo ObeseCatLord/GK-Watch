@@ -45,18 +45,6 @@ async function getBrowser() {
     return browserPromise;
 }
 
-async function warmup() {
-    const isARM = process.arch === 'arm' || process.arch === 'arm64';
-    if (isARM) {
-        console.log('[Mercari] Warming up browser for ARM architecture...');
-        try {
-            await getBrowser();
-            console.log('[Mercari] Browser armed and ready.');
-        } catch (err) {
-            console.error('[Mercari] Warmup failed:', err);
-        }
-    }
-}
 
 function reset() {
     consecutiveTimeouts = 0;
@@ -502,4 +490,4 @@ async function search(query, strictEnabled = true, filters = []) {
 }
 
 
-module.exports = { search, reset, searchNeokyo, warmup };
+module.exports = { search, reset, searchNeokyo };

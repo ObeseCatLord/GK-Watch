@@ -190,9 +190,5 @@ function isPayPayFailed() {
     return payPayFailed;
 }
 
-async function warmup() {
-    if (mercari.warmup) await mercari.warmup();
-}
-
-module.exports = { searchAll, reset, isPayPayFailed, warmup };
+module.exports = { searchAll, reset, isPayPayFailed };
 

@@ -113,9 +113,6 @@ const Scheduler = {
         const itemIds = items.map(i => i.id);
 
         try {
-            // Warmup browser (ARM optimization)
-            await searchAggregator.warmup();
-
             const CONCURRENCY = 3;
             for (let idx = startIndex; idx < items.length; idx += CONCURRENCY) {
                 if (Scheduler.shouldAbort) {
@@ -127,7 +124,7 @@ const Scheduler = {
 
                 // Process chunk
                 const chunk = items.slice(idx, idx + CONCURRENCY);
-                console.log(`[Batch] Processing chunk ${idx / CONCURRENCY + 1} (${chunk.length} items)...`);
+                console.log(`[Batch] Processing chunk ${Math.floor(idx / CONCURRENCY) + 1} (${chunk.length} items)...`);
 
                 // Save resume state at start of chunk
                 try {
@@ -139,8 +136,13 @@ const Scheduler = {
                     }));
                 } catch (e) { console.error('Error saving resume state:', e); }
 
-                // Run chunk in parallel
+                // Run chunk in parallel with staggering
                 await Promise.all(chunk.map(async (item, chunkOffset) => {
+                    // Stagger start to prevent CPU/Memory spikes on browser launch (ARM optimization)
+                    if (chunkOffset > 0) {
+                        await new Promise(resolve => setTimeout(resolve, chunkOffset * 2000));
+                    }
+
                     const currentItemIndex = idx + chunkOffset;
                     Scheduler.progress = {
                         current: currentItemIndex + 1,
