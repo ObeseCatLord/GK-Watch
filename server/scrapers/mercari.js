@@ -353,7 +353,10 @@ async function searchNeokyo(query, strictEnabled, filters) {
                 if (priceText) {
                     const priceMatch = priceText.match(/([\d,]+)/);
                     if (priceMatch) {
-                        price = `¥${priceMatch[1]}`;
+                        const priceNum = parseInt(priceMatch[1].replace(/,/g, ''), 10);
+                        if (!isNaN(priceNum)) {
+                            price = `¥${priceNum.toLocaleString()}`;
+                        }
                     }
                 }
 
