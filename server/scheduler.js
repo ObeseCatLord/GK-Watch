@@ -40,6 +40,23 @@ const Scheduler = {
         return Scheduler.resultsCache;
     },
 
+    // Async load results into cache
+    loadResultsAsync: async () => {
+        if (Scheduler.resultsCache === null) {
+            try {
+                const data = await fs.promises.readFile(RESULTS_FILE, 'utf8');
+                Scheduler.resultsCache = JSON.parse(data);
+            } catch (e) {
+                // If file doesn't exist, return empty object
+                if (e.code !== 'ENOENT') {
+                    console.error('Error loading results cache (async):', e);
+                }
+                Scheduler.resultsCache = {};
+            }
+        }
+        return Scheduler.resultsCache;
+    },
+
     // Persist cache to disk
     persistResults: async () => {
         if (Scheduler.resultsCache === null) return;
@@ -522,12 +539,12 @@ const Scheduler = {
     },
 
     getResults: async (watchId) => {
-        const allResults = Scheduler.loadResults();
+        const allResults = await Scheduler.loadResultsAsync();
         return allResults[watchId] || null;
     },
 
     getNewCounts: async () => {
-        const allResults = Scheduler.loadResults();
+        const allResults = await Scheduler.loadResultsAsync();
         const counts = {};
         for (const [id, data] of Object.entries(allResults)) {
             counts[id] = data.newCount || 0;
