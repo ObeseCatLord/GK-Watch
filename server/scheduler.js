@@ -191,11 +191,19 @@ const Scheduler = {
 
         try {
             const CONCURRENCY = 3;
+            let itemsSinceLastPersist = 0;
+            const PERSIST_INTERVAL = 30; // Save every 30 items
+
             for (let idx = startIndex; idx < items.length; idx += CONCURRENCY) {
                 if (Scheduler.shouldAbort) {
                     console.log('[Scheduler] Aborted by user');
                     // Delete resume file on abort
                     if (fs.existsSync(RESUME_FILE)) fs.unlinkSync(RESUME_FILE);
+
+                    // Persist any pending changes before aborting
+                    if (itemsSinceLastPersist > 0) {
+                        await Scheduler.persistResults();
+                    }
                     break;
                 }
 
@@ -283,7 +291,18 @@ const Scheduler = {
                     }
                 }));
 
-                // Persist results to disk after each chunk
+                // Track unpersisted count
+                itemsSinceLastPersist += chunk.length;
+
+                // Persist results to disk ONLY if interval reached
+                if (itemsSinceLastPersist >= PERSIST_INTERVAL) {
+                    await Scheduler.persistResults();
+                    itemsSinceLastPersist = 0;
+                }
+            }
+
+            // Persist remaining items at the end
+            if (itemsSinceLastPersist > 0) {
                 await Scheduler.persistResults();
             }
 
