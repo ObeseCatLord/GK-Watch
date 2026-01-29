@@ -249,7 +249,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
         setTestStatus('sending');
         try {
-            const res = await fetch('/api/settings/test-email', {
+            const res = await authenticatedFetch('/api/settings/test-email', {
                 method: 'POST'
             });
             const data = await res.json();
