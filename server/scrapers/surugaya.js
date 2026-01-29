@@ -226,12 +226,15 @@ async function searchWithAxios(query) {
 
             if (hasNoResultsMsg) {
                 console.log('Suruga-ya (Neokyo): Confirmed no results found.');
+                // Return empty array only if we are SURE it's empty
                 return [];
             }
         }
 
-        console.log('Suruga-ya (Neokyo): No products found (Axios). Returning empty as fallback removed.');
-        return [];
+        // If we get here, it means we either failed to fetch (null) or couldn't find explicit "no results" message
+        // This likely means we were blocked or something broke.
+        console.log('Suruga-ya (Neokyo): No products found (Axios) and clean failure not confirmed. Returning null to trigger fallback.');
+        return null;
     }
 
     allResults.push(...firstPageData.results);
