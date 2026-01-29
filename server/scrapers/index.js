@@ -96,7 +96,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     if (enabled.goofish !== false) totalScrapers++;
 
     // Helper to log duration and emit progress
-    const loggedPromise = async (name, promise, onProgress) => {
+    const loggedPromise = async (name, promiseFn, onProgress) => {
         const start = Date.now();
         console.log(`[Scraper] ${name} started`);
 
@@ -104,8 +104,18 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             onProgress({ type: 'start', source: name, totalScrapers });
         }
 
+        // Create a direct progress callback for the scraper to use if it supports streaming
+        const scraperProgress = onProgress ? (data) => {
+            // data is { items: [], partial: true }
+            if (data && data.items && data.items.length > 0) {
+                const itemsWithSource = data.items.map(i => ({ ...i, source: name }));
+                onProgress({ type: 'result', source: name, items: itemsWithSource, duration: Date.now() - start, partial: true });
+            }
+        } : null;
+
         try {
-            const result = await promise;
+            // Execute the promise function, passing the progress callback
+            const result = await promiseFn(scraperProgress);
             const duration = Date.now() - start;
             console.log(`[Scraper] ${name} finished in ${duration}ms`);
 
@@ -115,17 +125,23 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
                 items = result.map(i => ({ ...i, source: name }));
             }
 
+            // Only emit the final result if we haven't been streaming?
+            // Actually, we should probably just emit the final "partial: false" or handled by caller.
+            // But to be safe and ensure completeness, we can emit the full list as non-partial (or empty if streamed)
+            // But wait, if we stream, we don't want to duplicate.
+            // The `server.js` deduplicates on client side? Yes client side dedups by link.
+            // So emitting again is fine but wasteful.
+            // For now, let's keep the existing logic for the "Final Flush":
+
             if (onProgress) {
-                // Chunk results to prevent massive payloads (which cause proxy/client disconnects)
+                // Reuse valid chunking logic for the *final* result set, just in case streaming wasn't used or items remain
+                // If streaming was used, the client will deduplicate.
                 const CHUNK_SIZE = 50;
                 if (items.length > CHUNK_SIZE) {
                     for (let i = 0; i < items.length; i += CHUNK_SIZE) {
                         const chunk = items.slice(i, i + CHUNK_SIZE);
                         onProgress({ type: 'result', source: name, items: chunk, duration: 0, partial: true });
                     }
-                    // Send completion event for duration tracking? 
-                    // Or just rely on the last chunk?
-                    // Let's send a final empty result to confirm completion and duration
                     onProgress({ type: 'result', source: name, items: [], duration, partial: false });
                 } else {
                     onProgress({ type: 'result', source: name, items, duration });
@@ -145,33 +161,34 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     };
 
     if (enabled.mercari !== false) {
-        scraperTasks.push({ name: 'Mercari', promise: loggedPromise('Mercari', mercari.search(query, strict.mercari ?? true, filters), onProgress) });
+        // Pass function wrapper to allow injecting onProgress
+        scraperTasks.push({ name: 'Mercari', promise: loggedPromise('Mercari', (cb) => mercari.search(query, strict.mercari ?? true, filters, cb), onProgress) });
     }
 
     if (enabled.yahoo !== false) {
-        scraperTasks.push({ name: 'Yahoo', promise: loggedPromise('Yahoo', yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters), onProgress) });
+        scraperTasks.push({ name: 'Yahoo', promise: loggedPromise('Yahoo', (cb) => yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters), onProgress) });
     }
 
     if (enabled.paypay !== false) {
-        scraperTasks.push({ name: 'PayPay Flea Market', promise: loggedPromise('PayPay Flea Market', paypay.search(query, strict.paypay ?? true, filters), onProgress) });
+        scraperTasks.push({ name: 'PayPay Flea Market', promise: loggedPromise('PayPay Flea Market', (cb) => paypay.search(query, strict.paypay ?? true, filters), onProgress) });
     }
 
     if (enabled.fril !== false) {
-        scraperTasks.push({ name: 'Fril', promise: loggedPromise('Fril', fril.search(query, strict.fril ?? true, filters), onProgress) });
+        scraperTasks.push({ name: 'Fril', promise: loggedPromise('Fril', (cb) => fril.search(query, strict.fril ?? true, filters), onProgress) });
     }
 
     if (enabled.surugaya !== false) {
         // Pass filters to Suruga-ya for negative searching
-        scraperTasks.push({ name: 'Suruga-ya', promise: loggedPromise('Suruga-ya', surugaya.search(query, strict.surugaya ?? true, filters), onProgress) });
+        scraperTasks.push({ name: 'Suruga-ya', promise: loggedPromise('Suruga-ya', (cb) => surugaya.search(query, strict.surugaya ?? true, filters), onProgress) });
     }
 
     if (enabled.taobao !== false) {
-        scraperTasks.push({ name: 'Taobao', promise: loggedPromise('Taobao', taobao.search(query, strict.taobao ?? true), onProgress) });
+        scraperTasks.push({ name: 'Taobao', promise: loggedPromise('Taobao', (cb) => taobao.search(query, strict.taobao ?? true), onProgress) });
     }
 
     if (enabled.goofish !== false) {
         // Goofish strict filtering same as others? defaulting to true for now
-        scraperTasks.push({ name: 'Goofish', promise: loggedPromise('Goofish', goofish.search(query, strict.goofish ?? true), onProgress) });
+        scraperTasks.push({ name: 'Goofish', promise: loggedPromise('Goofish', (cb) => goofish.search(query, strict.goofish ?? true), onProgress) });
     }
 
     const results = await Promise.allSettled(scraperTasks.map(t => t.promise));

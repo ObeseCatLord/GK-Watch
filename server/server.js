@@ -174,14 +174,16 @@ app.get('/api/search', requireAuth, async (req, res) => {
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
+            // Nginx specific: Disable buffering to allow immediate flush of keep-alive packets
+            res.setHeader('X-Accel-Buffering', 'no');
             res.flushHeaders();
 
             console.log('Starting SSE search stream...');
 
-            // Keep connection alive with heartbeat every 15s
+            // Keep connection alive with heartbeat every 5s (more frequent to prevent proxy timeouts)
             const keepAlive = setInterval(() => {
                 res.write(': keep-alive\n\n');
-            }, 15000);
+            }, 5000);
 
             // Ensure we clear interval if client disconnects
             req.on('close', () => clearInterval(keepAlive));

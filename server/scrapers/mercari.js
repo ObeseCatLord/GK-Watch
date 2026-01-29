@@ -83,7 +83,7 @@ function flattenQuery(node, acc = { include: [], exclude: [] }) {
 }
 
 // --- Direct Axios Search ---
-async function searchAxios(query, strictEnabled, filters) {
+async function searchAxios(query, strictEnabled, filters, onProgress = null) {
     console.log(`[Mercari Axios] Searching for: "${query}"`);
 
     // Generate Ephemeral Keys
@@ -172,6 +172,17 @@ async function searchAxios(query, strictEnabled, filters) {
 
             allResults.push(...mapped);
             console.log(`[Mercari Axios] Page ${page + 1} found ${items.length} items.`);
+
+            // Emit partial results if callback provided
+            if (onProgress) {
+                // For streaming, we should support passing partial results up.
+                // However, `loggedPromise` in index.js handles generic chunking.
+                // Ideally we call onProgress directly here.
+                // But index.js expects `onProgress` to take `{ type: 'result', items: ... }`
+                // We'll trust the caller provided standard handler
+                onProgress({ items: mapped, partial: true });
+            }
+
 
             // Update Page Token
             if (response.data.meta && response.data.meta.nextPageToken) {
@@ -652,7 +663,7 @@ async function searchNeokyo(query, strictEnabled, filters) {
     }
 }
 
-async function search(query, strictEnabled = true, filters = []) {
+async function search(query, strictEnabled = true, filters = [], onProgress = null) {
 
     if (isDisabled) {
         console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
@@ -661,7 +672,7 @@ async function search(query, strictEnabled = true, filters = []) {
 
     // Priority 1: Direct Axios (Fastest, DPoP Auth)
     try {
-        const axiosResults = await searchAxios(query, strictEnabled, filters);
+        const axiosResults = await searchAxios(query, strictEnabled, filters, onProgress);
         if (axiosResults !== null) {
             console.log(`[Mercari] Axios search successful (${axiosResults.length} items).`);
             return axiosResults;
