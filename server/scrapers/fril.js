@@ -1,8 +1,9 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const dejapan = require('./dejapan');
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 
-async function search(query, strictEnabled = true, filters = []) {
+async function searchDirect(query, strictEnabled = true, filters = []) {
     console.log(`Searching Fril for ${query}...`);
     const searchUrl = `https://fril.jp/s?query=${encodeURIComponent(query)}`;
 
@@ -100,4 +101,32 @@ async function search(query, strictEnabled = true, filters = []) {
     }
 }
 
-module.exports = { search };
+// Wrapper for main search to handle fallback
+async function searchWithFallback(query, strictEnabled = true, filters = []) {
+    let results = null;
+    try {
+        results = await searchDirect(query, strictEnabled, filters);
+    } catch (err) {
+        console.warn(`[Fril] Direct search critical error: ${err.message}`);
+        results = null;
+    }
+
+    if (results !== null) {
+        return results;
+    }
+
+    console.log('[Fril] Direct search failed (returned null). Attempting Fallback: DEJapan...');
+    try {
+        const dejapanResults = await dejapan.searchRakuma(query, strictEnabled, filters);
+        if (dejapanResults !== null) {
+            console.log(`[Fril] DEJapan search successful (${dejapanResults.length} items).`);
+            return dejapanResults;
+        }
+    } catch (err) {
+        console.warn(`[Fril] DEJapan fallback error: ${err.message}`);
+    }
+
+    return [];
+}
+
+module.exports = { search: searchWithFallback };

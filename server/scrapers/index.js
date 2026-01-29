@@ -23,7 +23,7 @@ function extractQuotedTerms(query) {
     return matches;
 }
 
-async function searchAll(query, enabledOverride = null, strictOverride = null, filters = []) {
+async function searchAll(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null) {
     console.log(`Starting search for: ${query}`);
     const settings = Settings.get();
 
@@ -81,52 +81,84 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
 
     // Run all scrapers in parallel
     // using Promise.allSettled so one failure doesn't stop others
+    // Run all scrapers in parallel
+    // using Promise.allSettled so one failure doesn't stop others
     const scraperTasks = [];
 
-    // Helper to log duration
-    const loggedPromise = async (name, promise) => {
+    // Total number of enabled scrapers for progress tracking
+    let totalScrapers = 0;
+    if (enabled.mercari !== false) totalScrapers++;
+    if (enabled.yahoo !== false) totalScrapers++;
+    if (enabled.paypay !== false) totalScrapers++;
+    if (enabled.fril !== false) totalScrapers++;
+    if (enabled.surugaya !== false) totalScrapers++;
+    if (enabled.taobao !== false) totalScrapers++;
+    if (enabled.goofish !== false) totalScrapers++;
+
+    // Helper to log duration and emit progress
+    const loggedPromise = async (name, promise, onProgress) => {
         const start = Date.now();
-        console.log(`[Scraper] ${name} started (First run optimization check)`);
+        console.log(`[Scraper] ${name} started`);
+
+        if (onProgress) {
+            onProgress({ type: 'start', source: name, totalScrapers });
+        }
+
         try {
             const result = await promise;
             const duration = Date.now() - start;
             console.log(`[Scraper] ${name} finished in ${duration}ms`);
+
+            // Format results immediately
+            let items = [];
+            if (Array.isArray(result)) {
+                items = result.map(i => ({ ...i, source: name }));
+            }
+
+            if (onProgress) {
+                onProgress({ type: 'result', source: name, items, duration });
+            }
+
             return result;
         } catch (err) {
             const duration = Date.now() - start;
             console.log(`[Scraper] ${name} failed after ${duration}ms`);
+
+            if (onProgress) {
+                onProgress({ type: 'error', source: name, error: err.message, duration });
+            }
             throw err;
         }
     };
 
     if (enabled.mercari !== false) {
-        scraperTasks.push({ name: 'Mercari', promise: loggedPromise('Mercari', mercari.search(query, strict.mercari ?? true, filters)) });
+        scraperTasks.push({ name: 'Mercari', promise: loggedPromise('Mercari', mercari.search(query, strict.mercari ?? true, filters), onProgress) });
     }
 
     if (enabled.yahoo !== false) {
-        scraperTasks.push({ name: 'Yahoo', promise: loggedPromise('Yahoo', yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters)) });
+        scraperTasks.push({ name: 'Yahoo', promise: loggedPromise('Yahoo', yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters), onProgress) });
     }
 
     if (enabled.paypay !== false) {
-        scraperTasks.push({ name: 'PayPay Flea Market', promise: loggedPromise('PayPay Flea Market', paypay.search(query, strict.paypay ?? true, filters)) });
+        scraperTasks.push({ name: 'PayPay Flea Market', promise: loggedPromise('PayPay Flea Market', paypay.search(query, strict.paypay ?? true, filters), onProgress) });
     }
 
     if (enabled.fril !== false) {
-        scraperTasks.push({ name: 'Fril', promise: loggedPromise('Fril', fril.search(query, strict.fril ?? true, filters)) });
+        scraperTasks.push({ name: 'Fril', promise: loggedPromise('Fril', fril.search(query, strict.fril ?? true, filters), onProgress) });
     }
 
     if (enabled.surugaya !== false) {
         // Pass filters to Suruga-ya for negative searching
-        scraperTasks.push({ name: 'Suruga-ya', promise: loggedPromise('Suruga-ya', surugaya.search(query, strict.surugaya ?? true, filters)) });
+        scraperTasks.push({ name: 'Suruga-ya', promise: loggedPromise('Suruga-ya', surugaya.search(query, strict.surugaya ?? true, filters), onProgress) });
     }
 
     if (enabled.taobao !== false) {
-        scraperTasks.push({ name: 'Taobao', promise: loggedPromise('Taobao', taobao.search(query, strict.taobao ?? true)) });
+        scraperTasks.push({ name: 'Taobao', promise: loggedPromise('Taobao', taobao.search(query, strict.taobao ?? true), onProgress) });
     }
 
     if (enabled.goofish !== false) {
         // Goofish strict filtering same as others? defaulting to true for now
-        scraperTasks.push({ name: 'Goofish', promise: loggedPromise('Goofish', goofish.search(query, strict.goofish ?? true)) });
+        scraperTasks.push({ name: 'Goofish', promise: loggedPromise('Goofish', goofish.search(query, strict.goofish ?? true), onProgress) });
     }
 
     const results = await Promise.allSettled(scraperTasks.map(t => t.promise));
@@ -152,8 +184,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
                 console.log(`[Scraper] ${taskName} failed:`, val.status);
             }
         } else {
-            // Promise was rejected
-            console.error(`[Scraper] ${taskName} promise was rejected:`, res.reason);
+            // Promise was rejected (Logged in loggedPromise)
             if (taskName === 'PayPay Flea Market') payPayFailed = true;
         }
     });

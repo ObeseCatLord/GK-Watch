@@ -164,18 +164,50 @@ app.get('/api/search', requireAuth, async (req, res) => {
             console.log('Site override:', enabledOverride);
         }
 
-
         const strict = req.query.strict !== 'false'; // Default true
         // Live search doesn't support complex filters array yet (only query string).
         // Pass global blacklist filters for scraper optimization.
         const globalFilters = Blacklist.getAll().map(i => i.term);
+
+        // Check for SSE request
+        if (req.headers.accept === 'text/event-stream') {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            res.flushHeaders();
+
+            console.log('Starting SSE search stream...');
+
+            const onProgress = (data) => {
+                // If we have results, filter them before sending
+                if (data.type === 'result' && data.items) {
+                    let filtered = BlockedItems.filterResults(data.items);
+                    filtered = Blacklist.filterResults(filtered);
+                    data.items = filtered;
+                }
+                res.write(`data: ${JSON.stringify(data)}\n\n`);
+            };
+
+            await searchAggregator.searchAll(query, enabledOverride, strict, globalFilters, onProgress);
+
+            res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+            res.end();
+            return;
+        }
+
+        // Legacy blocking behavior
         const results = await searchAggregator.searchAll(query, enabledOverride, strict, globalFilters);
         let filteredResults = BlockedItems.filterResults(results);
         filteredResults = Blacklist.filterResults(filteredResults);
         res.json(filteredResults);
     } catch (error) {
         console.error('Search failed:', error);
-        res.status(500).json({ error: 'Internal server error during search' });
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Internal server error during search' });
+        } else {
+            res.write(`data: ${JSON.stringify({ type: 'error', error: 'Internal Server Error' })}\n\n`);
+            res.end();
+        }
     }
 });
 

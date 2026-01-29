@@ -12,6 +12,7 @@ function App() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState({ completed: 0, total: 0, current: '' });
   const [error, setError] = useState(null);
   const [searchHistory, setSearchHistory] = useState([]);
   const [executedQuery, setExecutedQuery] = useState('');
@@ -303,6 +304,65 @@ function App() {
     return validItems;
   };
 
+  const fetchStream = async (url) => {
+    const response = await authenticatedFetch(url, {
+      headers: { 'Accept': 'text/event-stream' }
+    });
+
+    if (!response.ok) throw new Error('Network response was not ok');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop(); // Keep the last partial line
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === 'start') {
+              setProgress(prev => ({ ...prev, total: data.totalScrapers, current: data.source }));
+            } else if (data.type === 'result') {
+              if (data.items && data.items.length > 0) {
+                const cleanData = processResults(data.items);
+                setResults(prev => {
+                  // Simple deduplication logic
+                  const existingLinks = new Set(prev.map(i => i.link));
+                  const newItems = cleanData.filter(i => !existingLinks.has(i.link));
+                  return [...prev, ...newItems];
+                });
+              }
+              setProgress(prev => ({
+                ...prev,
+                completed: prev.completed + 1,
+                current: `${data.source} Finished`
+              }));
+            } else if (data.type === 'error') {
+              console.error(`Scraper error from ${data.source}: ${data.error}`);
+              setProgress(prev => ({
+                ...prev,
+                completed: prev.completed + 1,
+                current: `${data.source} Failed`
+              }));
+            } else if (data.type === 'done') {
+              // Stream complete
+            }
+          } catch (e) {
+            console.error('Error parsing SSE data:', e);
+          }
+        }
+      }
+    }
+  };
+
   const search = async (e, overrideQuery = null) => {
     if (e) e.preventDefault();
     const searchTerm = overrideQuery || query;
@@ -313,7 +373,7 @@ function App() {
     setResults([]);
     setCurrentPage(1); // Reset page on new search
     setSiteErrors([]); // Clear previous errors
-
+    setProgress({ completed: 0, total: 0, current: 'Initializing...' });
 
     // Save to history
     saveToHistory(searchTerm, 'normal');
@@ -326,45 +386,16 @@ function App() {
       const sitesParam = `&sites=${STANDARD_SITES.join(',')}&strict=${strictMode}`;
 
       if (hasOrOperator) {
-        // Split by | and run parallel searches, similar to GK search
+        // Split by | and run parallel searches
         const terms = searchTerm.split(/\s*\|\s*/).filter(t => t.trim());
-
         const promises = terms.map(term =>
-          authenticatedFetch(`/api/search?q=${encodeURIComponent(term.trim())}${sitesParam}`)
-            .then(res => res.json())
-            .catch(err => {
-              console.error(`Error searching ${term}:`, err);
-              return [];
-            })
+          fetchStream(`/api/search?q=${encodeURIComponent(term.trim())}${sitesParam}`)
+            .catch(err => console.error(`Error searching ${term}:`, err))
         );
-
-        const allResults = await Promise.all(promises);
-        const flatResults = allResults.flat();
-
-        // Process errors
-        const cleanResults = processResults(flatResults);
-
-        // Deduplicate by link
-        const uniqueResults = [];
-        const seenLinks = new Set();
-
-        cleanResults.forEach(item => {
-          if (!seenLinks.has(item.link)) {
-            seenLinks.add(item.link);
-            uniqueResults.push(item);
-          }
-        });
-
-        setResults(uniqueResults);
+        await Promise.all(promises);
       } else {
-        // Single search (original behavior)
-        const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(searchTerm)}${sitesParam}`);
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        const data = await response.json();
-        const cleanData = processResults(data);
-        setResults(cleanData);
+        // Single search
+        await fetchStream(`/api/search?q=${encodeURIComponent(searchTerm)}${sitesParam}`);
       }
     } catch (err) {
       setError('Failed to fetch results. Please try again.');
@@ -384,8 +415,7 @@ function App() {
     setResults([]);
     setCurrentPage(1); // Reset page on new search
     setSiteErrors([]);
-
-    setSiteErrors([]);
+    setProgress({ completed: 0, total: 0, current: 'Initializing GK Search...' });
 
     if (overrideQuery) setQuery(overrideQuery);
     setExecutedQuery(queryTerm);
@@ -399,37 +429,16 @@ function App() {
       `${queryTerm} レジンキャストキット`
     ];
 
-    // Force strict for GK searches? Maybe optional, but usually better. Using global toggle for now.
+    // Force strict for GK searches
     const sitesParam = `&sites=${STANDARD_SITES.join(',')}&strict=${strictMode}`;
 
     try {
       // Run searches in parallel
       const promises = terms.map(term =>
-        authenticatedFetch(`/api/search?q=${encodeURIComponent(term)}${sitesParam}`)
-          .then(res => res.json())
-          .catch(err => {
-            console.error(`Error searching ${term}:`, err);
-            return [];
-          })
+        fetchStream(`/api/search?q=${encodeURIComponent(term)}${sitesParam}`)
+          .catch(err => console.error(`Error searching ${term}:`, err))
       );
-
-      const allResults = await Promise.all(promises);
-      const flatResults = allResults.flat();
-
-      const cleanResults = processResults(flatResults);
-
-      // Deduplicate by link
-      const uniqueResults = [];
-      const seenLinks = new Set();
-
-      cleanResults.forEach(item => {
-        if (!seenLinks.has(item.link)) {
-          seenLinks.add(item.link);
-          uniqueResults.push(item);
-        }
-      });
-
-      setResults(uniqueResults);
+      await Promise.all(promises);
     } catch (err) {
       setError('Failed to fetch GK results. Please try again.');
       console.error(err);
@@ -448,6 +457,7 @@ function App() {
     setResults([]);
     setCurrentPage(1);
     setSiteErrors([]);
+    setProgress({ completed: 0, total: 0, current: 'Initializing CN Search...' });
 
     if (overrideQuery) setQuery(overrideQuery);
     setExecutedQuery(queryTerm);
@@ -459,13 +469,13 @@ function App() {
       if (taobaoEnabled) sites.push('taobao');
       if (goofishEnabled) sites.push('goofish');
 
-      if (goofishEnabled) sites.push('goofish');
+      if (sites.length === 0) {
+        setError('No CN sites enabled or cookies missing.');
+        setLoading(false);
+        return;
+      }
 
-      const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=${sites.join(',')}&strict=${strictMode}`);
-      if (!response.ok) throw new Error('Network response was not ok');
-      const data = await response.json();
-      const cleanData = processResults(data);
-      setResults(cleanData);
+      await fetchStream(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=${sites.join(',')}&strict=${strictMode}`);
     } catch (err) {
       setError('Failed to fetch CN results.');
       console.error(err);
@@ -588,7 +598,6 @@ function App() {
                 <span className="mobile-label">CN</span>
               </button>
             </form>
-
             {/* Discreet Site Error Message */}
             {siteErrors.length > 0 && (
               <div style={{
@@ -614,267 +623,304 @@ function App() {
                 </span>
               </div>
             )}
+
+            {/* Progress Bar */}
+            {loading && progress.total > 0 && (
+              <div style={{ width: '100%', maxWidth: '800px', marginBottom: '1rem', marginTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', fontSize: '0.9rem', color: '#666' }}>
+                  <span>Creating Resin Dust... {progress.current ? `(${progress.current})` : ''}</span>
+                  <span>{Math.round((progress.completed / progress.total) * 100)}%</span>
+                </div>
+                <div style={{ width: '100%', height: '8px', backgroundColor: '#e0e0e0', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: `${(progress.completed / progress.total) * 100}%`,
+                      height: '100%',
+                      backgroundColor: '#ff5000',
+                      transition: 'width 0.3s ease'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Search History */}
-          {searchHistory.length > 0 && (
-            <div className="search-history">
-              <div className="search-history-header">
-                <span>Recent:</span>
-                <button className="clear-history-btn" onClick={clearHistory}>Clear</button>
-              </div>
-              <div className="search-history-chips">
-                {searchHistory.map((item, i) => {
-                  // Handle legacy string items
-                  const term = typeof item === 'string' ? item : item.term;
-                  const type = typeof item === 'string' ? 'normal' : item.type;
+          {
+            searchHistory.length > 0 && (
+              <div className="search-history">
+                <div className="search-history-header">
+                  <span>Recent:</span>
+                  <button className="clear-history-btn" onClick={clearHistory}>Clear</button>
+                </div>
+                <div className="search-history-chips">
+                  {searchHistory.map((item, i) => {
+                    // Handle legacy string items
+                    const term = typeof item === 'string' ? item : item.term;
+                    const type = typeof item === 'string' ? 'normal' : item.type;
 
-                  return (
-                    <button
-                      key={i}
-                      className={`history-chip ${type === 'gk' ? 'gk-history' : (type === 'taobao' || type === 'cn') ? 'taobao-history' : ''}`}
-                      onClick={() => {
-                        if (type === 'gk') searchGK(null, term);
-                        else if (type === 'taobao') searchCN(null, term); // Legacy support
-                        else if (type === 'cn') searchCN(null, term);
-                        else search(null, term);
-                      }}
-                      title={type === 'gk' ? "Re-run GK Search" : (type === 'taobao' || type === 'cn') ? "Re-run CN Search" : "Re-run Search"}
-                    >
-                      {term}
-                      {type === 'gk' && <span className="gk-badge">GK</span>}
-                      {(type === 'taobao' || type === 'cn') && <span className="gk-badge taobao-badge-chip">CN</span>}
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        key={i}
+                        className={`history-chip ${type === 'gk' ? 'gk-history' : (type === 'taobao' || type === 'cn') ? 'taobao-history' : ''}`}
+                        onClick={() => {
+                          if (type === 'gk') searchGK(null, term);
+                          else if (type === 'taobao') searchCN(null, term); // Legacy support
+                          else if (type === 'cn') searchCN(null, term);
+                          else search(null, term);
+                        }}
+                        title={type === 'gk' ? "Re-run GK Search" : (type === 'taobao' || type === 'cn') ? "Re-run CN Search" : "Re-run Search"}
+                      >
+                        {term}
+                        {type === 'gk' && <span className="gk-badge">GK</span>}
+                        {(type === 'taobao' || type === 'cn') && <span className="gk-badge taobao-badge-chip">CN</span>}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          }
 
           {loading && <div className="loading">Searching...</div>}
 
           {error && <div className="error">{error}</div>}
 
           {/* Results Count & Source Filter */}
-          {results.length > 0 && (
-            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontWeight: '500', color: '#888' }}>
-                {results.length} result{results.length !== 1 ? 's' : ''} found
-              </span>
-              <span style={{ color: '#555' }}>|</span>
-              <select
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value)}
-                className="search-input"
-                style={{ maxWidth: '200px', fontSize: '0.9rem', padding: '0.5rem' }}
-              >
-                <option value="All">All Websites</option>
-                {[...new Set(results.map(item => item.source))].sort().map(source => (
-                  <option key={source} value={source}>{source}</option>
-                ))}
-              </select>
-              {sourceFilter !== 'All' && (
-                <button
-                  className="clear-filter-btn"
-                  onClick={() => setSourceFilter('All')}
+          {
+            results.length > 0 && (
+              <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontWeight: '500', color: '#888' }}>
+                  {results.length} result{results.length !== 1 ? 's' : ''} found
+                </span>
+                <span style={{ color: '#555' }}>|</span>
+                <select
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  className="search-input"
+                  style={{ maxWidth: '200px', fontSize: '0.9rem', padding: '0.5rem' }}
                 >
-                  ✕ Clear
-                </button>
-              )}
-              <span style={{ color: '#555' }}>|</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="search-input"
-                style={{ maxWidth: '180px', fontSize: '0.9rem', padding: '0.5rem' }}
-              >
-                <option value="time">Sort: Time Scraped</option>
-                <option value="relevance">Sort: Relevance</option>
-                <option value="name">Sort: Name</option>
-                <option value="priceHigh">Sort: Price High→Low</option>
-                <option value="priceLow">Sort: Price Low→High</option>
-              </select>
-            </div>
-          )}
-
-          {(() => {
-            // Parse price string to number for sorting
-            const parsePrice = (priceStr) => {
-              if (!priceStr) return 0;
-              const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
-              return match ? parseFloat(match[0]) : 0;
-            };
-
-            let filteredResults = sourceFilter === 'All'
-              ? results
-              : results.filter(item => item.source === sourceFilter);
-
-            // Apply sorting
-            if (sortBy === 'name') {
-              filteredResults = [...filteredResults].sort((a, b) =>
-                (a.title || '').localeCompare(b.title || '', 'ja')
-              );
-            } else if (sortBy === 'relevance') {
-              const keywords = executedQuery.toLowerCase().split(/\s+/).filter(k => k);
-              const countMatches = (title) => {
-                if (!title) return 0;
-                const lowerTitle = title.toLowerCase();
-                return keywords.reduce((acc, k) => acc + (lowerTitle.includes(k) ? 1 : 0), 0);
-              };
-              filteredResults = [...filteredResults].sort((a, b) => countMatches(b.title) - countMatches(a.title));
-            } else if (sortBy === 'priceHigh') {
-              filteredResults = [...filteredResults].sort((a, b) =>
-                parsePrice(b.price) - parsePrice(a.price)
-              );
-            } else if (sortBy === 'priceLow') {
-              filteredResults = [...filteredResults].sort((a, b) =>
-                parsePrice(a.price) - parsePrice(b.price)
-              );
-            }
-            // 'time' is default order from server
-
-            const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
-            const safePage = Math.min(currentPage, Math.max(1, totalPages));
-
-            return (
-              <>
-                <div className="results-grid">
-                  {filteredResults
-                    .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
-                    .map((item, index) => (
-                      <ResultCard key={`${item.source}-${index}`} item={item} onBlock={handleBlock} />
-                    ))}
-                </div>
-
-                {/* Pagination Controls */}
-                {filteredResults.length > ITEMS_PER_PAGE && (
-                  <div className="pagination">
-                    <button
-                      className="page-btn"
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                    >
-                      ← Prev
-                    </button>
-
-                    <div className="page-numbers">
-                      {(() => {
-                        const pages = [];
-                        const start = Math.max(1, currentPage - 2);
-                        const end = Math.min(totalPages, start + 4);
-                        const adjustedStart = Math.max(1, Math.min(start, totalPages - 4));
-
-                        for (let i = adjustedStart; i <= end; i++) {
-                          pages.push(
-                            <button
-                              key={i}
-                              className={`page-number-btn ${currentPage === i ? 'active' : ''}`}
-                              onClick={() => setCurrentPage(i)}
-                            >
-                              {i}
-                            </button>
-                          );
-                        }
-                        return pages;
-                      })()}
-                    </div>
-
-                    <div className="page-jump">
-                      <input
-                        type="number"
-                        min="1"
-                        max={totalPages}
-                        placeholder="#"
-                        className="page-input"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const val = parseInt(e.target.value);
-                            if (val >= 1 && val <= totalPages) {
-                              setCurrentPage(val);
-                              e.target.value = '';
-                            }
-                          }
-                        }}
-                      />
-                      <span className="total-pages">/ {totalPages}</span>
-                    </div>
-
-                    <button
-                      className="page-btn"
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      disabled={currentPage >= totalPages}
-                    >
-                      Next →
-                    </button>
-
-                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
-                      <button
-                        className="page-btn"
-                        onClick={() => handleExportClipboard(filteredResults)}
-                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
-                        title="Copy Name - Link to Clipboard"
-                      >
-                        📋 Copy
-                      </button>
-                      <button
-                        className="page-btn"
-                        onClick={() => exportToHtml(filteredResults, query || 'search_results')}
-                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
-                      >
-                        📥 HTML
-                      </button>
-                    </div>
-                  </div>
+                  <option value="All">All Websites</option>
+                  {[...new Set(results.map(item => item.source))].sort().map(source => (
+                    <option key={source} value={source}>{source}</option>
+                  ))}
+                </select>
+                {sourceFilter !== 'All' && (
+                  <button
+                    className="clear-filter-btn"
+                    onClick={() => setSourceFilter('All')}
+                  >
+                    ✕ Clear
+                  </button>
                 )}
-              </>
-            );
-          })()}
+                <span style={{ color: '#555' }}>|</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="search-input"
+                  style={{ maxWidth: '180px', fontSize: '0.9rem', padding: '0.5rem' }}
+                >
+                  <option value="time">Sort: Time Scraped</option>
+                  <option value="relevance">Sort: Relevance</option>
+                  <option value="name">Sort: Name</option>
+                  <option value="priceHigh">Sort: Price High→Low</option>
+                  <option value="priceLow">Sort: Price Low→High</option>
+                </select>
+              </div>
+            )
+          }
+
+          {
+            (() => {
+              // Parse price string to number for sorting
+              const parsePrice = (priceStr) => {
+                if (!priceStr) return 0;
+                const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
+                return match ? parseFloat(match[0]) : 0;
+              };
+
+              let filteredResults = sourceFilter === 'All'
+                ? results
+                : results.filter(item => item.source === sourceFilter);
+
+              // Apply sorting
+              if (sortBy === 'name') {
+                filteredResults = [...filteredResults].sort((a, b) =>
+                  (a.title || '').localeCompare(b.title || '', 'ja')
+                );
+              } else if (sortBy === 'relevance') {
+                const keywords = executedQuery.toLowerCase().split(/\s+/).filter(k => k);
+                const countMatches = (title) => {
+                  if (!title) return 0;
+                  const lowerTitle = title.toLowerCase();
+                  return keywords.reduce((acc, k) => acc + (lowerTitle.includes(k) ? 1 : 0), 0);
+                };
+                filteredResults = [...filteredResults].sort((a, b) => countMatches(b.title) - countMatches(a.title));
+              } else if (sortBy === 'priceHigh') {
+                filteredResults = [...filteredResults].sort((a, b) =>
+                  parsePrice(b.price) - parsePrice(a.price)
+                );
+              } else if (sortBy === 'priceLow') {
+                filteredResults = [...filteredResults].sort((a, b) =>
+                  parsePrice(a.price) - parsePrice(b.price)
+                );
+              }
+              // 'time' is default order from server
+
+              const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
+              const safePage = Math.min(currentPage, Math.max(1, totalPages));
+
+              return (
+                <>
+                  <div className="results-grid">
+                    {filteredResults
+                      .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
+                      .map((item, index) => (
+                        <ResultCard key={`${item.source}-${index}`} item={item} onBlock={handleBlock} />
+                      ))}
+                  </div>
+
+                  {/* Pagination Controls */}
+                  {filteredResults.length > ITEMS_PER_PAGE && (
+                    <div className="pagination">
+                      <button
+                        className="page-btn"
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                      >
+                        ← Prev
+                      </button>
+
+                      <div className="page-numbers">
+                        {(() => {
+                          const pages = [];
+                          const start = Math.max(1, currentPage - 2);
+                          const end = Math.min(totalPages, start + 4);
+                          const adjustedStart = Math.max(1, Math.min(start, totalPages - 4));
+
+                          for (let i = adjustedStart; i <= end; i++) {
+                            pages.push(
+                              <button
+                                key={i}
+                                className={`page-number-btn ${currentPage === i ? 'active' : ''}`}
+                                onClick={() => setCurrentPage(i)}
+                              >
+                                {i}
+                              </button>
+                            );
+                          }
+                          return pages;
+                        })()}
+                      </div>
+
+                      <div className="page-jump">
+                        <input
+                          type="number"
+                          min="1"
+                          max={totalPages}
+                          placeholder="#"
+                          className="page-input"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const val = parseInt(e.target.value);
+                              if (val >= 1 && val <= totalPages) {
+                                setCurrentPage(val);
+                                e.target.value = '';
+                              }
+                            }
+                          }}
+                        />
+                        <span className="total-pages">/ {totalPages}</span>
+                      </div>
+
+                      <button
+                        className="page-btn"
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                      >
+                        Next →
+                      </button>
+
+                      <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                        <button
+                          className="page-btn"
+                          onClick={() => handleExportClipboard(filteredResults)}
+                          style={{ backgroundColor: '#333', border: '1px solid #555' }}
+                          title="Copy Name - Link to Clipboard"
+                        >
+                          📋 Copy
+                        </button>
+                        <button
+                          className="page-btn"
+                          onClick={() => exportToHtml(filteredResults, query || 'search_results')}
+                          style={{ backgroundColor: '#333', border: '1px solid #555' }}
+                        >
+                          📥 HTML
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()
+          }
 
           {/* Export Button (shown when no pagination) */}
-          {results.length > 0 && results.length <= ITEMS_PER_PAGE && (
-            <div style={{ textAlign: 'right', marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
-              <button
-                className="page-btn"
-                onClick={() => handleExportClipboard(results)}
-                style={{ backgroundColor: '#333', border: '1px solid #555' }}
-                title="Copy Name - Link to Clipboard"
-              >
-                📋 Copy ({results.length})
-              </button>
-              <button
-                className="page-btn"
-                onClick={() => exportToHtml(results, query || 'search_results')}
-                style={{ backgroundColor: '#333', border: '1px solid #555' }}
-              >
-                📥 HTML ({results.length})
-              </button>
-            </div>
-          )}
+          {
+            results.length > 0 && results.length <= ITEMS_PER_PAGE && (
+              <div style={{ textAlign: 'right', marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
+                <button
+                  className="page-btn"
+                  onClick={() => handleExportClipboard(results)}
+                  style={{ backgroundColor: '#333', border: '1px solid #555' }}
+                  title="Copy Name - Link to Clipboard"
+                >
+                  📋 Copy ({results.length})
+                </button>
+                <button
+                  className="page-btn"
+                  onClick={() => exportToHtml(results, query || 'search_results')}
+                  style={{ backgroundColor: '#333', border: '1px solid #555' }}
+                >
+                  📥 HTML ({results.length})
+                </button>
+              </div>
+            )
+          }
 
-          {!loading && results.length === 0 && query && !error && (
-            <p style={{ marginTop: '2rem', color: '#666' }}>No results found or search not started.</p>
-          )}
+          {
+            !loading && results.length === 0 && query && !error && (
+              <p style={{ marginTop: '2rem', color: '#666' }}>No results found or search not started.</p>
+            )
+          }
         </>
-      )}
+      )
+      }
 
-      {view === 'watchlist' && (
-        <WatchlistManager
-          authenticatedFetch={authenticatedFetch}
-          onBlock={handleBlock}
-          taobaoEnabled={taobaoEnabled}
-          goofishEnabled={goofishEnabled}
-          handleExportClipboard={handleExportClipboard}
-        />
-      )}
+      {
+        view === 'watchlist' && (
+          <WatchlistManager
+            authenticatedFetch={authenticatedFetch}
+            onBlock={handleBlock}
+            taobaoEnabled={taobaoEnabled}
+            goofishEnabled={goofishEnabled}
+            handleExportClipboard={handleExportClipboard}
+          />
+        )
+      }
 
-      {view === 'blocked' && (
-        <BlockedManager authenticatedFetch={authenticatedFetch} />
-      )}
+      {
+        view === 'blocked' && (
+          <BlockedManager authenticatedFetch={authenticatedFetch} />
+        )
+      }
 
-      {view === 'options' && (
-        <OptionsManager authenticatedFetch={authenticatedFetch} />
-      )}
-    </div>
+      {
+        view === 'options' && (
+          <OptionsManager authenticatedFetch={authenticatedFetch} />
+        )
+      }
+    </div >
   );
 }
 

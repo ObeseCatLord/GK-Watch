@@ -64,6 +64,34 @@ function convertToSurugayaLink(dejapanLink) {
 }
 
 /**
+ * Convert DEJapan link to Rakuma canonical link
+ * DEJapan: .../shopping/rakuma/item/TITLE/ID
+ * Rakuma: https://item.fril.jp/ID
+ */
+function convertToRakumaLink(dejapanLink) {
+    if (!dejapanLink) return null;
+
+    // Check if it's already a direct link (sometimes scraping goes weird)
+    if (dejapanLink.includes('item.fril.jp')) return dejapanLink;
+
+    // Clean query and trailing slash
+    const cleanLink = dejapanLink.split('?')[0].replace(/\/$/, '');
+
+    // Extract ID (last segment)
+    const match = cleanLink.match(/\/([^\/]+)$/);
+    if (match) {
+        // Rakuma IDs are usually alphanumeric hashes like "a1b2c3d4..."
+        return `https://item.fril.jp/${match[1]}`;
+    }
+
+    // Fallback
+    if (dejapanLink.includes('/shopping/rakuma/item/')) {
+        return dejapanLink;
+    }
+    return null;
+}
+
+/**
  * Common DEJapan parsing logic for list items
  */
 function parseDejapanItems($, selectorStr, linkFilter, source) {
@@ -97,6 +125,7 @@ function parseDejapanItems($, selectorStr, linkFilter, source) {
             let finalLink = null;
             if (source === 'Mercari') finalLink = convertToMercariLink(fullLink);
             if (source === 'Suruga-ya') finalLink = convertToSurugayaLink(fullLink);
+            if (source === 'Rakuma') finalLink = convertToRakumaLink(fullLink);
 
             if (finalLink && title) {
                 results.push({
@@ -209,4 +238,10 @@ async function searchSurugaya(query, strictEnabled = false, filters = []) {
     return await searchGeneric(query, strictEnabled, filters, 'Suruga-ya', SURUGA_URL, '/shopping/surugaya/item/');
 }
 
-module.exports = { search, searchSurugaya };
+async function searchRakuma(query, strictEnabled = true, filters = []) {
+    console.log(`[DEJapan] Searching Rakuma for: ${query}`);
+    const RAKUMA_URL = 'https://www.dejapan.com/en/shopping/rakuma/list/search';
+    return await searchGeneric(query, strictEnabled, filters, 'Rakuma', RAKUMA_URL, '/shopping/rakuma/item/');
+}
+
+module.exports = { search, searchSurugaya, searchRakuma };
