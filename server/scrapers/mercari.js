@@ -95,7 +95,7 @@ async function searchAxios(query, strictEnabled, filters) {
 
     const targetUrl = "https://api.mercari.jp/v2/entities:search";
     const method = "POST";
-    const MAX_PAGES = 5; // Direct API is fast/large, 5 pages (600 items) is usually plenty
+    const MAX_PAGES = 50; // Increased to 50 (approx 6000 items) per user request
     let allResults = [];
 
     // Check keyword structure
@@ -265,8 +265,7 @@ async function performSearch(query, strictEnabled, filters) {
     const runSearch = async () => {
         console.log(`Searching Mercari for ${effectiveQuery}...`);
 
-        let allResults = [];
-        const MAX_PAGES = 10;
+        const MAX_PAGES = 30; // Increased to 30 for deep scraping fallback
 
         const browser = await getBrowser();
         context = await browser.createBrowserContext();
