@@ -83,7 +83,7 @@ const Clock = () => {
                 <span className="clock-label">{timeZoneName}</span>
                 <span className="clock-time">{localTime}</span>
             </div>
-            {countdown !== null && (
+            {countdown !== null && countdown !== undefined && (
                 <>
                     <div className="clock-divider">|</div>
                     <div className="clock-item">
