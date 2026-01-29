@@ -217,10 +217,12 @@ async function fetchFullTitle(neokyoLink) {
         if (!fullTitle) {
             fullTitle = $('title').text().replace(' - Neokyo', '').replace('Item Details', '').trim();
         }
-        return fullTitle || null;
+        return { title: fullTitle || null, isError: false };
     } catch (error) {
         console.log(`[PayPay Fallback] Failed to fetch full title from ${neokyoLink}: ${error.message}`);
-        return null;
+        // Flag error if it's a network/status error (likely block), not just a parsing error
+        const isBlockingError = error.response && (error.response.status === 403 || error.response.status === 429 || error.response.status === 503);
+        return { title: null, isError: true, isBlocking: !!isBlockingError };
     }
 }
 
@@ -271,6 +273,10 @@ async function search(query, strictEnabled = true, filters = []) {
             console.log(`[PayPay] Strict filtering enabled${hasQuoted ? ' (Quoted Terms Found)' : ''}. Checking ${results.length} items.`);
             const filteredResults = [];
 
+            let verificationFailures = 0;
+            let verificationBlocked = false;
+            const MAX_VERIFICATION_FAILURES = 3;
+
             for (const item of results) {
                 // Check if title matches query strictly
                 if (matchesQuery(item.title, parsedQuery, strictEnabled)) {
@@ -280,9 +286,29 @@ async function search(query, strictEnabled = true, filters = []) {
 
                 // If it doesn't match, try fetching the full title via NeokyoLink
                 if (item.neokyoLink) {
+                    // CIRCUIT BREAKER CHECK
+                    if (verificationBlocked) {
+                        // Skip verification, item is excluded because truncated title didn't match
+                        // and we can't verify full title.
+                        continue;
+                    }
+
                     // Check if title looks truncated (ends with ...) or is just generic mismatch
                     // Actually always check if we have neokyoLink because Neokyo titles are often shortened
-                    const fullTitle = await fetchFullTitle(item.neokyoLink);
+                    const { title: fullTitle, isError, isBlocking } = await fetchFullTitle(item.neokyoLink);
+
+                    if (isBlocking) {
+                        verificationFailures++;
+                        if (verificationFailures >= MAX_VERIFICATION_FAILURES) {
+                            verificationBlocked = true;
+                            console.warn(`[PayPay] Neokyo verification circuit breaker TRIPPED after ${verificationFailures} failures. Skipping further verifications.`);
+                        }
+                    } else if (!isError) {
+                        // Success, reset failure count? Maybe, or just keep it cumulative for safety?
+                        // Let's reset on success to allow intermittent failures but catch persistent blocks
+                        verificationFailures = 0;
+                    }
+
                     if (fullTitle) {
                         if (matchesQuery(fullTitle, parsedQuery, strictEnabled)) {
                             console.log(`[PayPay] Keeping item after full title check: "${fullTitle.substring(0, 50)}..."`);
