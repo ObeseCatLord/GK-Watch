@@ -17,7 +17,10 @@ const Clock = () => {
     useEffect(() => {
         const fetchStatus = async () => {
             try {
-                const res = await fetch('/api/status');
+                const token = sessionStorage.getItem('gkwatch_token');
+                const headers = token ? { 'x-auth-token': token } : {};
+                const res = await fetch('/api/status', { headers });
+                if (!res.ok) throw new Error(res.statusText);
                 const data = await res.json();
                 setIsRunning(data.isRunning);
                 setCountdown(data.minutesUntilNext);
