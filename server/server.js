@@ -178,6 +178,14 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
             console.log('Starting SSE search stream...');
 
+            // Keep connection alive with heartbeat every 15s
+            const keepAlive = setInterval(() => {
+                res.write(': keep-alive\n\n');
+            }, 15000);
+
+            // Ensure we clear interval if client disconnects
+            req.on('close', () => clearInterval(keepAlive));
+
             const onProgress = (data) => {
                 // If we have results, filter them before sending
                 if (data.type === 'result' && data.items) {
@@ -188,10 +196,16 @@ app.get('/api/search', requireAuth, async (req, res) => {
                 res.write(`data: ${JSON.stringify(data)}\n\n`);
             };
 
-            await searchAggregator.searchAll(query, enabledOverride, strict, globalFilters, onProgress);
-
-            res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-            res.end();
+            try {
+                await searchAggregator.searchAll(query, enabledOverride, strict, globalFilters, onProgress);
+                res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+            } catch (err) {
+                console.error('SSE Search error:', err);
+                res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+            } finally {
+                clearInterval(keepAlive);
+                res.end();
+            }
             return;
         }
 
