@@ -19,6 +19,7 @@ function App() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sourceFilter, setSourceFilter] = useState('All');
+  const [resultFilter, setResultFilter] = useState('');
   const [sortBy, setSortBy] = useState('time'); // 'time', 'name', 'priceHigh', 'priceLow'
   const ITEMS_PER_PAGE = 24;
 
@@ -126,7 +127,7 @@ function App() {
   // Reset page when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [sourceFilter, sortBy]);
+  }, [sourceFilter, sortBy, resultFilter]);
 
   // Load search history from localStorage on mount
   useEffect(() => {
@@ -372,6 +373,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1); // Reset page on new search
+    setResultFilter(''); // Reset filter
     setSiteErrors([]); // Clear previous errors
     setProgress({ completed: 0, total: 0, current: 'Initializing...' });
 
@@ -414,6 +416,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1); // Reset page on new search
+    setResultFilter(''); // Reset filter
     setSiteErrors([]);
     setProgress({ completed: 0, total: 0, current: 'Initializing GK Search...' });
 
@@ -456,6 +459,7 @@ function App() {
     setError(null);
     setResults([]);
     setCurrentPage(1);
+    setResultFilter(''); // Reset filter
     setSiteErrors([]);
     setProgress({ completed: 0, total: 0, current: 'Initializing CN Search...' });
 
@@ -694,6 +698,27 @@ function App() {
                   {results.length} result{results.length !== 1 ? 's' : ''} found
                 </span>
                 <span style={{ color: '#555' }}>|</span>
+
+                <input
+                  type="text"
+                  placeholder="Filter by title..."
+                  value={resultFilter}
+                  onChange={(e) => { setResultFilter(e.target.value); setCurrentPage(1); }}
+                  className="search-input"
+                  style={{ maxWidth: '250px', fontSize: '0.9rem', padding: '0.5rem' }}
+                />
+
+                {resultFilter && (
+                  <button
+                    className="clear-filter-btn"
+                    onClick={() => { setResultFilter(''); setCurrentPage(1); }}
+                    style={{ marginRight: '5px' }}
+                  >
+                    ✕
+                  </button>
+                )}
+
+                <span style={{ color: '#555' }}>|</span>
                 <select
                   value={sourceFilter}
                   onChange={(e) => setSourceFilter(e.target.value)}
@@ -739,9 +764,11 @@ function App() {
                 return match ? parseFloat(match[0]) : 0;
               };
 
-              let filteredResults = sourceFilter === 'All'
-                ? results
-                : results.filter(item => item.source === sourceFilter);
+              let filteredResults = results.filter(item => {
+                if (resultFilter && !item.title.toLowerCase().includes(resultFilter.toLowerCase())) return false;
+                if (sourceFilter !== 'All' && item.source !== sourceFilter) return false;
+                return true;
+              });
 
               // Apply sorting
               if (sortBy === 'name') {
