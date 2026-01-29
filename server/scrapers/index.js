@@ -116,7 +116,20 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             }
 
             if (onProgress) {
-                onProgress({ type: 'result', source: name, items, duration });
+                // Chunk results to prevent massive payloads (which cause proxy/client disconnects)
+                const CHUNK_SIZE = 50;
+                if (items.length > CHUNK_SIZE) {
+                    for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+                        const chunk = items.slice(i, i + CHUNK_SIZE);
+                        onProgress({ type: 'result', source: name, items: chunk, duration: 0, partial: true });
+                    }
+                    // Send completion event for duration tracking? 
+                    // Or just rely on the last chunk?
+                    // Let's send a final empty result to confirm completion and duration
+                    onProgress({ type: 'result', source: name, items: [], duration, partial: false });
+                } else {
+                    onProgress({ type: 'result', source: name, items, duration });
+                }
             }
 
             return result;
