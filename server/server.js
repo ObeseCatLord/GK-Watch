@@ -625,7 +625,7 @@ app.post('/api/cookies/:site', requireAuth, async (req, res) => {
 });
 
 // Abort scheduled search
-app.post('/api/abort-scheduled', (req, res) => {
+app.post('/api/abort-scheduled', requireAuth, (req, res) => {
     Scheduler.abort();
     res.json({ success: true });
 });
@@ -735,7 +735,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
 // Test email endpoint
 const EmailService = require('./emailService');
 
-app.post('/api/settings/test-email', async (req, res) => {
+app.post('/api/settings/test-email', requireAuth, async (req, res) => {
     try {
         const result = await EmailService.sendTestEmail();
         res.json(result);
