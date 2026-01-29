@@ -201,7 +201,7 @@ async function fetchPageWithAxios(url) {
         return { results, totalPages, $ };
     } catch (error) {
         console.log(`Suruga-ya (Axios) page fetch failed: ${error.message}`);
-        return null;
+        return { error: true, status: error.response?.status, message: error.message };
     }
 }
 
@@ -217,7 +217,7 @@ async function searchWithAxios(query) {
 
     const firstPageData = await fetchPageWithAxios(firstPageUrl);
 
-    if (!firstPageData || firstPageData.results.length === 0) {
+    if (!firstPageData || firstPageData.error) {
         // Check for specific "no results" message to confirm successful (empty) scrape
         if (firstPageData && firstPageData.$) {
             const $ = firstPageData.$;
@@ -229,6 +229,12 @@ async function searchWithAxios(query) {
                 // Return empty array only if we are SURE it's empty
                 return [];
             }
+        }
+
+        // Check explicit error status
+        if (firstPageData && firstPageData.error) {
+            console.log(`Suruga-ya (Neokyo): Page 1 failed with status ${firstPageData.status}. Triggering fallback.`);
+            return null;
         }
 
         // If we get here, it means we either failed to fetch (null) or couldn't find explicit "no results" message
@@ -254,7 +260,16 @@ async function searchWithAxios(query) {
 
         const pageData = await fetchPageWithAxios(searchUrl);
 
-        if (!pageData || pageData.results.length === 0) {
+        if (!pageData || pageData.error) {
+            if (pageData && (pageData.status === 429 || pageData.status === 403)) {
+                console.log(`Suruga-ya (Neokyo): Blocked on page ${page} (Status ${pageData.status}). Aborting Neokyo and triggering fallback.`);
+                return null; // DISCARD partial results and fallback to DEJapan to get full list
+            }
+            console.log(`Suruga-ya: Page ${page} failed or empty, stopping pagination (kept ${allResults.length} items)`);
+            break;
+        }
+
+        if (pageData.results.length === 0) {
             console.log(`Suruga-ya: Page ${page} empty, stopping pagination`);
             break;
         }
