@@ -341,11 +341,21 @@ function App() {
                   return [...prev, ...newItems];
                 });
               }
-              setProgress(prev => ({
-                ...prev,
-                completed: prev.completed + 1,
-                current: `${data.source} Finished`
-              }));
+
+              // Only increment completion if this is the FINAL result packet for this scraper
+              if (data.partial === false) {
+                setProgress(prev => ({
+                  ...prev,
+                  completed: prev.completed + 1,
+                  current: `${data.source} Finished`
+                }));
+              } else {
+                // Update current status without incrementing count
+                setProgress(prev => ({
+                  ...prev,
+                  current: `${data.source} (Found ${data.items.length} items...)`
+                }));
+              }
             } else if (data.type === 'error') {
               console.error(`Scraper error from ${data.source}: ${data.error}`);
               setProgress(prev => ({

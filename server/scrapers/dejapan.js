@@ -3,7 +3,7 @@ const cheerio = require('cheerio');
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 
 const BASE_URL = 'https://www.dejapan.com/en/shopping/mercari/list/search';
-const MAX_PAGES = 10;
+const MAX_PAGES = 150;
 const DELAY_BETWEEN_PAGES = 500;
 
 /**
