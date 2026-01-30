@@ -45,3 +45,6 @@ server/test_*.js
 server/diagnose_disk_usage.sh
 server/monitor_disk.sh
 client/README.md
+
+# Agent Rules
+.agent/
