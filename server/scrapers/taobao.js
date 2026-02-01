@@ -27,23 +27,47 @@ const TAOBAO_SEARCH_URL = 'https://s.taobao.com/search';
 const COOKIES_FILE = path.join(__dirname, '../data/taobao_cookies.json');
 const DELAY_BETWEEN_REQUESTS = 500; // ms delay to avoid rate limiting
 
+// Cache cookies to avoid hitting the filesystem on every request
+let cachedCookies = null;
+let lastCookiesLoadTime = 0;
+
 /**
  * Load cookies from file
  */
 function loadCookies() {
     try {
-        if (!fs.existsSync(COOKIES_FILE)) {
-            console.log('[Taobao] Warning: Cookie file not found at', COOKIES_FILE);
-            return null;
+        // First check if file exists and get stats
+        // We use statSync which is lighter than readFileSync + JSON.parse
+        let stats;
+        try {
+            stats = fs.statSync(COOKIES_FILE);
+        } catch (e) {
+            if (e.code === 'ENOENT') {
+                console.log('[Taobao] Warning: Cookie file not found at', COOKIES_FILE);
+                cachedCookies = null;
+                return null;
+            }
+            throw e;
         }
 
+        // If we have cached cookies and file hasn't changed, return cache
+        if (cachedCookies && stats.mtimeMs <= lastCookiesLoadTime) {
+            return cachedCookies;
+        }
+
+        // File changed or no cache, reload
+        // console.log('[Taobao] Reloading cookies from disk...');
         const cookieData = fs.readFileSync(COOKIES_FILE, 'utf8');
         const cookies = JSON.parse(cookieData);
 
         if (!Array.isArray(cookies) || cookies.length === 0) {
             console.log('[Taobao] Warning: Invalid or empty cookie file');
+            cachedCookies = null;
             return null;
         }
+
+        cachedCookies = cookies;
+        lastCookiesLoadTime = stats.mtimeMs;
 
         return cookies;
     } catch (error) {
