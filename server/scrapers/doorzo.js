@@ -69,7 +69,7 @@ async function search(query) {
 
     } catch (err) {
         console.error(`[Doorzo] Error searching for "${query}":`, err.message);
-        return [];
+        return null; // Return null to indicate failure (trigger fallback)
     }
 }
 

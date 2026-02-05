@@ -281,24 +281,29 @@ async function search(query, strictEnabled = true, filters = []) {
         console.log(`[PayPay Fallback] Searching Doorzo (API) for ${query}...`);
         results = await doorzo.search(query);
 
-        if (results && results.length > 0) {
+        // If results IS NOT NULL, the search succeeded (even if 0 items).
+        // Only fall back to Neokyo if Doorzo EXPLICITLY fails (returns null).
+        if (results !== null) {
             console.log(`[PayPay] Doorzo scraper successful. Found ${results.length} items.`);
+
             // Apply strict filtering if needed
             const parsedQuery = parseQuery(query);
             const hasQuoted = hasQuotedTerms(parsedQuery);
 
-            if (strictEnabled || hasQuoted) {
+            if ((strictEnabled || hasQuoted) && results.length > 0) {
                 const preCount = results.length;
-                results = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
-                console.log(`[PayPay] Strict filtering (Doorzo) removed ${preCount - results.length} items.`);
+                const filtered = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+                console.log(`[PayPay] Strict filtering (Doorzo) removed ${preCount - filtered.length} items.`);
+                return filtered;
             }
 
             return results;
         } else {
-            console.log('[PayPay] Doorzo return 0 items or failed. Falling back to Neokyo...');
+            console.log('[PayPay] Doorzo failed (returned null). Falling back to Neokyo...');
         }
     } catch (err) {
         console.warn(`[PayPay] Doorzo scraper error: ${err.message}`);
+        // Fall through to Neokyo
     }
 
     // 3. Try Neokyo Fallback
