@@ -755,7 +755,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                 </button>
                                 {Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 && (
                                     <button className="merge-btn" style={{ marginLeft: '5px', backgroundColor: '#4a90e2' }} onClick={handleMarkAllSeen}>
-                                        ✓ Mark All Seen
+                                        ✓ Mark Read
                                     </button>
                                 )}
                             </>
