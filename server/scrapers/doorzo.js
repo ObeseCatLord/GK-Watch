@@ -79,12 +79,13 @@ async function search(query, targetSite = 'paypay') {
                     if (decoded) {
                         const match = decoded.match(/detail\/([a-zA-Z0-9]+)/);
                         if (match) {
-                            link = `https://www.doorzo.com/en/mall/surugaya/detail/${match[1]}`;
+                            link = `https://www.suruga-ya.jp/product/detail/${match[1]}`;
                         } else {
                             link = decoded; // Fallback to native
                         }
                     } else {
-                        link = `https://www.doorzo.com/en/mall/surugaya/detail/${item.Url}`;
+                        // Fallback if decode fails (unlikely if API behaves as expected)
+                        link = `https://www.suruga-ya.jp/product/detail/${item.Url}`;
                     }
                 }
 
