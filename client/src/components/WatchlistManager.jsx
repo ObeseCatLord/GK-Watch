@@ -753,11 +753,19 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                 <button className="merge-btn" onClick={() => setIsMerging(true)} disabled={watchlist.length < 2}>
                                     🔗 Merge Items
                                 </button>
-                                {Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 && (
-                                    <button className="merge-btn" style={{ marginLeft: '5px', backgroundColor: '#4a90e2' }} onClick={handleMarkAllSeen}>
-                                        ✓ Mark Read
-                                    </button>
-                                )}
+                                <button
+                                    className="merge-btn"
+                                    style={{
+                                        marginLeft: '5px',
+                                        backgroundColor: '#4a90e2',
+                                        opacity: Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 ? 1 : 0.5,
+                                        cursor: Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 ? 'pointer' : 'not-allowed'
+                                    }}
+                                    onClick={handleMarkAllSeen}
+                                    disabled={Object.values(newCounts).reduce((a, b) => a + b, 0) === 0}
+                                >
+                                    ✓ Mark Read
+                                </button>
                             </>
                         ) : (
                             <div className="merge-controls">
