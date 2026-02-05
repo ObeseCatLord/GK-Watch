@@ -2,6 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const queryMatcher = require('../utils/queryMatcher');
 const dejapan = require('./dejapan');
+const doorzo = require('./doorzo');
 
 /**
  * Suruga-ya scraper using Neokyo as a proxy
@@ -284,9 +285,54 @@ async function searchWithAxios(query) {
 
 
 /**
- * Main search function - tries Axios first, falls back to Puppeteer
+ * Main search function - tries Doorzo (API) -> Neokyo (Axios) -> Puppeteer/Dejapan
  */
 async function search(query, strict = true, filters = []) {
+    // Priority 0: Doorzo (API) - Fastest & Most Results
+    // Note: Doorzo is loose/fuzzy, so we MUST apply client-side filtering.
+    try {
+        console.log(`[Suruga-ya] Searching Doorzo (API) for ${query}...`);
+
+        // Use raw query for Doorzo, filtering later
+        let results = await doorzo.search(query, 'surugaya');
+
+        if (results !== null) {
+            console.log(`[Suruga-ya] Doorzo scraper successful. Found ${results.length} items.`);
+
+            const parsedQuery = queryMatcher.parseQuery(query);
+            const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
+
+            // Apply negative filters (always)
+            // Doorzo handles some minus logic, but client-side is safer for robustness
+            if (filters && filters.length > 0) {
+                const preFilterCount = results.length;
+                const filterTerms = filters.map(f => f.toLowerCase());
+                results = results.filter(item => {
+                    const titleLower = item.title.toLowerCase();
+                    return !filterTerms.some(term => titleLower.includes(term));
+                });
+                if (results.length < preFilterCount) {
+                    console.log(`[Suruga-ya] Negative filtering (Doorzo) removed ${preFilterCount - results.length} items.`);
+                }
+            }
+
+            // Apply Strict Filtering (if enabled OR quotes present)
+            // User explicit request: "Please keep clientside filtering... because Doorzo does not concatenate titles"
+            if ((strict || hasQuoted) && results.length > 0) {
+                const preStrictCount = results.length;
+                results = results.filter(item => queryMatcher.matchesQuery(item.title, parsedQuery, strict));
+                console.log(`[Suruga-ya] Strict filtering (Doorzo) removed ${preStrictCount - results.length} items.`);
+            }
+
+            return results;
+        } else {
+            console.log('[Suruga-ya] Doorzo failed (returned null). Falling back to Neokyo...');
+        }
+    } catch (err) {
+        console.warn(`[Suruga-ya] Doorzo scraper error: ${err.message}`);
+        // Fall through
+    }
+
     // Priority 1: Neokyo (Axios)
     try {
         // User requested: "Suruga-ya Neokyo shouldn't be strict"

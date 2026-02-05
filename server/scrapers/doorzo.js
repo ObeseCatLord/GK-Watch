@@ -8,15 +8,25 @@ function generateDeviceId() {
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function search(query) {
-    // Doorzo requires specific params to filter by PayPay
+function decodeHexUrl(hex) {
+    if (!hex) return null;
+    try {
+        return Buffer.from(hex, 'hex').toString('utf8');
+    } catch { return null; }
+}
+
+async function search(query, targetSite = 'paypay') {
+    // Doorzo requires specific params to filter
+    const website = targetSite === 'surugaya' ? 'surugaya' : 'paypay';
+
+    // Note: Doorzo allows filtering by multiple sites, but our architecture splits them.
     const params = {
         n: 'Sig.Front.SubSite.AppGlobal.MixSearch',
         from: 'INTERNATIONAL',
         isNew: 15,
         language: 'en',
         keyword: query,
-        website: 'paypay',
+        website: website,
         onlyInStock: 1,
         orderBy: 'created_desc',
         deviceId: generateDeviceId()
@@ -35,35 +45,55 @@ async function search(query) {
 
         if (res.data && res.data.data && Array.isArray(res.data.data.items)) {
             const items = res.data.data.items;
-            console.log(`[Doorzo] Found ${items.length} items for "${query}"`);
+            console.log(`[Doorzo] Found ${items.length} items for "${query}" (Site: ${website})`);
 
             return items.map(item => {
                 // Item structure:
                 // {
                 //   "ImageUrl": "...",
-                //   "Url": "z509043052", (ID)
+                //   "Url": "z509043052" (PayPay ID) OR Hex String (Suruga-ya),
                 //   "Name": "...",
                 //   "JPYPrice": 75000,
-                //   ...
                 // }
 
                 // Format price: 75000 -> "¥75,000"
                 const formattedPrice = item.JPYPrice ? `¥${item.JPYPrice.toLocaleString()}` : 'N/A';
 
+                // Determine Link
+                let link = '';
+                if (website === 'paypay') {
+                    link = `https://www.doorzo.com/en/mall/paypay/detail/${item.Url}`;
+                } else if (website === 'surugaya') {
+                    // Suruga-ya URLs often come as hex encoded strings, or native IDs
+                    // But based on benchmark, they use a generic detail structure or we can reconstruct generic
+                    const decoded = decodeHexUrl(item.Url);
+                    // If it decodes to a URL, use it? Or use doorzo wrapper?
+                    // Doorzo wrapper: https://www.doorzo.com/en/mall/surugaya/detail/[ID?]
+                    // Actually, based on benchmark output: '68747470... ' -> https://www.suruga-ya.jp/product/detail/602277652
+                    // We should return the Doorzo proxy link if possible, or the native link if that's what we have.
+                    // IMPORTANT: Ideally we link to the Proxy (Doorzo) so the user can buy.
+                    // The item.Url seems to be the NATIVE url hex encoded.
+                    // We need to extract the ID from it to build a Doorzo link.
+                    // Decoded: https://www.suruga-ya.jp/product/detail/602277652
+                    // Doorzo Link: https://www.doorzo.com/en/mall/surugaya/detail/602277652
+                    if (decoded) {
+                        const match = decoded.match(/detail\/([a-zA-Z0-9]+)/);
+                        if (match) {
+                            link = `https://www.doorzo.com/en/mall/surugaya/detail/${match[1]}`;
+                        } else {
+                            link = decoded; // Fallback to native
+                        }
+                    } else {
+                        link = `https://www.doorzo.com/en/mall/surugaya/detail/${item.Url}`;
+                    }
+                }
+
                 return {
                     title: item.Name,
                     price: formattedPrice,
-                    // Original PayPay Link reconstruction
-                    // Doorzo Link: https://www.doorzo.com/en/mall/paypay/detail/${item.Url}
-                    // Native PayPay Link: https://paypayfleamarket.yahoo.co.jp/item/${item.Url}
-                    // We return Native link for consistency with system, but maybe fallback scraper should return proxy link?
-                    // Neokyo scraper returns Neokyo link.
-                    // Let's return Doorzo link or Native?
-                    // User Request: "I want to develop another axio fallback for PayPay Flea Market using Doorzo"
-                    // Usually fallback scrapers (Neokyo) provide the PROXY link so users can buy.
-                    link: `https://www.doorzo.com/en/mall/paypay/detail/${item.Url}`,
+                    link: link,
                     image: item.ImageUrl,
-                    source: 'PayPay Flea Market' // Or 'Doorzo (PayPay)'? System uses 'PayPay Flea Market' for deduplication.
+                    source: website === 'paypay' ? 'PayPay Flea Market' : 'Suruga-ya' // Match system source names
                 };
             });
         }
@@ -71,7 +101,7 @@ async function search(query) {
         return [];
 
     } catch (err) {
-        console.error(`[Doorzo] Error searching for "${query}":`, err.message);
+        console.error(`[Doorzo] Error searching for "${query}" on ${website}:`, err.message);
         return null; // Return null to indicate failure (trigger fallback)
     }
 }
