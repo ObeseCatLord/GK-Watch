@@ -706,8 +706,11 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         // Unique merge of item filters and global filters
         const filters = [...new Set([...(item.filters || []), ...globalFilters])];
 
-        for (const term of terms) {
-            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, filters);
+        const resultsArray = await Promise.all(terms.map(term =>
+            searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, filters)
+        ));
+
+        for (const results of resultsArray) {
             if (results && results.length > 0) {
                 for (const res of results) {
                     if (!uniqueResultsMap.has(res.link)) {
