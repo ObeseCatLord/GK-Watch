@@ -8,11 +8,23 @@ const GOOFISH_SEARCH_URL = 'https://www.goofish.com/search';
 const COOKIES_FILE = path.join(__dirname, '../data/goofish_cookies.json');
 const USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
 
+let cachedCookies = null;
+let lastCookieFileMtime = 0;
+
 function loadCookies() {
     try {
         if (!fs.existsSync(COOKIES_FILE)) {
             console.log('[Goofish] Note: Cookie file not found at', COOKIES_FILE);
+            cachedCookies = null;
+            lastCookieFileMtime = 0;
             return null;
+        }
+
+        const stats = fs.statSync(COOKIES_FILE);
+        const mtime = stats.mtimeMs;
+
+        if (cachedCookies && lastCookieFileMtime === mtime) {
+            return cachedCookies;
         }
 
         const cookieData = fs.readFileSync(COOKIES_FILE, 'utf8');
@@ -22,6 +34,9 @@ function loadCookies() {
             console.log('[Goofish] Warning: Invalid or empty cookie file');
             return null;
         }
+
+        cachedCookies = cookies;
+        lastCookieFileMtime = mtime;
 
         return cookies;
     } catch (error) {
