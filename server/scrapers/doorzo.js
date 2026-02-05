@@ -47,9 +47,12 @@ async function search(query) {
                 //   ...
                 // }
 
+                // Format price: 75000 -> "¥75,000"
+                const formattedPrice = item.JPYPrice ? `¥${item.JPYPrice.toLocaleString()}` : 'N/A';
+
                 return {
                     title: item.Name,
-                    price: item.JPYPrice,
+                    price: formattedPrice,
                     // Original PayPay Link reconstruction
                     // Doorzo Link: https://www.doorzo.com/en/mall/paypay/detail/${item.Url}
                     // Native PayPay Link: https://paypayfleamarket.yahoo.co.jp/item/${item.Url}
