@@ -757,7 +757,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                     className="merge-btn"
                                     style={{
                                         marginLeft: '5px',
-                                        backgroundColor: '#4a90e2',
                                         opacity: Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 ? 1 : 0.5,
                                         cursor: Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 ? 'pointer' : 'not-allowed'
                                     }}
