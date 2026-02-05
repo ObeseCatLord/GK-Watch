@@ -241,7 +241,7 @@ const Scheduler = {
 
                     console.log(`[Batch] Processing: ${item.name}`);
 
-                    for (const term of terms) {
+                    await Promise.all(terms.map(async (term) => {
                         console.log(`[Batch] - Searching: ${term}`);
                         try {
                             const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || []);
@@ -258,7 +258,7 @@ const Scheduler = {
                         } catch (err) {
                             console.error(`[Batch] Error searching for ${term}:`, err);
                         }
-                    }
+                    }));
 
                     const uniqueResults = Array.from(uniqueResultsMap.values());
 

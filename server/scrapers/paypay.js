@@ -2,9 +2,25 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 const yahoo = require('./yahoo');
+const doorzo = require('./doorzo');
+
+// Global Circuit Breaker for Legacy Scraper
+let legacyBlocked = false;
+let legacyBlockedUntil = 0;
+const BLOCK_DURATION = 15 * 60 * 1000; // 15 minutes backoff
 
 // Legacy scraper (Direct PayPay site scraping) - Unreliable due to bot protection
 async function searchLegacy(query, strictEnabled = true) {
+    if (legacyBlocked) {
+        if (Date.now() < legacyBlockedUntil) {
+            console.log('[PayPay Legacy] Circuit breaker active. Skipping direct scrape.');
+            return null; // Skip directly to fallback
+        } else {
+            console.log('[PayPay Legacy] Circuit breaker expired. Retrying direct scrape.');
+            legacyBlocked = false;
+        }
+    }
+
     console.log(`[PayPay Legacy] Searching PayPay Flea Market for ${query}...`);
     const searchUrl = `https://paypayfleamarket.yahoo.co.jp/search/${encodeURIComponent(query)}`;
 
@@ -14,7 +30,7 @@ async function searchLegacy(query, strictEnabled = true) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept-Language': 'ja-JP'
             },
-            timeout: 10000 // Restored to 10s for reliability
+            timeout: 10000
         });
 
         const $ = cheerio.load(res.data);
@@ -73,8 +89,10 @@ async function searchLegacy(query, strictEnabled = true) {
         return results;
 
     } catch (error) {
-        if (error.response && (error.response.status === 403 || error.response.status === 500)) {
-            console.warn('[PayPay Legacy] Access blocked (Status ' + error.response.status + '). Likely bot detection.');
+        if (error.response && (error.response.status === 403 || error.response.status === 500 || error.response.status === 429)) {
+            console.warn(`[PayPay Legacy] Access blocked (Status ${error.response.status}). Likely bot detection. Activating circuit breaker for 15 mins.`);
+            legacyBlocked = true;
+            legacyBlockedUntil = Date.now() + BLOCK_DURATION;
             return null; // Return null to trigger Neokyo fallback
         }
         console.error('[PayPay Legacy] Scraper Error:', error.message);
@@ -258,7 +276,32 @@ async function search(query, strictEnabled = true, filters = []) {
         console.warn(`[PayPay] Legacy scraper error: ${err.message}`);
     }
 
-    // 2. Try Neokyo Fallback
+    // 2. Try Doorzo Fallback (API-based, Fast)
+    try {
+        console.log(`[PayPay Fallback] Searching Doorzo (API) for ${query}...`);
+        results = await doorzo.search(query);
+
+        if (results && results.length > 0) {
+            console.log(`[PayPay] Doorzo scraper successful. Found ${results.length} items.`);
+            // Apply strict filtering if needed
+            const parsedQuery = parseQuery(query);
+            const hasQuoted = hasQuotedTerms(parsedQuery);
+
+            if (strictEnabled || hasQuoted) {
+                const preCount = results.length;
+                results = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+                console.log(`[PayPay] Strict filtering (Doorzo) removed ${preCount - results.length} items.`);
+            }
+
+            return results;
+        } else {
+            console.log('[PayPay] Doorzo return 0 items or failed. Falling back to Neokyo...');
+        }
+    } catch (err) {
+        console.warn(`[PayPay] Doorzo scraper error: ${err.message}`);
+    }
+
+    // 3. Try Neokyo Fallback
     try {
         results = await searchNeokyo(query);
 
