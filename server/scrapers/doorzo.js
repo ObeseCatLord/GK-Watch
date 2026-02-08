@@ -135,7 +135,7 @@ async function search(query, targetSite = 'paypay') {
                 const formattedPrice = item.JPYPrice ? `¥${item.JPYPrice.toLocaleString()}` : 'N/A';
                 let link = '';
                 if (website === 'paypay') {
-                    link = `https://www.doorzo.com/en/mall/paypay/detail/${item.Url}`;
+                    link = `https://paypayfleamarket.yahoo.co.jp/item/${item.Url}`;
                 } else if (website === 'surugaya') {
                     const decoded = decodeHexUrl(item.Url);
                     if (decoded) {
