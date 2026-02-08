@@ -295,7 +295,7 @@ function App() {
         const combined = [...prev, ...newErrors];
 
         // Deduplicate by source (keep latest)
-        const uniqueMap = aMap = new Map();
+        const uniqueMap = new Map();
         combined.forEach(err => uniqueMap.set(err.source, err.error));
 
         return Array.from(uniqueMap.entries()).map(([source, error]) => ({ source, error }));
