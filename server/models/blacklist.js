@@ -14,19 +14,28 @@ if (!fs.existsSync(BLACKLIST_FILE)) {
     fs.writeFileSync(BLACKLIST_FILE, JSON.stringify([], null, 2));
 }
 
+let blacklistCache = null;
+
+const loadCache = () => {
+    if (blacklistCache) return blacklistCache;
+    try {
+        const data = fs.readFileSync(BLACKLIST_FILE, 'utf8');
+        blacklistCache = JSON.parse(data);
+    } catch (err) {
+        console.error('Error reading blacklist:', err);
+        blacklistCache = [];
+    }
+    return blacklistCache;
+};
+
 const Blacklist = {
     getAll: () => {
-        try {
-            const data = fs.readFileSync(BLACKLIST_FILE, 'utf8');
-            return JSON.parse(data);
-        } catch (err) {
-            console.error('Error reading blacklist:', err);
-            return [];
-        }
+        const list = loadCache();
+        return [...list]; // Return shallow copy to prevent mutation
     },
 
     add: (term) => {
-        const list = Blacklist.getAll();
+        const list = loadCache();
         const normalized = term.trim().toLowerCase();
 
         // Check if already exists
@@ -39,15 +48,22 @@ const Blacklist = {
             term: term.trim(),
             addedAt: new Date().toISOString()
         };
-        list.push(newItem);
-        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(list, null, 2));
+
+        // Update file first, then cache
+        const newList = [...list, newItem];
+        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(newList, null, 2));
+        blacklistCache = newList;
+
         return newItem;
     },
 
     remove: (id) => {
-        let list = Blacklist.getAll();
-        list = list.filter(item => item.id !== id);
-        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(list, null, 2));
+        const list = loadCache();
+        const newList = list.filter(item => item.id !== id);
+
+        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(newList, null, 2));
+        blacklistCache = newList;
+
         return { success: true };
     },
 
@@ -66,20 +82,22 @@ const Blacklist = {
             }));
 
         fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(newList, null, 2));
+        blacklistCache = newList;
+
         return newList;
     },
 
     // Check if a title contains any blacklisted terms
     isBlacklisted: (title) => {
         if (!title) return false;
-        const list = Blacklist.getAll();
+        const list = loadCache();
         const titleLower = title.toLowerCase();
         return list.some(item => titleLower.includes(item.term.toLowerCase()));
     },
 
     // Filter results by blacklist terms
     filterResults: (results) => {
-        const list = Blacklist.getAll();
+        const list = loadCache();
         if (list.length === 0) return results;
 
         const blacklistTerms = list.map(item => item.term.toLowerCase());
