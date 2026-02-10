@@ -125,8 +125,8 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
     try {
         let results = [];
         let page = 0;
-        const MAX_PAGES = 200;
-        const seenLinks = new Set(); // Track seen links to detect duplicates
+        const MAX_PAGES = 50;
+        const seenLinks = new Set();
         const itemsPerPage = 50;
 
         while (page < MAX_PAGES) {
@@ -208,16 +208,16 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                 newResults.forEach(item => seenLinks.add(item.link));
 
                 if (newResults.length === 0) {
-                    console.log(`[Yahoo Native] Page ${page + 1}: all items duplicates. Stopping.`);
+                    console.log(`[Yahoo Native] [${query}] Page ${page + 1}: all items duplicates. Stopping.`);
                     break;
                 }
 
-                console.log(`[Yahoo Native] Page ${page + 1} found ${newResults.length} new items.`);
+                console.log(`[Yahoo Native] [${query}] Page ${page + 1} found ${newResults.length} new items.`);
                 results = results.concat(newResults);
 
                 // Early stop if last page (fewer items than requested)
                 if (pageResults.length < itemsPerPage) {
-                    console.log(`[Yahoo Native] Page ${page + 1} had ${pageResults.length} items (< ${itemsPerPage}). Last page reached.`);
+                    console.log(`[Yahoo Native] [${query}] Page ${page + 1} had ${pageResults.length} items (< ${itemsPerPage}). Last page reached.`);
                     break;
                 }
 
@@ -225,7 +225,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 
             } catch (err) {
                 if (page === 0) throw err; // Re-throw to trigger fallback if first page fails
-                console.warn(`[Yahoo Native] Error on page ${page + 1} (${err.message}). Returning ${results.length} items found so far.`);
+                console.warn(`[Yahoo Native] [${query}] Error on page ${page + 1} (${err.message}). Returning ${results.length} items found so far.`);
                 break; // Stop pagination but return what we have
             }
         }
