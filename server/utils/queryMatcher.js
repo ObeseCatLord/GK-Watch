@@ -175,12 +175,13 @@ function matchesQuery(title, parsedQuery, strict = true) {
  * Convenience function: parse query and match title in one call.
  * 
  * @param {string} title - Item title to check
- * @param {string} query - Raw query string
+ * @param {string|Object} query - Raw query string or Parsed query object
  * @param {boolean} strict - Whether to enforce strict matching
  * @returns {boolean} True if title matches query
  */
 function matchTitle(title, query, strict = true) {
-    const parsed = parseQuery(query);
+    // Optimization: If query is already an object (and not null), use it directly
+    const parsed = (typeof query === 'object' && query !== null) ? query : parseQuery(query);
     return matchesQuery(title, parsed, strict);
 }
 
