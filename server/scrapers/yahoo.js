@@ -120,14 +120,26 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = []) {
     console.log(`Searching Yahoo Auctions for ${query} (Target: ${targetSource})...`);
 
-    // Chain 1: Robust Native Axios Scraper
-    // Now capable of deep pagination without failing due to keep-alive, retries, and rate limiting
+    // Chain 1: Doorzo (Primary - Fast API)
+    try {
+        const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters);
+        if (doorzoResults !== null) {
+            console.log(`[Yahoo] Doorzo API successful (${doorzoResults.length} items). Skipping Native.`);
+            return doorzoResults;
+        }
+    } catch (doorzoError) {
+        console.warn(`[Yahoo] Doorzo API failed (${doorzoError.message}), falling back to Native Axios...`);
+    }
+
+    // Chain 2: Robust Native Axios Scraper (Fallback - Deep Search)
     try {
         let results = [];
         let page = 0;
         const MAX_PAGES = 200;
         const seenLinks = new Set();
         const itemsPerPage = 50;
+
+        console.log(`[Yahoo Fallback] Starting Native Axios Scraper for ${query}...`);
 
         while (page < MAX_PAGES) {
             try {
@@ -263,17 +275,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         return results;
 
     } catch (axiosError) {
-        console.warn(`[Yahoo] Native Axios failed (${axiosError.message}), switching to Doorzo fallback...`);
-    }
-
-    // Chain 2: Doorzo (Fallback)
-    try {
-        const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters);
-        if (doorzoResults !== null) {
-            return doorzoResults;
-        }
-    } catch (doorzoError) {
-        console.warn(`Doorzo fallback failed: ${doorzoError.message}`);
+        console.warn(`[Yahoo] Native Axios failed (${axiosError.message}), switching to Neokyo fallback...`);
     }
 
     // Chain 3: Neokyo (Puppeteer)
