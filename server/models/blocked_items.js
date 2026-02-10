@@ -14,41 +14,68 @@ if (!fs.existsSync(BLOCKED_FILE)) {
     fs.writeFileSync(BLOCKED_FILE, JSON.stringify([], null, 2));
 }
 
+let cachedItems = null;
+
 const BlockedItems = {
     getAll: () => {
+        if (cachedItems) {
+            return [...cachedItems];
+        }
+
         try {
             const data = fs.readFileSync(BLOCKED_FILE, 'utf8');
-            return JSON.parse(data);
+            cachedItems = JSON.parse(data);
+            return [...cachedItems];
         } catch (err) {
             console.error('Error reading blocked items:', err);
+            cachedItems = [];
             return [];
         }
     },
 
     add: (url, title, image) => {
-        const list = BlockedItems.getAll();
+        const list = BlockedItems.getAll(); // Uses cache if available
         // Check if already blocked
         if (list.some(item => item.url === url)) {
             return null;
         }
 
         const newItem = {
-            id: Date.now().toString(),
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
             url,
             title,
             image: image || '',
             blockedAt: new Date().toISOString()
         };
         list.push(newItem);
-        fs.writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2));
-        return newItem;
+
+        try {
+            fs.writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2));
+            cachedItems = list; // Update cache
+            return newItem;
+        } catch (err) {
+            console.error('Error writing blocked items:', err);
+            return null;
+        }
     },
 
     remove: (id) => {
-        let list = BlockedItems.getAll();
+        let list = BlockedItems.getAll(); // Uses cache if available
+        const initialLength = list.length;
         list = list.filter(item => item.id !== id);
-        fs.writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2));
-        return { success: true };
+
+        if (list.length === initialLength) {
+            return { success: false, error: 'Item not found' };
+        }
+
+        try {
+            fs.writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2));
+            cachedItems = list; // Update cache
+            return { success: true };
+        } catch (err) {
+            console.error('Error writing blocked items:', err);
+            return { success: false, error: err.message };
+        }
     },
 
     isBlocked: (url) => {
