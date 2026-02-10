@@ -342,6 +342,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         let results = [];
         let page = 0;
         const MAX_PAGES = 200; // Cap at 200 pages (deep search) to matching Doorzo fallback
+        const seenLinks = new Set(); // Track seen links to detect Yahoo's wraparound
 
         while (page < MAX_PAGES) {
             try {
@@ -436,8 +437,17 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 
                 if (pageResults.length === 0) break; // Stop if no items found on this page
 
-                console.log(`[Yahoo Native] Page ${page + 1} found ${pageResults.length} items.`);
-                results = results.concat(pageResults);
+                // Deduplicate: Yahoo wraps around and re-serves results past the end
+                const newResults = pageResults.filter(item => !seenLinks.has(item.link));
+                newResults.forEach(item => seenLinks.add(item.link));
+
+                if (newResults.length === 0) {
+                    console.log(`[Yahoo Native] Page ${page + 1}: all ${pageResults.length} items are duplicates. Stopping pagination.`);
+                    break;
+                }
+
+                console.log(`[Yahoo Native] Page ${page + 1} found ${newResults.length} new items (${pageResults.length - newResults.length} duplicates skipped).`);
+                results = results.concat(newResults);
                 page++;
 
             } catch (err) {
