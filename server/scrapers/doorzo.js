@@ -51,7 +51,7 @@ async function search(query, targetSite = 'paypay') {
                     'Origin': 'https://www.doorzo.com',
                     'Referer': 'https://www.doorzo.com/'
                 },
-                timeout: 10000
+                timeout: 30000
             });
 
             if (res.data && res.data.data && Array.isArray(res.data.data.items)) {
