@@ -11,6 +11,7 @@ const goofish = require('./goofish');
 let payPayFailed = false;
 
 const Settings = require('../models/settings');
+const queryMatcher = require('../utils/queryMatcher');
 
 // Helper to extract quoted terms: 'foo "bar baz" qux' -> ['bar baz']
 function extractQuotedTerms(query) {
@@ -234,6 +235,39 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
 
     if (enabled.paypay === false) {
         payPayFailed = false;
+    }
+
+    // Global Strict Filtering (Safety Net)
+    // Ensures that even if a scraper returns loose results (e.g. Suruga-ya Neokyo fallback),
+    // we enforce strictness if the user/watch has requested it.
+    if (flatResults.length > 0) {
+        const parsedQuery = queryMatcher.parseQuery(query);
+        const beforeCount = flatResults.length;
+
+        flatResults = flatResults.filter(item => {
+            // Determine strict setting for this item's source
+            let isStrict = true;
+            const source = item.source;
+
+            if (source === 'Mercari') isStrict = strict.mercari ?? true;
+            else if (source === 'Yahoo') isStrict = strict.yahoo ?? true;
+            else if (source === 'PayPay Flea Market') isStrict = strict.paypay ?? true;
+            else if (source === 'Fril') isStrict = strict.fril ?? true;
+            else if (source === 'Suruga-ya') isStrict = strict.surugaya ?? true;
+            // Taobao/Goofish strictness often handled by API, but safer to enforce
+            else if (source === 'Taobao') isStrict = strict.taobao ?? true;
+            else if (source === 'Goofish') isStrict = strict.goofish ?? true;
+
+            // If strict is disabled for this site, pass it through
+            if (!isStrict) return true;
+
+            // Otherwise check match
+            return queryMatcher.matchesQuery(item.title, parsedQuery, true);
+        });
+
+        if (flatResults.length < beforeCount) {
+            console.log(`[Scraper] Aggregator Strict Safety Net removed ${beforeCount - flatResults.length} loose items.`);
+        }
     }
 
     return flatResults.map(item => {
