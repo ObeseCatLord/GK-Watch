@@ -344,98 +344,110 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         const MAX_PAGES = 200; // Cap at 200 pages (deep search) to matching Doorzo fallback
 
         while (page < MAX_PAGES) {
-            const b = page * 50 + 1;
-            const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}&b=${b}`;
+            try {
+                const b = page * 50 + 1;
+                const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}&b=${b}`;
 
-            // Random delay between pages to be polite
-            if (page > 0) await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
+                // Random delay between pages to be polite
+                if (page > 0) await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
 
-            const { data } = await axios.get(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                },
-                validateStatus: function (status) {
-                    return status < 500;
+                const { data } = await axios.get(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    },
+                    timeout: 10000, // 10s timeout to prevent hangs
+                    validateStatus: function (status) {
+                        return status < 500;
+                    }
+                });
+
+                // Check specifically for Yahoo's 404 page - be more precise to avoid false positives
+                if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
+                    if (page === 0) throw new Error('Yahoo Search Page invalid/404');
+                    break; // Stop pagination if page is empty
                 }
-            });
 
-            // Check specifically for Yahoo's 404 page - be more precise to avoid false positives
-            if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
-                if (page === 0) throw new Error('Yahoo Search Page invalid/404');
-                break; // Stop pagination if page is empty
-            }
+                const $ = cheerio.load(data);
+                let pageResults = [];
 
-            const $ = cheerio.load(data);
-            let pageResults = [];
-
-            $('.Products__items li.Product').each((i, element) => {
-                try {
-                    // International Shipping Filter (Updated to use correct term '海外から発送')
-                    if (!allowInternationalShipping) {
-                        const fullText = $(element).text();
-                        if (fullText.includes('海外から発送')) {
-                            return; // Skip this item
+                $('.Products__items li.Product').each((i, element) => {
+                    try {
+                        // International Shipping Filter (Updated to use correct term '海外から発送')
+                        if (!allowInternationalShipping) {
+                            const fullText = $(element).text();
+                            if (fullText.includes('海外から発送')) {
+                                return; // Skip this item
+                            }
                         }
+
+                        const titleEl = $(element).find('.Product__titleLink');
+                        const title = titleEl.text().trim();
+                        const link = titleEl.attr('href');
+                        const imageEl = $(element).find('.Product__imageData');
+                        const image = imageEl.attr('src');
+
+                        const timeEl = $(element).find('.Product__time');
+                        const timeStr = timeEl.text().trim();
+                        const endTime = calculateEndTime(timeStr);
+
+                        // Check for PayPay Flea Market indicator
+                        // Icon text: "Yahoo!フリマ" or URL contains paypayfleamarket
+                        const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
+
+                        // Source Filtering
+                        if (targetSource === 'yahoo' && isPayPay) return;
+                        if (targetSource === 'paypay' && !isPayPay) return;
+
+                        const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
+
+                        // Yahoo has multiple price elements - bid price and buy-it-now
+                        const priceElements = $(element).find('.Product__priceValue');
+                        let bidPrice = '';
+                        let binPrice = '';
+
+                        // First price is typically bid/current price
+                        if (priceElements.length >= 1) {
+                            bidPrice = $(priceElements[0]).text().trim();
+                        }
+                        // Second price element if exists is typically buy-it-now
+                        if (priceElements.length >= 2) {
+                            binPrice = $(priceElements[1]).text().trim();
+                        }
+
+                        // Combine for display: primary is bid, secondary is bin
+                        const price = bidPrice || 'N/A';
+
+                        if (title && link) {
+                            pageResults.push({
+                                title,
+                                link,
+                                image: image || '',
+                                price: formatYahooPrice(price),
+                                bidPrice: formatYahooPrice(bidPrice),
+                                binPrice: formatYahooPrice(binPrice),
+                                endTime,
+                                source: itemSource
+                            });
+                        }
+                    } catch (err) {
+                        console.error('Error parsing yahoo item:', err);
                     }
+                });
 
-                    const titleEl = $(element).find('.Product__titleLink');
-                    const title = titleEl.text().trim();
-                    const link = titleEl.attr('href');
-                    const imageEl = $(element).find('.Product__imageData');
-                    const image = imageEl.attr('src');
+                if (pageResults.length === 0) break; // Stop if no items found on this page
 
-                    const timeEl = $(element).find('.Product__time');
-                    const timeStr = timeEl.text().trim();
-                    const endTime = calculateEndTime(timeStr);
+                console.log(`[Yahoo Native] Page ${page + 1} found ${pageResults.length} items.`);
+                results = results.concat(pageResults);
+                page++;
 
-                    // Check for PayPay Flea Market indicator
-                    // Icon text: "Yahoo!フリマ" or URL contains paypayfleamarket
-                    const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
-
-                    // Source Filtering
-                    if (targetSource === 'yahoo' && isPayPay) return;
-                    if (targetSource === 'paypay' && !isPayPay) return;
-
-                    const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
-
-                    // Yahoo has multiple price elements - bid price and buy-it-now
-                    const priceElements = $(element).find('.Product__priceValue');
-                    let bidPrice = '';
-                    let binPrice = '';
-
-                    // First price is typically bid/current price
-                    if (priceElements.length >= 1) {
-                        bidPrice = $(priceElements[0]).text().trim();
-                    }
-                    // Second price element if exists is typically buy-it-now
-                    if (priceElements.length >= 2) {
-                        binPrice = $(priceElements[1]).text().trim();
-                    }
-
-                    // Combine for display: primary is bid, secondary is bin
-                    const price = bidPrice || 'N/A';
-
-                    if (title && link) {
-                        pageResults.push({
-                            title,
-                            link,
-                            image: image || '',
-                            price: formatYahooPrice(price),
-                            bidPrice: formatYahooPrice(bidPrice),
-                            binPrice: formatYahooPrice(binPrice),
-                            endTime,
-                            source: itemSource
-                        });
-                    }
-                } catch (err) {
-                    console.error('Error parsing yahoo item:', err);
+            } catch (err) {
+                if (page === 0) {
+                    throw err; // Re-throw to trigger fallback if first page fails
+                } else {
+                    console.warn(`[Yahoo Native] Error on page ${page + 1} (${err.message}). Returning ${results.length} items found so far.`);
+                    break; // Stop pagination but return what we have
                 }
-            });
-
-            if (pageResults.length === 0) break; // Stop if no items found on this page
-
-            results = results.concat(pageResults);
-            page++;
+            }
         }
 
         // Apply negative filtering (server-side)
