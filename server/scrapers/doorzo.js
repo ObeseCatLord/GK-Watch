@@ -83,7 +83,8 @@ async function search(query, targetSite = 'paypay') {
             // }
 
             // Format price: 75000 -> "¥75,000"
-            const formattedPrice = item.JPYPrice ? `¥${item.JPYPrice.toLocaleString()}` : 'N/A';
+            // Format price: 75000 -> "¥75,000"
+            const formattedPrice = item.JPYPrice ? `¥${Number(item.JPYPrice).toLocaleString()}` : 'N/A';
 
             // Determine Link
             let link = '';
@@ -132,7 +133,7 @@ async function search(query, targetSite = 'paypay') {
         if (allItems.length > 0) {
             return allItems.map(item => { /* ... map logic duplicated ... */
                 // To avoid code duplication, we could refactor map to function, but inline for now is robust
-                const formattedPrice = item.JPYPrice ? `¥${item.JPYPrice.toLocaleString()}` : 'N/A';
+                const formattedPrice = item.JPYPrice ? `¥${Number(item.JPYPrice).toLocaleString()}` : 'N/A';
                 let link = '';
                 if (website === 'paypay') {
                     link = `https://paypayfleamarket.yahoo.co.jp/item/${item.Url}`;
