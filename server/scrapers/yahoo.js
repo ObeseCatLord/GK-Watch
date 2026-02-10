@@ -339,124 +339,91 @@ async function searchNeokyo(query) {
 async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = []) {
     console.log(`Searching Yahoo Auctions for ${query} (Target: ${targetSource})...`);
 
-    // Chain 1: Doorzo (API-based, primary — Yahoo has rate-limited/blocked direct Axios from this IP)
+    // Strategy: Native Axios for page 1 (fast, direct). If more pages exist, hand off to Doorzo for deep pagination.
     try {
-        const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters);
-        if (doorzoResults !== null) {
-            return doorzoResults;
-        }
-        console.warn(`[Yahoo] Doorzo returned null, falling back to native Axios...`);
-    } catch (doorzoError) {
-        console.warn(`[Yahoo] Doorzo failed (${doorzoError.message}), falling back to native Axios...`);
-    }
+        const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}`;
 
-    // Chain 2: Native Axios (fallback — may fail if Yahoo IP is blocked)
-    try {
-        let results = [];
-        let page = 0;
-        const MAX_PAGES = 200;
-        const seenLinks = new Set();
-
-        while (page < MAX_PAGES) {
-            try {
-                const b = page * 50 + 1;
-                const url = `https://auctions.yahoo.co.jp/search/search?p=${encodeURIComponent(query)}&b=${b}`;
-
-                if (page > 0) await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
-
-                const { data } = await axios.get(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                    },
-                    timeout: 30000,
-                    validateStatus: function (status) {
-                        return status < 500;
-                    }
-                });
-
-                if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
-                    if (page === 0) throw new Error('Yahoo Search Page invalid/404');
-                    break;
-                }
-
-                const $ = cheerio.load(data);
-                let pageResults = [];
-
-                $('.Products__items li.Product').each((i, element) => {
-                    try {
-                        if (!allowInternationalShipping) {
-                            const fullText = $(element).text();
-                            if (fullText.includes('海外から発送')) return;
-                        }
-
-                        const titleEl = $(element).find('.Product__titleLink');
-                        const title = titleEl.text().trim();
-                        const link = titleEl.attr('href');
-                        const imageEl = $(element).find('.Product__imageData');
-                        const image = imageEl.attr('src');
-
-                        const timeEl = $(element).find('.Product__time');
-                        const timeStr = timeEl.text().trim();
-                        const endTime = calculateEndTime(timeStr);
-
-                        const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
-
-                        if (targetSource === 'yahoo' && isPayPay) return;
-                        if (targetSource === 'paypay' && !isPayPay) return;
-
-                        const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
-
-                        const priceElements = $(element).find('.Product__priceValue');
-                        let bidPrice = '';
-                        let binPrice = '';
-
-                        if (priceElements.length >= 1) bidPrice = $(priceElements[0]).text().trim();
-                        if (priceElements.length >= 2) binPrice = $(priceElements[1]).text().trim();
-
-                        const price = bidPrice || 'N/A';
-
-                        if (title && link) {
-                            pageResults.push({
-                                title, link, image: image || '',
-                                price: formatYahooPrice(price),
-                                bidPrice: formatYahooPrice(bidPrice),
-                                binPrice: formatYahooPrice(binPrice),
-                                endTime, source: itemSource
-                            });
-                        }
-                    } catch (err) {
-                        console.error('Error parsing yahoo item:', err);
-                    }
-                });
-
-                if (pageResults.length === 0) break;
-
-                const newResults = pageResults.filter(item => !seenLinks.has(item.link));
-                newResults.forEach(item => seenLinks.add(item.link));
-
-                if (newResults.length === 0) {
-                    console.log(`[Yahoo Native] Page ${page + 1}: all ${pageResults.length} items are duplicates. Stopping pagination.`);
-                    break;
-                }
-
-                console.log(`[Yahoo Native] Page ${page + 1} found ${newResults.length} new items (${pageResults.length - newResults.length} duplicates skipped).`);
-                results = results.concat(newResults);
-
-                // If page had fewer than 50 items, it's the last page — no need to request more
-                if (pageResults.length < 50) {
-                    console.log(`[Yahoo Native] Page ${page + 1} had ${pageResults.length} items (< 50). Last page reached.`);
-                    break;
-                }
-
-                page++;
-
-            } catch (err) {
-                if (page === 0) throw err;
-                console.warn(`[Yahoo Native] Error on page ${page + 1} (${err.message}). Returning ${results.length} items found so far.`);
-                break;
+        const { data } = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            },
+            timeout: 30000,
+            validateStatus: function (status) {
+                return status < 500;
             }
+        });
+
+        if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
+            throw new Error('Yahoo Search Page invalid/404');
         }
 
+        const $ = cheerio.load(data);
+        let results = [];
+
+        $('.Products__items li.Product').each((i, element) => {
+            try {
+                if (!allowInternationalShipping) {
+                    const fullText = $(element).text();
+                    if (fullText.includes('海外から発送')) return;
+                }
+
+                const titleEl = $(element).find('.Product__titleLink');
+                const title = titleEl.text().trim();
+                const link = titleEl.attr('href');
+                const imageEl = $(element).find('.Product__imageData');
+                const image = imageEl.attr('src');
+
+                const timeEl = $(element).find('.Product__time');
+                const timeStr = timeEl.text().trim();
+                const endTime = calculateEndTime(timeStr);
+
+                const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
+
+                if (targetSource === 'yahoo' && isPayPay) return;
+                if (targetSource === 'paypay' && !isPayPay) return;
+
+                const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
+
+                const priceElements = $(element).find('.Product__priceValue');
+                let bidPrice = '';
+                let binPrice = '';
+
+                if (priceElements.length >= 1) bidPrice = $(priceElements[0]).text().trim();
+                if (priceElements.length >= 2) binPrice = $(priceElements[1]).text().trim();
+
+                const price = bidPrice || 'N/A';
+
+                if (title && link) {
+                    results.push({
+                        title, link, image: image || '',
+                        price: formatYahooPrice(price),
+                        bidPrice: formatYahooPrice(bidPrice),
+                        binPrice: formatYahooPrice(binPrice),
+                        endTime, source: itemSource
+                    });
+                }
+            } catch (err) {
+                console.error('Error parsing yahoo item:', err);
+            }
+        });
+
+        // If page 1 had a full 50 items, there are likely more pages — hand off to Doorzo for deep pagination
+        if (results.length >= 50) {
+            console.log(`[Yahoo Native] Page 1 found ${results.length} items (full page). Handing off to Doorzo for deep pagination...`);
+            try {
+                const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters);
+                if (doorzoResults !== null) {
+                    return doorzoResults;
+                }
+                console.warn(`[Yahoo] Doorzo returned null for deep search, using page 1 results only.`);
+            } catch (doorzoError) {
+                console.warn(`[Yahoo] Doorzo failed for deep search (${doorzoError.message}), using page 1 results only.`);
+            }
+        } else {
+            console.log(`[Yahoo Native] Page 1 found ${results.length} items (< 50, single page). No pagination needed.`);
+        }
+
+        // Apply negative filtering
         if (filters && filters.length > 0) {
             const filterTerms = filters.map(f => f.toLowerCase());
             const preCount = results.length;
@@ -467,6 +434,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
             console.log(`[Yahoo] Server-side negative filtering removed ${preCount - results.length} items. Remaining: ${results.length}`);
         }
 
+        // Strict filtering
         const parsedQuery = parseQuery(query);
         const hasQuoted = hasQuotedTerms(parsedQuery);
 
@@ -478,11 +446,21 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 
         console.log(`Yahoo (Axios) found ${results.length} items (Strict filtering disabled).`);
         return results;
-    } catch (axiosError) {
-        console.warn(`[Yahoo] Native Axios also failed (${axiosError.message}), trying Neokyo...`);
+    } catch (error) {
+        console.warn(`[Yahoo] Native Axios failed (${error.message}), falling back to Doorzo...`);
     }
 
-    // Chain 3: Neokyo (Puppeteer)
+    // Fallback: Doorzo (full search if native Axios failed entirely)
+    try {
+        const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters);
+        if (doorzoResults !== null) {
+            return doorzoResults;
+        }
+    } catch (doorzoError) {
+        console.warn(`[Yahoo] Doorzo fallback also failed (${doorzoError.message}), trying Neokyo...`);
+    }
+
+    // Fallback: Neokyo (Puppeteer)
     try {
         const neokyoResults = await searchNeokyo(query);
         const parsedQuery = parseQuery(query);
@@ -496,7 +474,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         console.warn(`[Yahoo] Neokyo failed (${neokyoError.message}), trying Jauce...`);
     }
 
-    // Chain 4: Jauce (last resort)
+    // Fallback: Jauce (last resort)
     const jauceResults = await searchJauce(query);
     const parsedQuery = parseQuery(query);
     const hasQuoted = hasQuotedTerms(parsedQuery);
