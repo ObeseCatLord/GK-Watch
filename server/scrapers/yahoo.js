@@ -125,7 +125,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
     try {
         let results = [];
         let page = 0;
-        const MAX_PAGES = 50;
+        const MAX_PAGES = 200;
         const seenLinks = new Set();
         const itemsPerPage = 50;
 
@@ -140,9 +140,17 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                 const response = await scheduledGet(url);
                 const data = response.data;
 
+                // Check for "Page Not Found" or "Invalid Page"
                 if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
                     if (page === 0) throw new Error('Yahoo Search Page invalid/404');
                     break; // Stop pagination if page is empty/404
+                }
+
+                // Check for "Partial Match" (Soft Match) - Yahoo returns broad results when exact match fails
+                // Text: "一致する商品はありません。キーワードの一部を利用した結果を表示しています"
+                if (data.includes('キーワードの一部を利用した結果を表示しています')) {
+                    console.log(`[Yahoo Native] [${query}] Partial match detected (Yahoo couldn't find exact match). Stopping to avoid irrelevant results.`);
+                    break;
                 }
 
                 const $ = cheerio.load(data);
