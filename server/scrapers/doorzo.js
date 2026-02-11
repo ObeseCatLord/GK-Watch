@@ -89,7 +89,7 @@ async function search(query, targetSite = 'paypay') {
             // Determine Link
             let link = '';
             if (website === 'paypay') {
-                link = `https://www.doorzo.com/en/mall/paypay/detail/${item.Url}`;
+                link = `https://paypayfleamarket.yahoo.co.jp/item/${item.Url}`;
             } else if (website === 'surugaya') {
                 // Suruga-ya URLs often come as hex encoded strings, or native IDs
                 // But based on benchmark, they use a generic detail structure or we can reconstruct generic

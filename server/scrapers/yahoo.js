@@ -325,7 +325,7 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
         goodsStatus: '',
         sellerType: '',
         pType: 'currentprice',
-        shipmentType: '',
+        shipmentType: allowInternationalShipping ? '' : 'domestic',
         is_appraisal: ''
     };
 
