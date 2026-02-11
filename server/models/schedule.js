@@ -1,39 +1,33 @@
-const fs = require('fs');
-const path = require('path');
+const db = require('./database');
 
-const DATA_DIR = path.join(__dirname, '../data');
-const SCHEDULE_FILE = path.join(DATA_DIR, 'schedule.json');
+// Prepared statements
+const getSetting = db.prepare('SELECT value FROM schedule WHERE key = ?');
+const upsertSetting = db.prepare('INSERT OR REPLACE INTO schedule (key, value) VALUES (?, ?)');
 
-// Default: run at midnight JST (15:00 CST previous day)
 const DEFAULT_SCHEDULE = {
-    enabledHours: [0, 6, 12, 18], // JST hours (0-23)
+    enabledHours: [],
     timezone: 'JST'
 };
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-// Ensure schedule file exists
-if (!fs.existsSync(SCHEDULE_FILE)) {
-    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(DEFAULT_SCHEDULE, null, 2));
-}
 
 let cachedSchedule = null;
 
 const ScheduleSettings = {
     get: () => {
-        if (cachedSchedule) {
-            return { ...cachedSchedule };
-        }
+        if (cachedSchedule) return { ...cachedSchedule };
 
         try {
-            const data = fs.readFileSync(SCHEDULE_FILE, 'utf8');
-            cachedSchedule = JSON.parse(data);
-            return { ...cachedSchedule };
+            const schedule = { ...DEFAULT_SCHEDULE };
+            const hoursRow = getSetting.get('enabledHours');
+            if (hoursRow) schedule.enabledHours = JSON.parse(hoursRow.value);
+
+            const tzRow = getSetting.get('timezone');
+            if (tzRow) schedule.timezone = JSON.parse(tzRow.value);
+
+            cachedSchedule = schedule;
+            return { ...schedule };
         } catch (err) {
             console.error('Error reading schedule:', err);
+            cachedSchedule = { ...DEFAULT_SCHEDULE };
             return { ...DEFAULT_SCHEDULE };
         }
     },
@@ -41,26 +35,29 @@ const ScheduleSettings = {
     setEnabledHours: (hours) => {
         const settings = ScheduleSettings.get();
         settings.enabledHours = hours;
-        fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(settings, null, 2));
-
-        // Update cache
+        upsertSetting.run('enabledHours', JSON.stringify(hours));
         cachedSchedule = settings;
-
         return { ...settings };
     },
 
-    // Check if current JST hour is in enabled list
-    isCurrentHourEnabled: () => {
+    /**
+     * Check if the current hour is scheduled for execution.
+     */
+    isScheduledNow: () => {
         const settings = ScheduleSettings.get();
-        // Get current JST hour (UTC+9)
+        if (!settings.enabledHours || settings.enabledHours.length === 0) return false;
         const now = new Date();
+        // Current JST hour
         const jstHour = (now.getUTCHours() + 9) % 24;
         return settings.enabledHours.includes(jstHour);
     },
 
-    // Convert JST hour to CST (CST = UTC-6, so JST - 15 hours, or +9 hours from next day)
+    /**
+     * Convert JST hour to CST
+     */
     jstToCst: (jstHour) => {
-        // JST is UTC+9, CST is UTC-6, difference is 15 hours
+        // JST = UTC+9, CST = UTC-6
+        // Difference = -15 hours
         let cstHour = (jstHour - 15) % 24;
         if (cstHour < 0) cstHour += 24;
         return cstHour;

@@ -1,8 +1,6 @@
-const fs = require('fs');
-const path = require('path');
+const db = require('./database');
 
-const DATA_DIR = path.join(__dirname, '../data');
-const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const Encryption = require('../utils/encryption');
 
 const DEFAULT_SETTINGS = {
     email: '',
@@ -15,7 +13,6 @@ const DEFAULT_SETTINGS = {
     loginEnabled: false,
     loginPassword: '',
     ntfyEnabled: false,
-
     ntfyTopic: '',
     ntfyServer: 'https://ntfy.sh',
     enabledSites: {
@@ -34,20 +31,13 @@ const DEFAULT_SETTINGS = {
         surugaya: true,
         taobao: true
     },
-    allowYahooInternationalShipping: false // Default to filtering out international shipping
+    allowYahooInternationalShipping: false
 };
 
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-// Ensure settings file exists
-if (!fs.existsSync(SETTINGS_FILE)) {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
-}
-
-const Encryption = require('../utils/encryption');
+// Prepared statements
+const getSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
+const upsertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+const getAllSettings = db.prepare('SELECT key, value FROM settings');
 
 let cachedSettings = null;
 
@@ -58,8 +48,18 @@ const Settings = {
         }
 
         try {
-            const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
-            const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+            const rows = getAllSettings.all();
+            const stored = {};
+            for (const row of rows) {
+                try {
+                    stored[row.key] = JSON.parse(row.value);
+                } catch (e) {
+                    stored[row.key] = row.value;
+                }
+            }
+
+            const parsed = { ...DEFAULT_SETTINGS, ...stored };
+
             // Decrypt sensitive fields
             if (parsed.smtpPass) {
                 parsed.smtpPass = Encryption.decrypt(parsed.smtpPass);
@@ -67,18 +67,18 @@ const Settings = {
             if (parsed.loginPassword) {
                 parsed.loginPassword = Encryption.decrypt(parsed.loginPassword);
             }
+
             cachedSettings = parsed;
             return { ...parsed };
         } catch (err) {
             console.error('Error reading settings:', err);
-            // Cache defaults on error to prevent performance degradation from repeated sync I/O
             cachedSettings = { ...DEFAULT_SETTINGS };
-            return DEFAULT_SETTINGS;
+            return { ...DEFAULT_SETTINGS };
         }
     },
 
     update: async (newSettings) => {
-        const current = Settings.get(); // this returns decrypted
+        const current = Settings.get(); // returns decrypted
 
         // Validation: Password length
         if (newSettings.loginPassword !== undefined) {
@@ -92,10 +92,6 @@ const Settings = {
         const effectivePassword = newSettings.loginPassword !== undefined ? newSettings.loginPassword : current.loginPassword;
 
         if (effectivelyEnabled && !effectivePassword) {
-            // If trying to enable (or keeping enabled) but no password exists or is being cleared
-            // We force disable it to prevent lockout or insecure state, OR we could throw error.
-            // Requirement: "If there is no valid password saved then the login screen will not be enabled."
-            // So we silently set loginEnabled = false if password is missing.
             newSettings.loginEnabled = false;
         }
 
@@ -110,12 +106,17 @@ const Settings = {
             toSave.loginPassword = Encryption.encrypt(toSave.loginPassword);
         }
 
-        await fs.promises.writeFile(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+        // Save each key-value pair to the database
+        const saveAll = db.transaction(() => {
+            for (const [key, value] of Object.entries(toSave)) {
+                upsertSetting.run(key, JSON.stringify(value));
+            }
+        });
+        saveAll();
 
-        // Update cache with the new decrypted state only after successful save
+        // Update cache with the new decrypted state
         cachedSettings = updated;
 
-        // Return decrypted version to the app/caller
         return updated;
     }
 };

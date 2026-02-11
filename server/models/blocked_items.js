@@ -1,93 +1,75 @@
-const fs = require('fs');
-const path = require('path');
+const db = require('./database');
+const crypto = require('crypto');
 
-const DATA_DIR = path.join(__dirname, '../data');
-const BLOCKED_FILE = path.join(DATA_DIR, 'blocked_items.json');
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-// Ensure blocked file exists
-if (!fs.existsSync(BLOCKED_FILE)) {
-    fs.writeFileSync(BLOCKED_FILE, JSON.stringify([], null, 2));
-}
+// Prepared statements
+const stmts = {
+    getAll: db.prepare('SELECT id, url, title, image, blocked_at as blockedAt FROM blocked_items ORDER BY blocked_at DESC'),
+    insert: db.prepare('INSERT OR IGNORE INTO blocked_items (id, url, title, image, blocked_at) VALUES (?, ?, ?, ?, ?)'),
+    remove: db.prepare('DELETE FROM blocked_items WHERE id = ?'),
+    findByUrl: db.prepare('SELECT id FROM blocked_items WHERE url = ?'),
+    count: db.prepare('SELECT COUNT(*) as count FROM blocked_items'),
+};
 
 let cachedItems = null;
 
+function loadCache() {
+    if (cachedItems) return cachedItems;
+    cachedItems = stmts.getAll.all();
+    return cachedItems;
+}
+
+function invalidateCache() {
+    cachedItems = null;
+}
+
 const BlockedItems = {
     getAll: () => {
-        if (cachedItems) {
-            return [...cachedItems];
-        }
-
-        try {
-            const data = fs.readFileSync(BLOCKED_FILE, 'utf8');
-            cachedItems = JSON.parse(data);
-            return [...cachedItems];
-        } catch (err) {
-            console.error('Error reading blocked items:', err);
-            cachedItems = [];
-            return [];
-        }
+        const list = loadCache();
+        return list.map(item => ({ ...item }));
     },
 
     add: (url, title, image) => {
-        const list = BlockedItems.getAll(); // Uses cache if available
-        // Check if already blocked
-        if (list.some(item => item.url === url)) {
-            return null;
-        }
+        if (!url) return null;
 
-        const newItem = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-            url,
-            title,
-            image: image || '',
-            blockedAt: new Date().toISOString()
-        };
-        list.push(newItem);
+        // Check for duplicate
+        const existing = stmts.findByUrl.get(url);
+        if (existing) return null;
 
-        try {
-            fs.writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2));
-            cachedItems = list; // Update cache
-            return newItem;
-        } catch (err) {
-            console.error('Error writing blocked items:', err);
-            return null;
-        }
+        const id = crypto.randomBytes(8).toString('hex');
+        const blockedAt = new Date().toISOString();
+
+        stmts.insert.run(id, url, title || '', image || '', blockedAt);
+        invalidateCache();
+
+        return { id, url, title: title || '', image: image || '', blockedAt };
     },
 
     remove: (id) => {
-        let list = BlockedItems.getAll(); // Uses cache if available
-        const initialLength = list.length;
-        list = list.filter(item => item.id !== id);
-
-        if (list.length === initialLength) {
-            return { success: false, error: 'Item not found' };
-        }
-
-        try {
-            fs.writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2));
-            cachedItems = list; // Update cache
-            return { success: true };
-        } catch (err) {
-            console.error('Error writing blocked items:', err);
-            return { success: false, error: err.message };
-        }
+        stmts.remove.run(id);
+        invalidateCache();
     },
 
+    /**
+     * Check if a specific URL is blocked.
+     */
     isBlocked: (url) => {
-        const list = BlockedItems.getAll();
-        return list.some(item => item.url === url);
+        if (!url) return false;
+        const result = stmts.findByUrl.get(url);
+        return !!result;
     },
 
-    // Helper to filter a list of results
+    /**
+     * Filter results by removing items whose URLs are in the blocklist.
+     */
     filterResults: (results) => {
-        const list = BlockedItems.getAll();
-        const blockedUrls = new Set(list.map(i => i.url));
-        return results.filter(item => !blockedUrls.has(item.link));
+        if (!results || results.length === 0) return results;
+
+        // Build a Set of blocked URLs for O(1) lookup
+        const list = loadCache();
+        if (list.length === 0) return results;
+
+        const blockedUrls = new Set(list.map(item => item.url));
+        return results.filter(result => !blockedUrls.has(result.link));
     }
 };
 

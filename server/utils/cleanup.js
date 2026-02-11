@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const db = require('../models/database');
 
 // Configuration
 const CONFIG = {
@@ -17,7 +18,6 @@ const CONFIG = {
 };
 
 const SERVER_LOG_PATH = path.join(__dirname, '..', 'server.log');
-const RESULTS_FILE = path.join(__dirname, '..', 'data', 'results.json');
 
 /**
  * Rotate the server.log file if it exceeds the max size.
@@ -74,8 +74,8 @@ function rotateLogIfNeeded() {
 }
 
 /**
- * Remove items from results.json that are older than the configured max age.
- * An item is considered "old" based on its firstSeen timestamp.
+ * Remove expired results from the database that are older than the configured max age.
+ * An item is considered "old" based on its lastSeen or firstSeen timestamp.
  * 
  * @returns {Object} Statistics about the cleanup
  */
@@ -90,73 +90,48 @@ function cleanupExpiredResults() {
     };
 
     try {
-        if (!fs.existsSync(RESULTS_FILE)) {
-            return stats;
-        }
-
-        const fileStats = fs.statSync(RESULTS_FILE);
-        stats.originalSize = fileStats.size;
-
-        const results = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - CONFIG.RESULTS_MAX_AGE_DAYS);
-        const cutoffMs = cutoffDate.getTime();
+        const cutoffIso = cutoffDate.toISOString();
 
-        let totalRemoved = 0;
-        let totalKept = 0;
+        // Count before
+        const beforeCount = db.prepare('SELECT COUNT(*) as count FROM results').get().count;
+        stats.originalSize = beforeCount;
 
-        for (const watchId of Object.keys(results)) {
-            stats.watchlistsProcessed++;
-            const watchData = results[watchId];
+        // Delete expired items:
+        // Keep items that have no timestamps (legacy) or have been seen recently
+        const deleteStmt = db.prepare(`
+            DELETE FROM results 
+            WHERE COALESCE(last_seen, first_seen) IS NOT NULL 
+            AND COALESCE(last_seen, first_seen) < ?
+        `);
+        const result = deleteStmt.run(cutoffIso);
+        stats.itemsRemoved = result.changes;
 
-            if (!watchData.items || !Array.isArray(watchData.items)) {
-                continue;
-            }
+        // Count after
+        const afterCount = db.prepare('SELECT COUNT(*) as count FROM results').get().count;
+        stats.itemsKept = afterCount;
+        stats.newSize = afterCount;
 
-            const originalCount = watchData.items.length;
-
-            // Filter out items older than the cutoff
-            // Keep items that have no timestamps (legacy) or have been seen recently (lastSeen >= cutoff)
-            watchData.items = watchData.items.filter(item => {
-                // Determine the most recent time the item was seen
-                // Use lastSeen if available, otherwise firstSeen
-                const dateStr = item.lastSeen || item.firstSeen;
-
-                if (!dateStr) {
-                    return true; // Keep legacy items without any timestamps
-                }
-
-                const itemDate = new Date(dateStr).getTime();
-                return itemDate >= cutoffMs;
-            });
-
-            const removedCount = originalCount - watchData.items.length;
-            totalRemoved += removedCount;
-            totalKept += watchData.items.length;
-
-            // Update the newCount if items were removed
-            if (removedCount > 0) {
-                const newItemCount = watchData.items.filter(item => item.isNew).length;
-                watchData.newCount = newItemCount;
-            }
-        }
-
-        stats.itemsRemoved = totalRemoved;
-        stats.itemsKept = totalKept;
-
-        if (totalRemoved > 0) {
-            // Write back the cleaned results
-            const newContent = JSON.stringify(results, null, 2);
-            fs.writeFileSync(RESULTS_FILE, newContent);
-            stats.newSize = Buffer.byteLength(newContent, 'utf8');
+        // Update new_count in results_meta for affected watch IDs
+        if (stats.itemsRemoved > 0) {
             stats.cleaned = true;
 
-            console.log(`[Cleanup] Results cleanup: removed ${totalRemoved} expired items (older than ${CONFIG.RESULTS_MAX_AGE_DAYS} days)`);
-            console.log(`[Cleanup] Results size reduced from ${(stats.originalSize / 1024).toFixed(1)} KB to ${(stats.newSize / 1024).toFixed(1)} KB`);
+            // Recalculate new_count for all watch IDs
+            db.prepare(`
+                UPDATE results_meta SET new_count = (
+                    SELECT COUNT(*) FROM results 
+                    WHERE results.watch_id = results_meta.watch_id AND results.is_new = 1
+                )
+            `).run();
+
+            console.log(`[Cleanup] Results cleanup: removed ${stats.itemsRemoved} expired items (older than ${CONFIG.RESULTS_MAX_AGE_DAYS} days)`);
+            console.log(`[Cleanup] Results: ${beforeCount} → ${afterCount} items`);
         } else {
-            stats.newSize = stats.originalSize;
             console.log(`[Cleanup] Results cleanup: no expired items found`);
         }
+
+        stats.watchlistsProcessed = db.prepare('SELECT COUNT(DISTINCT watch_id) as count FROM results').get().count;
 
     } catch (error) {
         console.error('[Cleanup] Error cleaning results:', error.message);

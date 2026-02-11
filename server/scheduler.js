@@ -7,96 +7,98 @@ const EmailService = require('./emailService');
 const NtfyService = require('./utils/ntfyService');
 const Cleanup = require('./utils/cleanup');
 const searchAggregator = require('./scrapers');
+const db = require('./models/database');
 const fs = require('fs');
 const path = require('path');
 
-const RESULTS_FILE = path.join(__dirname, 'data/results.json');
+// Prepared statements for results
+const stmts = {
+    // Results CRUD
+    getResultsByWatchId: db.prepare(`
+        SELECT title, link, image, price, bid_price as bidPrice, bin_price as binPrice, 
+               end_time as endTime, source, first_seen as firstSeen, last_seen as lastSeen, 
+               is_new as isNew, hidden
+        FROM results WHERE watch_id = ?
+        ORDER BY is_new DESC, first_seen DESC
+    `),
+    findByLink: db.prepare('SELECT * FROM results WHERE watch_id = ? AND link = ?'),
+    findByTitleSource: db.prepare('SELECT * FROM results WHERE watch_id = ? AND title = ? AND source = ?'),
+    upsertResult: db.prepare(`
+        INSERT INTO results (watch_id, title, link, image, price, bid_price, bin_price, end_time, source, first_seen, last_seen, is_new, hidden)
+        VALUES (@watchId, @title, @link, @image, @price, @bidPrice, @binPrice, @endTime, @source, @firstSeen, @lastSeen, @isNew, @hidden)
+        ON CONFLICT(watch_id, link) DO UPDATE SET
+            title = @title, image = @image, price = @price, bid_price = @bidPrice, bin_price = @binPrice,
+            end_time = @endTime, last_seen = @lastSeen, is_new = @isNew, hidden = @hidden
+    `),
+    deleteResultsByWatchId: db.prepare('DELETE FROM results WHERE watch_id = ?'),
+    deleteResultByLink: db.prepare('DELETE FROM results WHERE watch_id = ? AND link = ?'),
+    clearNewFlags: db.prepare('UPDATE results SET is_new = 0 WHERE watch_id = ?'),
+    clearAllNewFlags: db.prepare('UPDATE results SET is_new = 0'),
+    countNonHidden: db.prepare('SELECT COUNT(*) as count FROM results WHERE watch_id = ? AND hidden = 0'),
+    countNew: db.prepare('SELECT COUNT(*) as count FROM results WHERE watch_id = ? AND is_new = 1'),
+    deleteBySource: db.prepare('DELETE FROM results WHERE watch_id = ? AND source LIKE ?'),
 
-// Ensure results file exists
-if (!fs.existsSync(RESULTS_FILE)) {
-    fs.writeFileSync(RESULTS_FILE, JSON.stringify({}, null, 2));
-}
+    // Prune results by source
+    deleteDisabledSource: db.prepare('DELETE FROM results WHERE watch_id = ? AND LOWER(source) LIKE ?'),
+
+    // Grace period cleanup - get items not in the current results set
+    getExistingLinks: db.prepare('SELECT link FROM results WHERE watch_id = ?'),
+    getExistingForGrace: db.prepare(`
+        SELECT title, link, source, first_seen as firstSeen, last_seen as lastSeen, is_new as isNew, hidden, 
+               image, price, bid_price as bidPrice, bin_price as binPrice, end_time as endTime
+        FROM results WHERE watch_id = ? AND link NOT IN (SELECT value FROM json_each(?))
+    `),
+    deleteExpiredGrace: db.prepare('DELETE FROM results WHERE watch_id = ? AND link = ?'),
+    hideResult: db.prepare('UPDATE results SET hidden = ?, is_new = 0 WHERE watch_id = ? AND link = ?'),
+
+    // Results meta
+    getMeta: db.prepare('SELECT * FROM results_meta WHERE watch_id = ?'),
+    upsertMeta: db.prepare('INSERT OR REPLACE INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, ?)'),
+    clearMetaNewCount: db.prepare('UPDATE results_meta SET new_count = 0 WHERE watch_id = ?'),
+    clearAllMetaNewCounts: db.prepare('UPDATE results_meta SET new_count = 0'),
+    getAllMeta: db.prepare('SELECT watch_id, new_count FROM results_meta'),
+};
 
 const Scheduler = {
     isRunning: false,
-    progress: null,  // { current: number, total: number, currentItem: string }
+    progress: null,
     shouldAbort: false,
-    resultsCache: null, // In-memory cache for results.json
 
-    // Load results into cache (lazy load)
-    loadResults: () => {
-        if (Scheduler.resultsCache === null) {
-            try {
-                if (fs.existsSync(RESULTS_FILE)) {
-                    Scheduler.resultsCache = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
-                } else {
-                    Scheduler.resultsCache = {};
-                }
-            } catch (e) {
-                console.error('Error loading results cache:', e);
-                Scheduler.resultsCache = {};
-            }
-        }
-        return Scheduler.resultsCache;
-    },
+    // No longer need results cache - SQLite is the source of truth
+    // Keep loadResults/persistResults as no-ops for backward compatibility
+    loadResults: () => { /* no-op, data is in SQLite */ },
+    loadResultsAsync: async () => { /* no-op */ },
+    persistResults: async () => { /* no-op, SQLite auto-persists */ },
 
-    // Async load results into cache
-    loadResultsAsync: async () => {
-        if (Scheduler.resultsCache === null) {
-            try {
-                const data = await fs.promises.readFile(RESULTS_FILE, 'utf8');
-                Scheduler.resultsCache = JSON.parse(data);
-            } catch (e) {
-                // If file doesn't exist, return empty object
-                if (e.code !== 'ENOENT') {
-                    console.error('Error loading results cache (async):', e);
-                }
-                Scheduler.resultsCache = {};
-            }
-        }
-        return Scheduler.resultsCache;
-    },
-
-    // Persist cache to disk
-    persistResults: async () => {
-        if (Scheduler.resultsCache === null) return;
-        try {
-            // Using async write to avoid blocking event loop
-            await fs.promises.writeFile(RESULTS_FILE, JSON.stringify(Scheduler.resultsCache, null, 2));
-        } catch (e) {
-            console.error('Error persisting results:', e);
-        }
-    },
-
-    // Prune results for a watchId (remove disabled sites)
     pruneResults: async (watchId, enabledSites) => {
-        Scheduler.loadResults();
-        const allResults = Scheduler.resultsCache;
+        const pruneTransaction = db.transaction(() => {
+            let removed = 0;
+            const sourceMappings = [
+                { key: 'mercari', pattern: '%mercari%' },
+                { key: 'yahoo', pattern: '%yahoo%' },
+                { key: 'paypay', pattern: '%paypay%' },
+                { key: 'fril', pattern: '%fril%' },
+                { key: 'fril', pattern: '%rakuma%' },
+                { key: 'surugaya', pattern: '%suruga%' },
+                { key: 'taobao', pattern: '%taobao%' },
+                { key: 'goofish', pattern: '%goofish%' },
+            ];
 
-        if (allResults[watchId] && allResults[watchId].items) {
-            const beforeCount = allResults[watchId].items.length;
-
-            allResults[watchId].items = allResults[watchId].items.filter(item => {
-                const source = (item.source || '').toLowerCase();
-                if (source.includes('mercari') && enabledSites.mercari === false) return false;
-                if (source.includes('yahoo') && enabledSites.yahoo === false) return false;
-                if (source.includes('paypay') && enabledSites.paypay === false) return false;
-                if ((source.includes('fril') || source.includes('rakuma')) && enabledSites.fril === false) return false;
-                if (source.includes('suruga') && enabledSites.surugaya === false) return false;
-                if (source.includes('taobao') && enabledSites.taobao === false) return false;
-                if (source.includes('goofish') && enabledSites.goofish === false) return false;
-                return true;
-            });
-
-            if (allResults[watchId].items.length !== beforeCount) {
-                // Update count if reduced
-                allResults[watchId].newCount = Math.max(0, allResults[watchId].newCount - (beforeCount - allResults[watchId].items.length));
-                if (allResults[watchId].items.length === 0) allResults[watchId].newCount = 0;
-
-                await Scheduler.persistResults();
-                console.log(`[Watchlist] Cleaned up ${beforeCount - allResults[watchId].items.length} disabled items for ${watchId}`);
+            for (const { key, pattern } of sourceMappings) {
+                if (enabledSites[key] === false) {
+                    const result = stmts.deleteDisabledSource.run(watchId, pattern);
+                    removed += result.changes;
+                }
             }
-        }
+
+            if (removed > 0) {
+                // Update new count
+                const newCount = stmts.countNew.get(watchId).count;
+                stmts.upsertMeta.run(watchId, new Date().toISOString(), newCount);
+                console.log(`[Watchlist] Cleaned up ${removed} disabled items for ${watchId}`);
+            }
+        });
+        pruneTransaction();
     },
 
     abort: () => {
@@ -112,19 +114,17 @@ const Scheduler = {
         // Check for resume state on startup
         Scheduler.resume();
 
-        // Schedule task to run every hour, but only execute if current JST hour is enabled
         cron.schedule('0 * * * *', async () => {
             if (Scheduler.isRunning) {
                 console.log('[Scheduler] Search already running, skipping scheduled run.');
                 return;
             }
 
-            if (!ScheduleSettings.isCurrentHourEnabled()) {
+            if (!ScheduleSettings.isScheduledNow()) {
                 console.log('[Scheduler] Current hour not in schedule, skipping.');
                 return;
             }
 
-            // Run cleanup before scheduled searches (log rotation + expired results)
             try {
                 Cleanup.runFullCleanup();
             } catch (err) {
@@ -144,7 +144,6 @@ const Scheduler = {
         if (fs.existsSync(RESUME_FILE)) {
             try {
                 const state = JSON.parse(fs.readFileSync(RESUME_FILE, 'utf8'));
-                // Check if stale (older than 24h?)
                 if (Date.now() - state.timestamp > 24 * 60 * 60 * 1000) {
                     console.log('Resume state too old, discarding.');
                     fs.unlinkSync(RESUME_FILE);
@@ -153,12 +152,10 @@ const Scheduler = {
 
                 console.log(`Resuming ${state.type} search from index ${state.currentIndex}...`);
 
-                // Reconstruct items list
                 const allItems = await Watchlist.getAll();
                 const itemsToRun = state.items.map(id => allItems.find(i => i.id === id)).filter(Boolean);
 
                 if (itemsToRun.length > 0) {
-                    // Reset scrapers before resuming to permit fresh start
                     searchAggregator.reset();
                     await Scheduler.runBatch(itemsToRun, state.type, state.currentIndex);
                 } else {
@@ -166,13 +163,12 @@ const Scheduler = {
                 }
             } catch (e) {
                 console.error('Error resuming:', e);
-                // fs.unlinkSync(RESUME_FILE); // Maybe safer to keep for inspection? Or delete to prevent crash loop.
             }
         }
     },
 
     runBatch: async (items, type = 'manual', startIndex = 0) => {
-        if (Scheduler.isRunning && startIndex === 0) return; // Prevent double run unless resuming internal
+        if (Scheduler.isRunning && startIndex === 0) return;
 
         Scheduler.isRunning = true;
         Scheduler.shouldAbort = false;
@@ -183,35 +179,24 @@ const Scheduler = {
 
         console.log(`[Batch] Starting ${type} run. ${items.length} items. From index ${startIndex}.`);
 
-        // Reset scrapers if starting fresh (startIndex 0 handled by caller usually, but safe to do here if 0)
         if (startIndex === 0) searchAggregator.reset();
 
-        // Pre-calculate item IDs for resume state to avoid O(N) in loop
         const itemIds = items.map(i => i.id);
 
         try {
             const CONCURRENCY = 3;
-            let itemsSinceLastPersist = 0;
-            const PERSIST_INTERVAL = 30; // Save every 30 items
 
             for (let idx = startIndex; idx < items.length; idx += CONCURRENCY) {
                 if (Scheduler.shouldAbort) {
                     console.log('[Scheduler] Aborted by user');
-                    // Delete resume file on abort
                     if (fs.existsSync(RESUME_FILE)) fs.unlinkSync(RESUME_FILE);
-
-                    // Persist any pending changes before aborting
-                    if (itemsSinceLastPersist > 0) {
-                        await Scheduler.persistResults();
-                    }
                     break;
                 }
 
-                // Process chunk
                 const chunk = items.slice(idx, idx + CONCURRENCY);
                 console.log(`[Batch] Processing chunk ${Math.floor(idx / CONCURRENCY) + 1} (${chunk.length} items)...`);
 
-                // Save resume state at start of chunk
+                // Save resume state
                 try {
                     fs.writeFileSync(RESUME_FILE, JSON.stringify({
                         type,
@@ -221,9 +206,7 @@ const Scheduler = {
                     }));
                 } catch (e) { console.error('Error saving resume state:', e); }
 
-                // Run chunk in parallel with staggering
                 await Promise.all(chunk.map(async (item, chunkOffset) => {
-                    // Stagger start to prevent CPU/Memory spikes on browser launch (ARM optimization)
                     if (chunkOffset > 0) {
                         await new Promise(resolve => setTimeout(resolve, chunkOffset * 2000));
                     }
@@ -274,8 +257,7 @@ const Scheduler = {
                             });
                         }
 
-                        // Save to memory only (persist=false), wait for chunk end to persist
-                        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred, false);
+                        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
 
                         if (newItems && newItems.length > 0) {
                             if (item.emailNotify !== false) {
@@ -291,34 +273,20 @@ const Scheduler = {
                     }
                 }));
 
-                // Track unpersisted count
-                itemsSinceLastPersist += chunk.length;
-
-                // Persist results to disk ONLY if interval reached
-                if (itemsSinceLastPersist >= PERSIST_INTERVAL) {
-                    await Scheduler.persistResults();
-                    itemsSinceLastPersist = 0;
-                }
+                // No need for persist intervals - SQLite auto-commits
             }
 
-            // Persist remaining items at the end
-            if (itemsSinceLastPersist > 0) {
-                await Scheduler.persistResults();
-            }
-
-            // Send digest if completed successfully (and not aborted) - ONLY for scheduled runs
+            // Send digest if completed
             if (!Scheduler.shouldAbort && Object.keys(allNewItems).length > 0 && type === 'scheduled') {
                 await EmailService.sendDigestEmail(allNewItems);
             }
 
-            // Cleanup resume file on success
             if (!Scheduler.shouldAbort && fs.existsSync(RESUME_FILE)) {
                 fs.unlinkSync(RESUME_FILE);
             }
 
         } catch (err) {
             console.error('[Scheduler] Error in runBatch:', err);
-            // Resume file remains for restart
         } finally {
             Scheduler.isRunning = false;
             Scheduler.progress = null;
@@ -326,274 +294,233 @@ const Scheduler = {
         }
     },
 
-    saveResults: (watchId, newResults, term = '', payPayError = false, persist = true) => {
-        // Ensure cache is loaded
-        const allResults = Scheduler.loadResults();
-
-        let newItems = [];
+    saveResults: (watchId, newResults, term = '', payPayError = false) => {
         const now = new Date().toISOString();
         const nowMs = Date.now();
-        const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
-        const SURUGAYA_GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000; // 14 days in milliseconds
-        const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
-        const PAYPAY_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
-        const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
-        const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
+        const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
+        const SURUGAYA_GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
+        const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
+        const PAYPAY_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
+        const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
+        const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
-        // Get existing items with their firstSeen timestamps
-        const existingItems = allResults[watchId]?.items || [];
-        const existingByLink = new Map(existingItems.map(item => [item.link, item]));
+        let newItems = [];
 
-        // Create map for duplicate detection by Title + Source
-        const existingByTitleSource = new Map();
-        existingItems.forEach(item => {
-            if (item.title && item.source) {
-                const key = `${item.title.trim()}|${item.source}`;
-                existingByTitleSource.set(key, item);
-            }
-        });
+        // Run the entire save operation in a transaction for atomicity & performance
+        const saveTransaction = db.transaction(() => {
+            // Get existing items for this watch ID
+            const existingItems = stmts.getResultsByWatchId.all(watchId);
+            const existingByLink = new Map(existingItems.map(item => [item.link, item]));
 
-        // Track which Yahoo items are in the new results (by title)
-        const newYahooTitles = new Set();
-        const newSurugayaTitles = new Set();
-        const newMercariTitles = new Set();
-        const newPayPayTitles = new Set();
-        const newTaobaoTitles = new Set();
-        const newGoofishTitles = new Set();
-
-        newResults.forEach(result => {
-            if (!result.title) return;
-            const title = result.title.trim();
-            const source = result.source ? result.source.toLowerCase() : '';
-
-            if (source.includes('yahoo')) {
-                newYahooTitles.add(title);
-            } else if (source.includes('suruga')) {
-                newSurugayaTitles.add(title);
-            } else if (source.includes('mercari')) {
-                newMercariTitles.add(title);
-            } else if (source.includes('paypay')) {
-                newPayPayTitles.add(title);
-            } else if (source === 'taobao') {
-                newTaobaoTitles.add(title);
-            } else if (source === 'goofish') {
-                newGoofishTitles.add(title);
-            }
-        });
-
-        // Process new results - preserve firstSeen for existing, add for new
-        // Also add lastSeen for Yahoo and Suruga-ya items
-        const processedResults = newResults.map(result => {
-            const existing = existingByLink.get(result.link);
-            const isYahoo = result.source && result.source.toLowerCase().includes('yahoo');
-            const isSurugaya = result.source && result.source.toLowerCase().includes('suruga');
-            const isMercari = result.source && result.source.toLowerCase().includes('mercari');
-            const isPayPay = result.source && result.source.toLowerCase().includes('paypay');
-            const isTaobao = result.source && result.source.toLowerCase() === 'taobao';
-            const isGoofish = result.source && result.source.toLowerCase() === 'goofish';
-
-            let duplicateInfo = null;
-            if (result.title && result.source) {
-                const titleStr = String(result.title).trim();
-                const duplicateKey = `${titleStr}|${result.source}`;
-                duplicateInfo = existingByTitleSource.get(duplicateKey);
-            }
-
-            if (existing) {
-                // Preserve firstSeen and mark as not new
-                return {
-                    ...result,
-                    firstSeen: existing.firstSeen,
-                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao || isGoofish) ? now : existing.lastSeen,
-                    isNew: false,
-                    hidden: false // Clear hidden flag - item is visible again
-                };
-            } else if (duplicateInfo) {
-                // Same Name + Same Source exists = Treated as NOT NEW
-                return {
-                    ...result,
-                    firstSeen: duplicateInfo.firstSeen, // Inherit timestamp
-                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao || isGoofish) ? now : duplicateInfo.lastSeen,
-                    isNew: false,
-                    hidden: false // Clear hidden flag - item is visible again
-                };
-            } else {
-                // New item
-                newItems.push(result);
-                return {
-                    ...result,
-                    firstSeen: now,
-                    lastSeen: (isYahoo || isSurugaya || isMercari || isPayPay || isTaobao || isGoofish) ? now : undefined,
-                    isNew: true,
-                    hidden: false
-                };
-            }
-        });
-
-        if (newItems.length > 0) {
-            console.log(`[Scheduler] Found ${newItems.length} new item(s) for ${term || watchId}`);
-        }
-
-        // Sort: new items first (by firstSeen desc), then existing items (by firstSeen desc)
-        processedResults.sort((a, b) => {
-            // New items come first
-            if (a.isNew && !b.isNew) return -1;
-            if (!a.isNew && b.isNew) return 1;
-            // Then sort by firstSeen (most recent first)
-            return new Date(b.firstSeen) - new Date(a.firstSeen);
-        });
-
-        let finalResults = processedResults;
-
-        // Unified Grace Period Logic (Optimized)
-        // Instead of multiple passes, iterate existing items once and check against preservation rules
-
-        const processedLinks = new Set(processedResults.map(r => r.link));
-        const preservedItems = [];
-
-        for (const item of existingItems) {
-            // If item is already in processedResults (updated), skip preservation check
-            if (processedLinks.has(item.link)) continue;
-
-            const source = item.source ? item.source.toLowerCase() : '';
-            let preserve = false;
-            let hidden = true; // Default to hidden unless specified (Suruga-ya)
-
-            const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
-                item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
-            const ageMs = nowMs - lastSeenTime;
-
-            if (source.includes('yahoo')) {
-                if (ageMs < YAHOO_GRACE_PERIOD_MS) {
-                    // Skip if title exists in new results
-                    if (!item.title || !newYahooTitles.has(item.title.trim())) {
-                        preserve = true;
-                    }
+            // Create map for duplicate detection by Title + Source
+            const existingByTitleSource = new Map();
+            existingItems.forEach(item => {
+                if (item.title && item.source) {
+                    const key = `${item.title.trim()}|${item.source}`;
+                    existingByTitleSource.set(key, item);
                 }
-            } else if (source.includes('suruga')) {
-                // Exclude placeholder
-                if (item.title && item.title.startsWith('Search Suruga-ya for')) continue;
+            });
 
-                if (ageMs < SURUGAYA_GRACE_PERIOD_MS) {
-                    if (!item.title || !newSurugayaTitles.has(item.title.trim())) {
-                        preserve = true;
-                        hidden = false; // Suruga-ya items remain visible
-                    }
-                }
-            } else if (source.includes('mercari')) {
-                if (ageMs < MERCARI_GRACE_PERIOD_MS) {
-                    if (!item.title || !newMercariTitles.has(item.title.trim())) {
-                        preserve = true;
-                    }
-                }
-            } else if (source.includes('paypay')) {
-                if (ageMs < PAYPAY_GRACE_PERIOD_MS) {
-                    if (!item.title || !newPayPayTitles.has(item.title.trim())) {
-                        preserve = true;
-                    }
-                }
-            } else if (source === 'taobao') {
-                if (ageMs < TAOBAO_GRACE_PERIOD_MS) {
-                    if (!item.title || !newTaobaoTitles.has(item.title.trim())) {
-                        preserve = true;
-                    }
-                }
-            } else if (source === 'goofish') {
-                if (ageMs < GOOFISH_GRACE_PERIOD_MS) {
-                    if (!item.title || !newGoofishTitles.has(item.title.trim())) {
-                        preserve = true;
-                    }
-                }
-            }
+            // Track which items per source are in new results (by title)
+            const newTitlesBySource = {
+                yahoo: new Set(),
+                suruga: new Set(),
+                mercari: new Set(),
+                paypay: new Set(),
+                taobao: new Set(),
+                goofish: new Set(),
+            };
 
-            if (preserve) {
-                preservedItems.push({
-                    ...item,
-                    isNew: false,
-                    hidden: hidden
+            newResults.forEach(result => {
+                if (!result.title) return;
+                const title = result.title.trim();
+                const source = result.source ? result.source.toLowerCase() : '';
+
+                if (source.includes('yahoo')) newTitlesBySource.yahoo.add(title);
+                else if (source.includes('suruga')) newTitlesBySource.suruga.add(title);
+                else if (source.includes('mercari')) newTitlesBySource.mercari.add(title);
+                else if (source.includes('paypay')) newTitlesBySource.paypay.add(title);
+                else if (source === 'taobao') newTitlesBySource.taobao.add(title);
+                else if (source === 'goofish') newTitlesBySource.goofish.add(title);
+            });
+
+            // Process new results
+            const processedLinks = new Set();
+
+            for (const result of newResults) {
+                const existing = existingByLink.get(result.link);
+                const source = result.source ? result.source.toLowerCase() : '';
+                const isTimedSource = source.includes('yahoo') || source.includes('suruga') ||
+                    source.includes('mercari') || source.includes('paypay') ||
+                    source === 'taobao' || source === 'goofish';
+
+                let duplicateInfo = null;
+                if (result.title && result.source) {
+                    const titleStr = String(result.title).trim();
+                    const duplicateKey = `${titleStr}|${result.source}`;
+                    duplicateInfo = existingByTitleSource.get(duplicateKey);
+                }
+
+                let firstSeen, lastSeen, isNew, hidden;
+
+                if (existing) {
+                    firstSeen = existing.firstSeen;
+                    lastSeen = isTimedSource ? now : existing.lastSeen;
+                    isNew = 0;
+                    hidden = 0;
+                } else if (duplicateInfo) {
+                    firstSeen = duplicateInfo.firstSeen;
+                    lastSeen = isTimedSource ? now : duplicateInfo.lastSeen;
+                    isNew = 0;
+                    hidden = 0;
+                } else {
+                    firstSeen = now;
+                    lastSeen = isTimedSource ? now : null;
+                    isNew = 1;
+                    hidden = 0;
+                    newItems.push(result);
+                }
+
+                stmts.upsertResult.run({
+                    watchId,
+                    title: result.title || '',
+                    link: result.link,
+                    image: result.image || '',
+                    price: result.price || '',
+                    bidPrice: result.bidPrice || '',
+                    binPrice: result.binPrice || '',
+                    endTime: result.endTime || '',
+                    source: result.source || '',
+                    firstSeen,
+                    lastSeen,
+                    isNew,
+                    hidden
                 });
+
+                processedLinks.add(result.link);
             }
-        }
 
-        if (preservedItems.length > 0) {
-            console.log(`[Scheduler] Grace period: Preserved ${preservedItems.length} items total for ${term || watchId}`);
-        }
+            // Grace period logic for items not in current results
+            for (const item of existingItems) {
+                if (processedLinks.has(item.link)) continue;
 
-        finalResults = [...processedResults, ...preservedItems];
+                const source = item.source ? item.source.toLowerCase() : '';
+                let preserve = false;
+                let hidden = 1; // Default to hidden
 
-        // Save results with newCount
-        allResults[watchId] = {
-            updatedAt: now,
-            newCount: newItems.length,
-            items: finalResults
-        };
+                const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
+                    item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
+                const ageMs = nowMs - lastSeenTime;
 
-        if (persist) {
-            try {
-                fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
-            } catch (e) {
-                console.error('Error writing results file:', e);
+                if (source.includes('yahoo')) {
+                    if (ageMs < YAHOO_GRACE_PERIOD_MS) {
+                        if (!item.title || !newTitlesBySource.yahoo.has(item.title.trim())) {
+                            preserve = true;
+                        }
+                    }
+                } else if (source.includes('suruga')) {
+                    if (item.title && item.title.startsWith('Search Suruga-ya for')) continue;
+                    if (ageMs < SURUGAYA_GRACE_PERIOD_MS) {
+                        if (!item.title || !newTitlesBySource.suruga.has(item.title.trim())) {
+                            preserve = true;
+                            hidden = 0; // Suruga-ya items remain visible
+                        }
+                    }
+                } else if (source.includes('mercari')) {
+                    if (ageMs < MERCARI_GRACE_PERIOD_MS) {
+                        if (!item.title || !newTitlesBySource.mercari.has(item.title.trim())) {
+                            preserve = true;
+                        }
+                    }
+                } else if (source.includes('paypay')) {
+                    if (ageMs < PAYPAY_GRACE_PERIOD_MS) {
+                        if (!item.title || !newTitlesBySource.paypay.has(item.title.trim())) {
+                            preserve = true;
+                        }
+                    }
+                } else if (source === 'taobao') {
+                    if (ageMs < TAOBAO_GRACE_PERIOD_MS) {
+                        if (!item.title || !newTitlesBySource.taobao.has(item.title.trim())) {
+                            preserve = true;
+                        }
+                    }
+                } else if (source === 'goofish') {
+                    if (ageMs < GOOFISH_GRACE_PERIOD_MS) {
+                        if (!item.title || !newTitlesBySource.goofish.has(item.title.trim())) {
+                            preserve = true;
+                        }
+                    }
+                }
+
+                if (preserve) {
+                    // Update hidden/isNew status for preserved items
+                    stmts.hideResult.run(hidden, watchId, item.link);
+                } else {
+                    // Remove expired items
+                    stmts.deleteExpiredGrace.run(watchId, item.link);
+                }
             }
-        }
 
-        return { newItems, totalCount: finalResults.filter(r => !r.hidden).length };
+            if (newItems.length > 0) {
+                console.log(`[Scheduler] Found ${newItems.length} new item(s) for ${term || watchId}`);
+            }
+
+            // Update metadata
+            const newCount = newItems.length;
+            stmts.upsertMeta.run(watchId, now, newCount);
+
+            // Get total non-hidden count
+            const totalCount = stmts.countNonHidden.get(watchId).count;
+
+            return { newItems, totalCount };
+        });
+
+        return saveTransaction();
     },
 
     clearNewFlags: (watchId) => {
-        const allResults = Scheduler.loadResults();
-        if (allResults[watchId]) {
-            // Clear isNew flags and reset newCount
-            allResults[watchId].items = allResults[watchId].items.map(item => ({
-                ...item,
-                isNew: false
-            }));
-            allResults[watchId].newCount = 0;
-
-            try {
-                fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
-            } catch (e) {
-                console.error('Error clearing new flags:', e);
-            }
-        }
+        const clearTransaction = db.transaction(() => {
+            stmts.clearNewFlags.run(watchId);
+            stmts.clearMetaNewCount.run(watchId);
+        });
+        clearTransaction();
     },
 
     getResults: async (watchId) => {
-        const allResults = await Scheduler.loadResultsAsync();
-        return allResults[watchId] || null;
+        const meta = stmts.getMeta.get(watchId);
+        const items = stmts.getResultsByWatchId.all(watchId);
+
+        if (!meta && items.length === 0) return null;
+
+        // Convert integer booleans to JS booleans for API compatibility
+        const formattedItems = items.map(item => ({
+            ...item,
+            isNew: item.isNew === 1,
+            hidden: item.hidden === 1
+        }));
+
+        return {
+            updatedAt: meta?.updated_at || null,
+            newCount: meta?.new_count || 0,
+            items: formattedItems
+        };
     },
 
     getNewCounts: async () => {
-        const allResults = await Scheduler.loadResultsAsync();
+        const rows = stmts.getAllMeta.all();
         const counts = {};
-        for (const [id, data] of Object.entries(allResults)) {
-            counts[id] = data.newCount || 0;
+        for (const row of rows) {
+            counts[row.watch_id] = row.new_count || 0;
         }
         return counts;
     },
 
     markAllSeen: () => {
-        const allResults = Scheduler.loadResults();
-        let updated = false;
-
-        for (const id in allResults) {
-            if (allResults[id].newCount > 0) {
-                allResults[id].newCount = 0;
-                allResults[id].items = allResults[id].items.map(item => ({
-                    ...item,
-                    isNew: false
-                }));
-                updated = true;
-            }
-        }
-
-        if (updated) {
-            try {
-                fs.writeFileSync(RESULTS_FILE, JSON.stringify(allResults, null, 2));
-            } catch (e) {
-                console.error('Error marking all seen:', e);
-                return false;
-            }
-        }
+        const markTransaction = db.transaction(() => {
+            stmts.clearAllNewFlags.run();
+            stmts.clearAllMetaNewCounts.run();
+        });
+        markTransaction();
         return true;
     }
 };

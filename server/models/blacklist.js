@@ -1,110 +1,102 @@
-const fs = require('fs');
-const path = require('path');
+const db = require('./database');
+const crypto = require('crypto');
 
-const DATA_DIR = path.join(__dirname, '../data');
-const BLACKLIST_FILE = path.join(DATA_DIR, 'blacklist.json');
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-// Ensure blacklist file exists
-if (!fs.existsSync(BLACKLIST_FILE)) {
-    fs.writeFileSync(BLACKLIST_FILE, JSON.stringify([], null, 2));
-}
-
-let blacklistCache = null;
-
-const loadCache = () => {
-    if (blacklistCache) return blacklistCache;
-    try {
-        const data = fs.readFileSync(BLACKLIST_FILE, 'utf8');
-        blacklistCache = JSON.parse(data);
-    } catch (err) {
-        console.error('Error reading blacklist:', err);
-        blacklistCache = [];
-    }
-    return blacklistCache;
+// Prepared statements
+const stmts = {
+    getAll: db.prepare('SELECT id, term, added_at as addedAt FROM blacklist ORDER BY added_at DESC'),
+    insert: db.prepare('INSERT INTO blacklist (id, term, added_at) VALUES (?, ?, ?)'),
+    remove: db.prepare('DELETE FROM blacklist WHERE id = ?'),
+    findByTerm: db.prepare('SELECT id FROM blacklist WHERE LOWER(term) = LOWER(?)'),
+    clear: db.prepare('DELETE FROM blacklist'),
 };
+
+let cachedList = null;
+
+function loadCache() {
+    if (cachedList) return cachedList;
+    cachedList = stmts.getAll.all();
+    return cachedList;
+}
+
+function invalidateCache() {
+    cachedList = null;
+}
 
 const Blacklist = {
     getAll: () => {
         const list = loadCache();
-        return [...list]; // Return shallow copy to prevent mutation
+        return list.map(item => ({ ...item }));
     },
 
     add: (term) => {
-        const list = loadCache();
-        const normalized = term.trim().toLowerCase();
+        const trimmed = term.trim();
+        if (!trimmed) return null;
 
-        // Check if already exists
-        if (list.some(item => item.term.toLowerCase() === normalized)) {
-            return null;
-        }
+        // Check for duplicate
+        const existing = stmts.findByTerm.get(trimmed);
+        if (existing) return null;
 
-        const newItem = {
-            id: Date.now().toString(),
-            term: term.trim(),
-            addedAt: new Date().toISOString()
-        };
+        const id = crypto.randomBytes(8).toString('hex');
+        const addedAt = new Date().toISOString();
 
-        // Update file first, then cache
-        const newList = [...list, newItem];
-        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(newList, null, 2));
-        blacklistCache = newList;
+        stmts.insert.run(id, trimmed, addedAt);
+        invalidateCache();
 
-        return newItem;
+        return { id, term: trimmed, addedAt };
     },
 
     remove: (id) => {
-        const list = loadCache();
-        const newList = list.filter(item => item.id !== id);
-
-        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(newList, null, 2));
-        blacklistCache = newList;
-
-        return { success: true };
+        stmts.remove.run(id);
+        invalidateCache();
     },
 
+    /**
+     * Replace all blacklist terms at once.
+     * Used by the PUT /api/blacklist endpoint.
+     */
     replaceAll: (terms) => {
-        // Terms is an array of strings
-        if (!Array.isArray(terms)) return { error: 'Terms must be an array' };
+        const replaceTransaction = db.transaction(() => {
+            stmts.clear.run();
+            const results = [];
+            for (const term of terms) {
+                const trimmed = (typeof term === 'string' ? term : term.term || '').trim();
+                if (!trimmed) continue;
 
-        const newList = terms
-            .map(t => t.trim())
-            .filter(t => t.length > 0)
-            .filter((val, index, self) => self.indexOf(val) === index) // Unique
-            .map(term => ({
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                term: term,
-                addedAt: new Date().toISOString()
-            }));
+                const id = crypto.randomBytes(8).toString('hex');
+                const addedAt = new Date().toISOString();
+                stmts.insert.run(id, trimmed, addedAt);
+                results.push({ id, term: trimmed, addedAt });
+            }
+            return results;
+        });
 
-        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(newList, null, 2));
-        blacklistCache = newList;
-
-        return newList;
+        const results = replaceTransaction();
+        invalidateCache();
+        return results;
     },
 
-    // Check if a title contains any blacklisted terms
+    /**
+     * Check if a title is blacklisted.
+     */
     isBlacklisted: (title) => {
         if (!title) return false;
         const list = loadCache();
-        const titleLower = title.toLowerCase();
-        return list.some(item => titleLower.includes(item.term.toLowerCase()));
+        const lowerTitle = title.toLowerCase();
+        return list.some(item => lowerTitle.includes(item.term.toLowerCase()));
     },
 
-    // Filter results by blacklist terms
+    /**
+     * Filter results by removing items whose titles match any blacklist term.
+     */
     filterResults: (results) => {
+        if (!results || results.length === 0) return results;
         const list = loadCache();
         if (list.length === 0) return results;
 
-        const blacklistTerms = list.map(item => item.term.toLowerCase());
-        return results.filter(item => {
-            if (!item.title) return false; // Filter out items without titles safely
-            const titleLower = item.title.toLowerCase();
-            return !blacklistTerms.some(term => titleLower.includes(term));
+        const lowerTerms = list.map(item => item.term.toLowerCase());
+        return results.filter(result => {
+            const title = (result.title || '').toLowerCase();
+            return !lowerTerms.some(term => title.includes(term));
         });
     }
 };

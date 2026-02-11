@@ -1,52 +1,94 @@
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const path = require('path');
+const db = require('./database');
 
-const DATA_DIR = path.join(__dirname, '../data');
-const WATCHLIST_FILE = path.join(DATA_DIR, 'watchlist.json');
+// Prepared statements
+const stmts = {
+    getAll: db.prepare(`
+        SELECT id, name, terms, created_at as createdAt, last_run as lastRun, 
+               last_result_count as lastResultCount, active, email_notify as emailNotify, 
+               priority, strict, filters, enabled_sites as enabledSites, sort_order as sortOrder
+        FROM watchlist ORDER BY sort_order ASC, created_at ASC
+    `),
+    getById: db.prepare('SELECT * FROM watchlist WHERE id = ?'),
+    insert: db.prepare(`
+        INSERT INTO watchlist (id, name, terms, created_at, last_run, last_result_count, active, email_notify, priority, strict, filters, enabled_sites, sort_order)
+        VALUES (@id, @name, @terms, @createdAt, @lastRun, @lastResultCount, @active, @emailNotify, @priority, @strict, @filters, @enabledSites, @sortOrder)
+    `),
+    update: db.prepare(`
+        UPDATE watchlist SET name=@name, terms=@terms, last_run=@lastRun, last_result_count=@lastResultCount, 
+        active=@active, email_notify=@emailNotify, priority=@priority, strict=@strict, 
+        filters=@filters, enabled_sites=@enabledSites, sort_order=@sortOrder
+        WHERE id=@id
+    `),
+    remove: db.prepare('DELETE FROM watchlist WHERE id = ?'),
+    updateLastRun: db.prepare('UPDATE watchlist SET last_run = ?, last_result_count = ? WHERE id = ?'),
+    updateSortOrder: db.prepare('UPDATE watchlist SET sort_order = ? WHERE id = ?'),
+    maxSortOrder: db.prepare('SELECT MAX(sort_order) as maxOrder FROM watchlist'),
+    count: db.prepare('SELECT COUNT(*) as count FROM watchlist'),
+};
 
-// Ensure data directory exists
-if (!fsSync.existsSync(DATA_DIR)) {
-    fsSync.mkdirSync(DATA_DIR, { recursive: true });
+const DEFAULT_ENABLED_SITES = {
+    mercari: true,
+    yahoo: true,
+    paypay: true,
+    fril: true,
+    surugaya: true,
+    taobao: false
+};
+
+/**
+ * Convert a raw DB row to the application-level watchlist item format
+ */
+function rowToItem(row) {
+    if (!row) return null;
+
+    const terms = JSON.parse(row.terms || '[]');
+    const filters = JSON.parse(row.filters || '[]');
+    const enabledSites = JSON.parse(row.enabledSites || '{}');
+
+    return {
+        id: row.id,
+        name: row.name || terms[0],
+        term: row.name || terms[0], // legacy support
+        terms,
+        createdAt: row.createdAt,
+        lastRun: row.lastRun || null,
+        lastResultCount: row.lastResultCount || null,
+        active: row.active === 1 || row.active === true,
+        emailNotify: row.emailNotify === 1 || row.emailNotify === true,
+        priority: row.priority === 1 || row.priority === true,
+        strict: row.strict === 1 || row.strict === true || row.strict === undefined,
+        filters,
+        enabledSites: { ...DEFAULT_ENABLED_SITES, ...enabledSites },
+        sortOrder: row.sortOrder
+    };
 }
 
-// Ensure watchlist file exists
-if (!fsSync.existsSync(WATCHLIST_FILE)) {
-    fsSync.writeFileSync(WATCHLIST_FILE, JSON.stringify([], null, 2));
+/**
+ * Convert a watchlist item to DB parameters
+ */
+function itemToParams(item) {
+    return {
+        id: item.id,
+        name: item.name,
+        terms: JSON.stringify(item.terms || []),
+        createdAt: item.createdAt,
+        lastRun: item.lastRun || null,
+        lastResultCount: item.lastResultCount || null,
+        active: item.active !== false ? 1 : 0,
+        emailNotify: item.emailNotify !== false ? 1 : 0,
+        priority: item.priority === true ? 1 : 0,
+        strict: item.strict !== false ? 1 : 0,
+        filters: JSON.stringify(item.filters || []),
+        enabledSites: JSON.stringify(item.enabledSites || DEFAULT_ENABLED_SITES),
+        sortOrder: item.sortOrder != null ? item.sortOrder : null
+    };
 }
 
 const Watchlist = {
-    _save: async (list) => {
-        await fs.writeFile(WATCHLIST_FILE, JSON.stringify(list, null, 2));
-    },
-
     getAll: async () => {
         try {
-            const data = await fs.readFile(WATCHLIST_FILE, 'utf8');
-            const list = JSON.parse(data);
-            return list.map(item => {
-                // Migration: Ensure 'terms' array exists
-                const terms = Array.isArray(item.terms) ? item.terms : [item.term];
-                return {
-                    ...item,
-                    terms: terms,
-                    // effective 'term' for display/legacy is the name or the first term
-                    term: item.name || terms[0] || item.term,
-                    name: item.name || terms[0] || item.term,
-                    emailNotify: item.emailNotify !== undefined ? item.emailNotify : true,
-                    priority: item.priority === true, // Ensure boolean
-                    strict: item.strict !== false,    // Default to true
-                    filters: item.filters || [], // Per-watch filter terms
-                    enabledSites: item.enabledSites || {
-                        mercari: true,
-                        yahoo: true,
-                        paypay: true,
-                        fril: true,
-                        surugaya: true,
-                        taobao: false
-                    }
-                };
-            });
+            const rows = stmts.getAll.all();
+            return rows.map(rowToItem);
         } catch (err) {
             console.error('Error reading watchlist:', err);
             return [];
@@ -54,19 +96,32 @@ const Watchlist = {
     },
 
     get: async (id) => {
-        const all = await Watchlist.getAll();
-        return all.find(i => i.id === id) || null;
+        try {
+            const row = stmts.getById.get(id);
+            if (!row) return null;
+            return rowToItem({
+                ...row,
+                createdAt: row.created_at,
+                lastRun: row.last_run,
+                lastResultCount: row.last_result_count,
+                emailNotify: row.email_notify,
+                enabledSites: row.enabled_sites,
+                sortOrder: row.sort_order
+            });
+        } catch (err) {
+            console.error('Error getting watchlist item:', err);
+            return null;
+        }
     },
 
     add: async (data) => {
         const list = await Watchlist.getAll();
+
         // Support both simple string (legacy) and object with terms
         const terms = typeof data === 'string' ? [data] : (data.terms || [data.term]);
         const name = data.name || terms[0];
 
         // Check for duplicates
-        // We consider it a duplicate if the sorted JSON string representation of terms matches
-        // OR if the name matches (optional, but name/term is often 1:1)
         const normalizeTerms = (t) => JSON.stringify(t.slice().sort());
         const newTermsNorm = normalizeTerms(terms);
 
@@ -76,54 +131,52 @@ const Watchlist = {
         });
 
         if (existing) {
-            return existing; // Return existing item without adding a new one
+            return existing;
         }
+
+        // Get max sort order
+        const maxRow = stmts.maxSortOrder.get();
+        const sortOrder = (maxRow && maxRow.maxOrder != null) ? maxRow.maxOrder + 1 : 0;
 
         const newItem = {
             id: Date.now().toString(),
             name,
-            term: name, // legacy support
+            term: name,
             terms,
             createdAt: new Date().toISOString(),
             lastRun: null,
+            lastResultCount: null,
             active: true,
             emailNotify: true,
-            strict: data.strict !== false, // Default to true
-            filters: data.filters || [], // Persist filters if provided (e.g. from import)
-            enabledSites: data.enabledSites || {
-                mercari: true,
-                yahoo: true,
-                paypay: true,
-                fril: true,
-                surugaya: true,
-                taobao: false
-            }
+            priority: false,
+            strict: data.strict !== false,
+            filters: data.filters || [],
+            enabledSites: data.enabledSites || { ...DEFAULT_ENABLED_SITES },
+            sortOrder
         };
-        list.push(newItem);
-        await Watchlist._save(list);
+
+        stmts.insert.run(itemToParams(newItem));
         return newItem;
     },
 
     update: async (id, updates) => {
-        const list = await Watchlist.getAll();
-        const index = list.findIndex(i => i.id === id);
-        if (index !== -1) {
-            list[index] = { ...list[index], ...updates };
-            // Ensure consistency
-            if (list[index].terms && list[index].terms.length > 0) {
-                if (!list[index].name) list[index].name = list[index].terms[0];
-                list[index].term = list[index].name;
-            }
-            await Watchlist._save(list);
-            return list[index];
+        const item = await Watchlist.get(id);
+        if (!item) return null;
+
+        const updated = { ...item, ...updates };
+
+        // Ensure consistency
+        if (updated.terms && updated.terms.length > 0) {
+            if (!updated.name) updated.name = updated.terms[0];
+            updated.term = updated.name;
         }
-        return null;
+
+        stmts.update.run(itemToParams(updated));
+        return updated;
     },
 
     remove: async (id) => {
-        let list = await Watchlist.getAll();
-        list = list.filter(item => item.id !== id);
-        await Watchlist._save(list);
+        stmts.remove.run(id);
         return { success: true };
     },
 
@@ -140,87 +193,68 @@ const Watchlist = {
             else if (item.term) allTerms.add(item.term);
         });
 
-        // Create new merged item
+        const maxRow = stmts.maxSortOrder.get();
+        const sortOrder = (maxRow && maxRow.maxOrder != null) ? maxRow.maxOrder + 1 : 0;
+
         const mergedItem = {
             id: Date.now().toString(),
             name: newName || itemsToMerge[0].name || itemsToMerge[0].term,
             term: newName || itemsToMerge[0].name || itemsToMerge[0].term,
             terms: Array.from(allTerms),
             createdAt: new Date().toISOString(),
-            lastRun: null, // Reset last run since it's a new combo
+            lastRun: null,
+            lastResultCount: null,
             active: true,
-            emailNotify: itemsToMerge.some(i => i.emailNotify) // True if any had it on
+            emailNotify: itemsToMerge.some(i => i.emailNotify),
+            priority: false,
+            strict: true,
+            filters: [],
+            enabledSites: { ...DEFAULT_ENABLED_SITES },
+            sortOrder
         };
 
-        // Remove old items and add new one
-        const remainingList = list.filter(i => !ids.includes(i.id));
-        remainingList.push(mergedItem);
+        // Merge in a transaction: remove old, insert new
+        const mergeTransaction = db.transaction(() => {
+            for (const id of ids) {
+                stmts.remove.run(id);
+            }
+            stmts.insert.run(itemToParams(mergedItem));
+        });
+        mergeTransaction();
 
-        await Watchlist._save(remainingList);
         return mergedItem;
     },
 
     updateLastRun: async (id, resultCount = null) => {
-        const list = await Watchlist.getAll();
-        const item = list.find(i => i.id === id);
-        if (item) {
-            item.lastRun = new Date().toISOString();
-            if (resultCount !== null) {
-                item.lastResultCount = resultCount;
-            }
-            await Watchlist._save(list);
-        }
+        stmts.updateLastRun.run(new Date().toISOString(), resultCount, id);
     },
 
-
     toggleEmailNotify: async (id) => {
-        const list = await Watchlist.getAll();
-        const item = list.find(i => i.id === id);
-        if (item) {
-            item.emailNotify = !item.emailNotify;
-            await Watchlist._save(list);
-            return item.emailNotify;
-        }
-        return null;
+        const item = await Watchlist.get(id);
+        if (!item) return null;
+        const newState = !item.emailNotify;
+        stmts.update.run(itemToParams({ ...item, emailNotify: newState }));
+        return newState;
     },
 
     toggleActive: async (id) => {
-        const list = await Watchlist.getAll();
-        const item = list.find(i => i.id === id);
-        if (item) {
-            // If active is undefined, default to true, so toggle makes it false
-            const current = item.active !== undefined ? item.active : true;
-            item.active = !current;
-            await Watchlist._save(list);
-            return item.active;
-        }
-        return null;
+        const item = await Watchlist.get(id);
+        if (!item) return null;
+        const current = item.active !== undefined ? item.active : true;
+        const newState = !current;
+        stmts.update.run(itemToParams({ ...item, active: newState }));
+        return newState;
     },
 
     reorder: async (orderedIds) => {
-        const list = await Watchlist.getAll();
-        const itemMap = new Map(list.map(item => [item.id, item]));
-        const reordered = [];
-        const processedIds = new Set();
+        const reorderTransaction = db.transaction(() => {
+            orderedIds.forEach((id, index) => {
+                stmts.updateSortOrder.run(index, id);
+            });
+        });
+        reorderTransaction();
 
-        // Add items in the new order
-        for (const id of orderedIds) {
-            const item = itemMap.get(id);
-            if (item) {
-                reordered.push(item);
-                processedIds.add(id);
-            }
-        }
-
-        // Add any items that weren't in orderedIds
-        for (const item of list) {
-            if (!processedIds.has(item.id)) {
-                reordered.push(item);
-            }
-        }
-
-        await Watchlist._save(reordered);
-        return reordered;
+        return await Watchlist.getAll();
     }
 };
 
