@@ -52,7 +52,7 @@ function rowToItem(row) {
         terms,
         createdAt: row.createdAt,
         lastRun: row.lastRun || null,
-        lastResultCount: row.lastResultCount || null,
+        lastResultCount: row.lastResultCount != null ? row.lastResultCount : 0,
         active: row.active === 1 || row.active === true,
         emailNotify: row.emailNotify === 1 || row.emailNotify === true,
         priority: row.priority === 1 || row.priority === true,
