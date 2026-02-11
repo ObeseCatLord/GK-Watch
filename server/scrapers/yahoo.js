@@ -325,7 +325,7 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
         goodsStatus: '',
         sellerType: '',
         pType: 'currentprice',
-        shipmentType: allowInternationalShipping ? '' : 'domestic',
+        shipmentType: '', // Note: 'domestic' breaks Doorzo pagination (wraps at page 2). No API field to post-filter either.
         is_appraisal: ''
     };
 
