@@ -332,6 +332,7 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
     let allItems = [];
     let page = 1;
     const MAX_PAGES = 200; // Deep search cap
+    const seenIds = new Set();
 
     try {
         // Construct basic query string for the URL
@@ -354,10 +355,25 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
 
             if (res.data && res.data.data && Array.isArray(res.data.data.list)) {
                 const items = res.data.data.list;
-                if (items.length === 0) break; // formatting error or end of results
+                if (items.length === 0) break; // End of results
 
-                allItems = allItems.concat(items);
-                console.log(`[Yahoo Fallback] Doorzo page ${page} found ${items.length} items.`);
+                // Duplicate detection: stop if pagination wraps around
+                let newCount = 0;
+                for (const item of items) {
+                    const id = item.Asin || item.Url;
+                    if (id && !seenIds.has(id)) {
+                        seenIds.add(id);
+                        allItems.push(item);
+                        newCount++;
+                    }
+                }
+
+                console.log(`[Yahoo] Doorzo page ${page}: ${items.length} items (${newCount} new).`);
+
+                if (newCount === 0) {
+                    console.log(`[Yahoo] Doorzo pagination wraparound detected at page ${page}. Stopping.`);
+                    break;
+                }
 
                 page++;
 
