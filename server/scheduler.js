@@ -56,7 +56,11 @@ const stmts = {
     upsertMeta: db.prepare('INSERT OR REPLACE INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, ?)'),
     clearMetaNewCount: db.prepare('UPDATE results_meta SET new_count = 0 WHERE watch_id = ?'),
     clearAllMetaNewCounts: db.prepare('UPDATE results_meta SET new_count = 0'),
-    getAllMeta: db.prepare('SELECT watch_id, new_count FROM results_meta'),
+    getAllMeta: db.prepare(`
+        SELECT w.id as watch_id, COALESCE(rm.new_count, 0) as new_count 
+        FROM watchlist w 
+        LEFT JOIN results_meta rm ON w.id = rm.watch_id
+    `),
 };
 
 const Scheduler = {
