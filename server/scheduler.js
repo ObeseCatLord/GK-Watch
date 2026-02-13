@@ -3,6 +3,7 @@ const Watchlist = require('./models/watchlist');
 const BlockedItems = require('./models/blocked_items');
 const Blacklist = require('./models/blacklist');
 const ScheduleSettings = require('./models/schedule');
+const Settings = require('./models/settings');
 const EmailService = require('./emailService');
 const NtfyService = require('./utils/ntfyService');
 const Cleanup = require('./utils/cleanup');
@@ -188,7 +189,7 @@ const Scheduler = {
         const itemIds = items.map(i => i.id);
 
         try {
-            const CONCURRENCY = 3;
+            const CONCURRENCY = Settings.get().concurrency || 3;
 
             for (let idx = startIndex; idx < items.length; idx += CONCURRENCY) {
                 if (Scheduler.shouldAbort) {
