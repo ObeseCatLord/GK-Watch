@@ -797,6 +797,24 @@ app.post('/api/settings/test-email', requireAuth, async (req, res) => {
     }
 });
 
+// Serve static files from React app if they exist
+const clientBuildPath = path.join(__dirname, '../client/dist');
+if (fs.existsSync(clientBuildPath)) {
+    app.use(express.static(clientBuildPath));
+    app.get('*', (req, res) => {
+        // Don't intercept API 404s
+        if (req.path.startsWith('/api/')) {
+             return res.status(404).json({ error: 'Not Found' });
+        }
+        const indexFile = path.join(clientBuildPath, 'index.html');
+        if (fs.existsSync(indexFile)) {
+            res.sendFile(indexFile);
+        } else {
+            res.status(404).send('Client build found but index.html missing.');
+        }
+    });
+}
+
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
