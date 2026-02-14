@@ -113,7 +113,7 @@ const requireAuth = (req, res, next) => {
     // Only extend if it's older than 1 hour to reduce DB writes?
     // For now, let's extend if remaining time is < 23 hours (i.e. 1 hour passed)
     if (session.expires_at - Date.now() < SESSION_TIMEOUT - (60 * 60 * 1000)) {
-         sessionStmts.extend.run(Date.now() + SESSION_TIMEOUT, token);
+        sessionStmts.extend.run(Date.now() + SESSION_TIMEOUT, token);
     }
 
     return next();
@@ -199,9 +199,25 @@ app.get('/api/search', requireAuth, async (req, res) => {
         }
 
         const strict = req.query.strict !== 'false'; // Default true
-        // Live search doesn't support complex filters array yet (only query string).
+
+        // Handle negative filters (complex filters)
+        // Supports array format (?filters[]=foo&filters[]=bar) or comma-separated string (?filters=foo,bar)
+        let userFilters = [];
+        if (req.query.filters) {
+            if (Array.isArray(req.query.filters)) {
+                userFilters = req.query.filters;
+            } else if (typeof req.query.filters === 'string') {
+                userFilters = req.query.filters.split(',');
+            }
+        }
+        // Clean up filters
+        userFilters = userFilters.map(f => f.trim()).filter(f => f.length > 0);
+
         // Pass global blacklist filters for scraper optimization.
         const globalFilters = Blacklist.getAll().map(i => i.term);
+
+        // Combine user filters and global filters (deduplicated)
+        const filters = [...new Set([...globalFilters, ...userFilters])];
 
         // Check for SSE request
         if (req.headers.accept === 'text/event-stream') {
@@ -233,7 +249,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
             };
 
             try {
-                await searchAggregator.searchAll(query, enabledOverride, strict, globalFilters, onProgress);
+                await searchAggregator.searchAll(query, enabledOverride, strict, filters, onProgress);
                 res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
             } catch (err) {
                 console.error('SSE Search error:', err);
@@ -246,7 +262,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
         }
 
         // Legacy blocking behavior
-        const results = await searchAggregator.searchAll(query, enabledOverride, strict, globalFilters);
+        const results = await searchAggregator.searchAll(query, enabledOverride, strict, filters);
         let filteredResults = BlockedItems.filterResults(results);
         filteredResults = Blacklist.filterResults(filteredResults);
         res.json(filteredResults);
@@ -781,6 +797,10 @@ app.post('/api/settings/test-email', requireAuth, async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+    });
+}
+
+module.exports = app;
