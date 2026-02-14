@@ -31,7 +31,8 @@ const DEFAULT_SETTINGS = {
         surugaya: true,
         taobao: true
     },
-    allowYahooInternationalShipping: false
+    allowYahooInternationalShipping: false,
+    concurrency: 3
 };
 
 // Prepared statements

@@ -7,18 +7,42 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const searchAggregator = require('./scrapers');
 const Settings = require('./models/settings');
+const db = require('./models/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Security headers
 app.use(helmet({
-    contentSecurityPolicy: false, // Disable CSP for now (may break frontend)
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // For Vite/React
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"], // Allow images from any HTTPS source
+            connectSrc: ["'self'", "ws:", "wss:"], // For HMR WebSocket
+            frameSrc: ["'none'"],
+            objectSrc: ["'none'"],
+            upgradeInsecureRequests: [],
+        },
+    },
     crossOriginEmbedderPolicy: false
 }));
 
 app.use(cors());
 app.use(express.json());
+
+// Global Rate Limiter for API
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' }
+});
+
+// Apply global rate limiter to all API routes
+app.use('/api/', apiLimiter);
 
 // Rate limiting for login endpoint
 const loginLimiter = rateLimit({
@@ -34,23 +58,27 @@ const loginLimiter = rateLimit({
 const crypto = require('crypto');
 const NtfyService = require('./utils/ntfyService');
 
-// Simple in-memory session store
-// Map<token, { timestamp }>
-const activeSessions = new Map();
 const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
+
+// Session Management Statements
+const sessionStmts = {
+    insert: db.prepare('INSERT INTO sessions (token, expires_at) VALUES (?, ?)'),
+    get: db.prepare('SELECT * FROM sessions WHERE token = ?'),
+    delete: db.prepare('DELETE FROM sessions WHERE token = ?'),
+    cleanup: db.prepare('DELETE FROM sessions WHERE expires_at < ?'),
+    extend: db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?')
+};
 
 // Periodically clean up expired sessions
 setInterval(() => {
     const now = Date.now();
-    let removed = 0;
-    for (const [token, session] of activeSessions.entries()) {
-        if (now - session.timestamp > SESSION_TIMEOUT) {
-            activeSessions.delete(token);
-            removed++;
+    try {
+        const result = sessionStmts.cleanup.run(now);
+        if (result.changes > 0) {
+            console.log(`[Session] Cleaned up ${result.changes} expired sessions`);
         }
-    }
-    if (removed > 0) {
-        console.log(`[Session] Cleaned up ${removed} expired sessions`);
+    } catch (e) {
+        console.error('[Session] Cleanup failed:', e);
     }
 }, 60 * 60 * 1000); // Check every hour
 
@@ -70,19 +98,24 @@ const requireAuth = (req, res, next) => {
         return res.status(401).json({ error: 'No token, authorization denied' });
     }
 
-    const session = activeSessions.get(token);
+    const session = sessionStmts.get.get(token);
     if (!session) {
         return res.status(401).json({ error: 'Token is invalid or expired' });
     }
 
     // Check session expiry
-    if (Date.now() - session.timestamp > SESSION_TIMEOUT) {
-        activeSessions.delete(token);
+    if (Date.now() > session.expires_at) {
+        sessionStmts.delete.run(token);
         return res.status(401).json({ error: 'Session expired. Please login again.' });
     }
 
-    // Refresh session timestamp on activity
-    session.timestamp = Date.now();
+    // Refresh session timestamp on activity (extend by timeout)
+    // Only extend if it's older than 1 hour to reduce DB writes?
+    // For now, let's extend if remaining time is < 23 hours (i.e. 1 hour passed)
+    if (session.expires_at - Date.now() < SESSION_TIMEOUT - (60 * 60 * 1000)) {
+         sessionStmts.extend.run(Date.now() + SESSION_TIMEOUT, token);
+    }
+
     return next();
 };
 
@@ -117,7 +150,8 @@ app.post('/api/login', loginLimiter, (req, res) => {
 
     if (isMatch && storedPassword.length === inputPassword.length) {
         const token = crypto.randomBytes(32).toString('hex');
-        activeSessions.set(token, { timestamp: Date.now() });
+        const expiresAt = Date.now() + SESSION_TIMEOUT;
+        sessionStmts.insert.run(token, expiresAt);
         return res.json({ success: true, token });
     } else {
         return res.status(401).json({ error: 'Invalid password' });
@@ -128,7 +162,7 @@ app.post('/api/login', loginLimiter, (req, res) => {
 app.post('/api/logout', (req, res) => {
     const token = req.header('x-auth-token');
     if (token) {
-        activeSessions.delete(token);
+        sessionStmts.delete.run(token);
     }
     res.json({ success: true });
 });

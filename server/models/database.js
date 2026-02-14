@@ -104,6 +104,11 @@ function initSchema() {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            expires_at INTEGER NOT NULL
+        );
     `);
 
     // Create indexes (IF NOT EXISTS is implicit with CREATE INDEX IF NOT EXISTS)
