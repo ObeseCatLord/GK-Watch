@@ -119,6 +119,10 @@ const Settings = {
         cachedSettings = updated;
 
         return updated;
+    },
+
+    _resetCache: () => {
+        cachedSettings = null;
     }
 };
 

@@ -98,6 +98,10 @@ const Blacklist = {
             const title = (result.title || '').toLowerCase();
             return !lowerTerms.some(term => title.includes(term));
         });
+    },
+
+    _resetCache: () => {
+        cachedList = null;
     }
 };
 

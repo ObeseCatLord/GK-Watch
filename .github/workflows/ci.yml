@@ -36,3 +36,10 @@ jobs:
         npm run test:smoke
       env:
         CI: true
+
+    - name: Run Jest Tests
+      run: |
+        cd server
+        npm test
+      env:
+        CI: true

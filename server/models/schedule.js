@@ -56,11 +56,16 @@ const ScheduleSettings = {
      * Convert JST hour to CST
      */
     jstToCst: (jstHour) => {
-        // JST = UTC+9, CST = UTC-6
-        // Difference = -15 hours
-        let cstHour = (jstHour - 15) % 24;
-        if (cstHour < 0) cstHour += 24;
-        return cstHour;
+        // JST is UTC+9
+        // CST is UTC-6
+        // Difference is -15 hours
+        let cst = jstHour - 15;
+        if (cst < 0) cst += 24;
+        return cst;
+    },
+
+    _resetCache: () => {
+        cachedSchedule = null;
     }
 };
 

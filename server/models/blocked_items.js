@@ -69,7 +69,14 @@ const BlockedItems = {
         if (list.length === 0) return results;
 
         const blockedUrls = new Set(list.map(item => item.url));
-        return results.filter(result => !blockedUrls.has(result.link));
+        return results.filter(result => {
+            const link = result.link || result.url;
+            return !blockedUrls.has(link);
+        });
+    },
+
+    _resetCache: () => {
+        cachedItems = null;
     }
 };
 
