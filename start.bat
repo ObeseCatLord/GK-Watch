@@ -5,12 +5,12 @@ echo Starting GK Watcher...
 cd /d "%~dp0"
 
 echo Starting backend server...
-start "GK Watcher Backend" cmd /c "cd server && node server.js"
+start "GK Watcher Backend" cmd /k "cd server && node server.js"
 
 timeout /t 2 /nobreak > nul
 
 echo Starting frontend...
-start "GK Watcher Frontend" cmd /c "cd client && npm run dev"
+start "GK Watcher Frontend" cmd /k "cd client && npm run dev"
 
 echo.
 echo GK Watcher is running!

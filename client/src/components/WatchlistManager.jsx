@@ -105,7 +105,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         try {
             const res = await authenticatedFetch('/api/settings');
             const data = await res.json();
-            setGlobalSettings(data);
+            setGlobalSettings(data || {});
         } catch (err) {
             console.error('Error fetching global settings:', err);
         }
@@ -141,7 +141,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         try {
             const res = await authenticatedFetch('/api/watchlist/newcounts');
             const data = await res.json();
-            setNewCounts(data);
+            setNewCounts(data || {});
         } catch (err) {
             console.error('Error fetching new counts:', err);
         }
@@ -348,13 +348,13 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         e.preventDefault();
         if (!draggedItem || draggedItem.id === item.id) return;
 
-        const dragIndex = watchlist.findIndex(i => i.id === draggedItem.id);
-        const hoverIndex = watchlist.findIndex(i => i.id === item.id);
+        const dragIndex = (watchlist || []).findIndex(i => i.id === draggedItem.id);
+        const hoverIndex = (watchlist || []).findIndex(i => i.id === item.id);
 
         if (dragIndex === hoverIndex) return;
 
         // Reorder locally for smooth visual feedback
-        const newList = [...watchlist];
+        const newList = [...(watchlist || [])];
         newList.splice(dragIndex, 1);
         newList.splice(hoverIndex, 0, draggedItem);
         setWatchlist(newList);
@@ -368,7 +368,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
             await authenticatedFetch('/api/watchlist/reorder', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orderedIds: watchlist.map(i => i.id) })
+                body: JSON.stringify({ orderedIds: (watchlist || []).map(i => i.id) })
             });
         } catch (err) {
             console.error('Error saving order:', err);
@@ -388,8 +388,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         if (checkedItems.size < 2) return alert('Select at least 2 items to merge.');
 
         // Find the first selected item according to current list order to use as name source
-        const firstId = watchlist.find(item => checkedItems.has(item.id))?.id;
-        const firstItem = watchlist.find(item => item.id === firstId);
+        const firstId = (watchlist || []).find(item => checkedItems.has(item.id))?.id;
+        const firstItem = (watchlist || []).find(item => item.id === firstId);
         const name = firstItem ? (firstItem.name || firstItem.term) : 'Merged Watch';
 
         try {
@@ -782,7 +782,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                     <ul className="watchlist-items">
                         {(() => {
                             // Sort logic...
-                            const sortedWatchlist = [...watchlist].sort((a, b) => {
+                            const sortedWatchlist = [...(watchlist || [])].sort((a, b) => {
                                 const countA = newCounts[a.id] || 0;
                                 const countB = newCounts[b.id] || 0;
                                 if (countA > 0 && countB === 0) return -1;
