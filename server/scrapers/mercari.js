@@ -107,9 +107,6 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
     const excludeKeyword = negativeTermsList.join(' ');
 
     for (let page = 0; page < MAX_PAGES; page++) {
-        // Generate Token per request (good practice, though RFC allows reuse within time window)
-        const dpopToken = await generateDPoP(targetUrl, method, keyPair);
-
         const searchPayload = {
             "pageSize": 120,
             "searchSessionId": "axios_session_" + Date.now(),
@@ -127,17 +124,39 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
         if (page > 0 && !allResults._nextPageToken) break;
 
         try {
-            const response = await axios.post(targetUrl, searchPayload, {
-                headers: {
-                    "X-Platform": "web",
-                    "Content-Type": "application/json",
-                    "DPoP": dpopToken,
-                    "Origin": "https://jp.mercari.com",
-                    "Referer": "https://jp.mercari.com/",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                },
-                timeout: 10000
-            });
+            let response;
+            let retries = 0;
+            const MAX_RETRIES = 3;
+
+            while (true) {
+                // Generate Token per request (good practice, though RFC allows reuse within time window)
+                const dpopToken = await generateDPoP(targetUrl, method, keyPair);
+
+                try {
+                    response = await axios.post(targetUrl, searchPayload, {
+                        headers: {
+                            "X-Platform": "web",
+                            "Content-Type": "application/json",
+                            "DPoP": dpopToken,
+                            "Origin": "https://jp.mercari.com",
+                            "Referer": "https://jp.mercari.com/",
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        },
+                        timeout: 10000
+                    });
+                    break; // Success
+                } catch (err) {
+                    if (err.response && err.response.status === 429 && retries < MAX_RETRIES) {
+                        retries++;
+                        const delay = 2000 * retries;
+                        console.log(`[Mercari Axios] Rate limited (429) on page ${page + 1}. Retrying in ${delay}ms...`);
+                        await new Promise(r => setTimeout(r, delay));
+                        // Retry loop will regenerate DPoP
+                    } else {
+                        throw err; // Propagate other errors
+                    }
+                }
+            }
 
             // Extract Items
             let items = [];
@@ -194,7 +213,7 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
             // Safety break if token didn't change (prevent loop)
             if (page > 0 && !allResults._nextPageToken) break;
 
-            await new Promise(r => setTimeout(r, 500)); // Polite delay
+            await new Promise(r => setTimeout(r, 100)); // Reduced polite delay
 
         } catch (err) {
             console.error(`[Mercari Axios] Error on page ${page + 1}: ${err.message}`);
