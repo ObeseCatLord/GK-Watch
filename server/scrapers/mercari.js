@@ -166,7 +166,6 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
                 const itemsComp = response.data.components.find(c => c.items);
                 if (itemsComp) items = itemsComp.items;
             }
-
             if (items.length === 0) {
                 console.log(`[Mercari Axios] Page ${page + 1} returned 0 items. Stopping.`);
                 break;
