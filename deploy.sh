@@ -83,7 +83,10 @@ fi
 echo ""
 echo "📦 Installing server dependencies..."
 cd server
-npm install
+if ! npm install; then
+    echo "⚠️  npm install failed. Retrying with PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true..."
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install
+fi
 cd ..
 
 # Install client dependencies
