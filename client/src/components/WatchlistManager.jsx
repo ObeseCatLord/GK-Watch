@@ -115,19 +115,23 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         try {
             const res = await authenticatedFetch('/api/watchlist');
             const data = await res.json();
-            setWatchlist(data);
-            // Build email/priority settings map
-            const emailMap = {};
-            const priorityMap = {};
-            const activeMap = {};
-            data.forEach(item => {
-                emailMap[item.id] = item.emailNotify !== false;
-                priorityMap[item.id] = item.priority === true;
-                activeMap[item.id] = item.active !== false;
-            });
-            setEmailSettings(emailMap);
-            setPrioritySettings(priorityMap);
-            setActiveSettings(activeMap);
+            if (Array.isArray(data)) {
+                setWatchlist(data);
+                // Build email/priority settings map
+                const emailMap = {};
+                const priorityMap = {};
+                const activeMap = {};
+                data.forEach(item => {
+                    emailMap[item.id] = item.emailNotify !== false;
+                    priorityMap[item.id] = item.priority === true;
+                    activeMap[item.id] = item.active !== false;
+                });
+                setEmailSettings(emailMap);
+                setPrioritySettings(priorityMap);
+                setActiveSettings(activeMap);
+            } else {
+                console.error('Watchlist data is not an array:', data);
+            }
         } catch (err) {
             console.error('Error fetching watchlist:', err);
         }
