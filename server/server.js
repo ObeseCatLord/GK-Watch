@@ -38,7 +38,14 @@ const apiLimiter = rateLimit({
     max: 100, // Limit each IP to 100 requests per windowMs
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: 'Too many requests, please try again later.' }
+    message: { error: 'Too many requests, please try again later.' },
+    // Skip rate limiting for status endpoints that are polled frequently
+    skip: (req) => {
+        // Express strips the mount point from req.path, so check originalUrl or just relative path
+        // When mounted at /api/, req.path is '/status' for '/api/status'
+        return req.originalUrl === '/api/status' || req.originalUrl === '/api/auth-status' ||
+               req.path === '/status' || req.path === '/auth-status';
+    }
 });
 
 // Apply global rate limiter to all API routes
