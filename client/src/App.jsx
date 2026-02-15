@@ -134,9 +134,17 @@ function App() {
     const saved = localStorage.getItem('gkwatch_search_history');
     if (saved) {
       try {
-        setSearchHistory(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setSearchHistory(parsed);
+        } else {
+          console.error('Search history corrupted, resetting');
+          localStorage.removeItem('gkwatch_search_history');
+          setSearchHistory([]);
+        }
       } catch (e) {
         console.error('Failed to load search history');
+        setSearchHistory([]);
       }
     }
   }, []);
