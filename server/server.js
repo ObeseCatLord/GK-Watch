@@ -4,7 +4,6 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const searchAggregator = require('./scrapers');
 const Settings = require('./models/settings');
 const db = require('./models/database');
@@ -32,33 +31,6 @@ app.use(helmet({
 app.use(cors());
 app.use(express.json());
 
-// Global Rate Limiter for API
-const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many requests, please try again later.' },
-    // Skip rate limiting for status endpoints that are polled frequently
-    skip: (req) => {
-        // Express strips the mount point from req.path, so check originalUrl or just relative path
-        // When mounted at /api/, req.path is '/status' for '/api/status'
-        return req.originalUrl === '/api/status' || req.originalUrl === '/api/auth-status' ||
-               req.path === '/status' || req.path === '/auth-status';
-    }
-});
-
-// Apply global rate limiter to all API routes
-app.use('/api/', apiLimiter);
-
-// Rate limiting for login endpoint
-const loginLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // 10 attempts per window
-    message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
-    standardHeaders: true,
-    legacyHeaders: false
-});
 
 
 // API Endpoint
@@ -127,8 +99,8 @@ const requireAuth = (req, res, next) => {
 };
 
 
-// Login Routes (with rate limiting)
-app.post('/api/login', loginLimiter, (req, res) => {
+// Login Routes
+app.post('/api/login', (req, res) => {
     const { password } = req.body;
     const settings = Settings.get();
 

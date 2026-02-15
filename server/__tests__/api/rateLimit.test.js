@@ -30,7 +30,7 @@ jest.mock('../../models/watchlist', () => ({
     remove: jest.fn().mockResolvedValue({})
 }));
 
-// Mock Settings to bypass auth if needed (though getTestDb creates default settings table, we might need to ensure loginEnabled is false)
+// Mock Settings to bypass auth
 jest.mock('../../models/settings', () => ({
     get: jest.fn().mockReturnValue({ loginEnabled: false }),
     update: jest.fn()
@@ -38,16 +38,13 @@ jest.mock('../../models/settings', () => ({
 
 let app;
 
-describe('Rate Limiter', () => {
+describe('No Rate Limits', () => {
     beforeAll(() => {
-        // Suppress console logs
         jest.spyOn(console, 'log').mockImplementation(() => {});
         jest.spyOn(console, 'error').mockImplementation(() => {});
 
-        // Initialize Test DB
         getTestDb();
 
-        // Load app
         jest.isolateModules(() => {
             app = require('../../server');
         });
@@ -58,10 +55,11 @@ describe('Rate Limiter', () => {
         jest.restoreAllMocks();
     });
 
-    it('should NOT rate limit /api/status endpoint (150 requests)', async () => {
+    it('should allow > 150 requests to any endpoint (no global limiter)', async () => {
         const promises = [];
+        // Hit a generic endpoint that was previously rate limited
         for (let i = 0; i < 150; i++) {
-            promises.push(request(app).get('/api/status'));
+            promises.push(request(app).get('/api/watchlist'));
         }
 
         const responses = await Promise.all(promises);
@@ -73,31 +71,15 @@ describe('Rate Limiter', () => {
         expect(okRequests.length).toBe(150);
     });
 
-    it('should NOT rate limit /api/auth-status endpoint (150 requests)', async () => {
-         const promises = [];
-        for (let i = 0; i < 150; i++) {
-            promises.push(request(app).get('/api/auth-status'));
-        }
-        const responses = await Promise.all(promises);
-        const tooManyRequests = responses.filter(res => res.status === 429);
-        expect(tooManyRequests.length).toBe(0);
-    });
-
-    it('should rate limit other endpoints (e.g. /api/watchlist)', async () => {
-        // We need to hit it > 100 times.
-        // Since apiLimiter is shared, previous tests might have contributed if not for the skip?
-        // No, skip prevents counting.
-        // So we start from 0 for this path.
-
+    it('should allow > 20 requests to login endpoint (no login limiter)', async () => {
         const promises = [];
-        for (let i = 0; i < 110; i++) {
-            promises.push(request(app).get('/api/watchlist'));
+        for (let i = 0; i < 20; i++) {
+            promises.push(request(app).post('/api/login').send({ password: 'test' }));
         }
 
         const responses = await Promise.all(promises);
         const tooManyRequests = responses.filter(res => res.status === 429);
 
-        // Should have at least some blocked
-        expect(tooManyRequests.length).toBeGreaterThan(0);
+        expect(tooManyRequests.length).toBe(0);
     });
 });
