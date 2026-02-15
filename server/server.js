@@ -34,6 +34,28 @@ app.use(express.json());
 
 
 // API Endpoint
+const rateLimit = require('express-rate-limit');
+
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 1000, // Limit each IP to 1000 requests per windowMs
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    message: { error: 'Too many requests, please try again later.' }
+});
+
+const loginLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 10, // Limit each IP to 10 login attempts per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many login attempts, please try again after 5 minutes.' }
+});
+
+// Apply rate limiting to all API routes
+app.use('/api/', apiLimiter);
+// Apply strict limit to login
+app.use('/api/login', loginLimiter);
 const crypto = require('crypto');
 const NtfyService = require('./utils/ntfyService');
 
@@ -49,17 +71,20 @@ const sessionStmts = {
 };
 
 // Periodically clean up expired sessions
-setInterval(() => {
-    const now = Date.now();
-    try {
-        const result = sessionStmts.cleanup.run(now);
-        if (result.changes > 0) {
-            console.log(`[Session] Cleaned up ${result.changes} expired sessions`);
+// Periodically clean up expired sessions
+if (require.main === module) {
+    setInterval(() => {
+        const now = Date.now();
+        try {
+            const result = sessionStmts.cleanup.run(now);
+            if (result.changes > 0) {
+                console.log(`[Session] Cleaned up ${result.changes} expired sessions`);
+            }
+        } catch (e) {
+            console.error('[Session] Cleanup failed:', e);
         }
-    } catch (e) {
-        console.error('[Session] Cleanup failed:', e);
-    }
-}, 60 * 60 * 1000); // Check every hour
+    }, 60 * 60 * 1000); // Check every hour
+}
 
 // Middleware to check authentication
 const requireAuth = (req, res, next) => {
@@ -262,7 +287,9 @@ const BlockedItems = require('./models/blocked_items');
 const Scheduler = require('./scheduler');
 
 // Initialize Scheduler
-Scheduler.start();
+if (require.main === module) {
+    Scheduler.start();
+}
 
 app.get('/api/watchlist', requireAuth, async (req, res) => {
     try {
@@ -799,5 +826,7 @@ if (require.main === module) {
         console.log(`Server running on http://localhost:${PORT}`);
     });
 }
+
+module.exports = app;
 
 module.exports = app;

@@ -114,6 +114,18 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
     const fetchWatchlist = async () => {
         try {
             const res = await authenticatedFetch('/api/watchlist');
+
+            if (res.status === 429) {
+                console.warn('Rate limit exceeded. Retaining existing watchlist.');
+                // Optionally trigger a toast notification here
+                return;
+            }
+
+            if (!res.ok) {
+                console.error(`Failed to fetch watchlist: ${res.status}`);
+                return;
+            }
+
             const data = await res.json();
             if (Array.isArray(data)) {
                 setWatchlist(data);
@@ -131,9 +143,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                 setActiveSettings(activeMap);
             } else {
                 console.error('Watchlist data is not an array:', data);
+                // Do not clear watchlist if data is invalid/undefined to be safe? 
+                // Actually if it returns explicit non-array structure it might be an error object, so safer to keep old data.
             }
         } catch (err) {
             console.error('Error fetching watchlist:', err);
+            // Do NOT setWatchlist([]) here.
         }
     };
 
