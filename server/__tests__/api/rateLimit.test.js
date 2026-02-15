@@ -38,7 +38,7 @@ jest.mock('../../models/settings', () => ({
 
 let app;
 
-describe('No Rate Limits', () => {
+describe('Rate Limits', () => {
     beforeAll(() => {
         jest.spyOn(console, 'log').mockImplementation(() => {});
         jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -55,9 +55,9 @@ describe('No Rate Limits', () => {
         jest.restoreAllMocks();
     });
 
-    it('should allow > 150 requests to any endpoint (no global limiter)', async () => {
+    it('should allow > 150 requests to generic endpoints (no global limiter)', async () => {
         const promises = [];
-        // Hit a generic endpoint that was previously rate limited
+        // Hit a generic endpoint that is NOT login
         for (let i = 0; i < 150; i++) {
             promises.push(request(app).get('/api/watchlist'));
         }
@@ -71,15 +71,21 @@ describe('No Rate Limits', () => {
         expect(okRequests.length).toBe(150);
     });
 
-    it('should allow > 20 requests to login endpoint (no login limiter)', async () => {
+    it('should rate limit login endpoint after 5 requests', async () => {
+        // We need to be careful with parallel requests and rate limiter consistency.
+        // But express-rate-limit memory store is synchronous.
         const promises = [];
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 10; i++) {
             promises.push(request(app).post('/api/login').send({ password: 'test' }));
         }
 
         const responses = await Promise.all(promises);
-        const tooManyRequests = responses.filter(res => res.status === 429);
 
-        expect(tooManyRequests.length).toBe(0);
+        const okRequests = responses.filter(res => res.status === 200); // 200 because loginEnabled: false returns success
+        const rateLimitedRequests = responses.filter(res => res.status === 429);
+
+        // We expect exactly 5 to pass and 5 to fail
+        expect(okRequests.length).toBe(5);
+        expect(rateLimitedRequests.length).toBe(5);
     });
 });

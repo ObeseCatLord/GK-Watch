@@ -4,12 +4,16 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const searchAggregator = require('./scrapers');
 const Settings = require('./models/settings');
 const db = require('./models/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Enable proxy trust for rate limiting
+app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmet({
@@ -48,18 +52,6 @@ const sessionStmts = {
     extend: db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?')
 };
 
-// Periodically clean up expired sessions
-setInterval(() => {
-    const now = Date.now();
-    try {
-        const result = sessionStmts.cleanup.run(now);
-        if (result.changes > 0) {
-            console.log(`[Session] Cleaned up ${result.changes} expired sessions`);
-        }
-    } catch (e) {
-        console.error('[Session] Cleanup failed:', e);
-    }
-}, 60 * 60 * 1000); // Check every hour
 
 // Middleware to check authentication
 const requireAuth = (req, res, next) => {
@@ -99,8 +91,17 @@ const requireAuth = (req, res, next) => {
 };
 
 
+// Login Rate Limiter
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 5, // Limit each IP to 5 login requests per `window`
+    message: { error: 'Too many login attempts, please try again later.' },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
 // Login Routes
-app.post('/api/login', (req, res) => {
+app.post('/api/login', loginLimiter, (req, res) => {
     const { password } = req.body;
     const settings = Settings.get();
 
@@ -795,6 +796,22 @@ if (fs.existsSync(clientBuildPath)) {
 }
 
 if (require.main === module) {
+    // Initialize Scheduler
+    Scheduler.start();
+
+    // Periodically clean up expired sessions
+    setInterval(() => {
+        const now = Date.now();
+        try {
+            const result = sessionStmts.cleanup.run(now);
+            if (result.changes > 0) {
+                console.log(`[Session] Cleaned up ${result.changes} expired sessions`);
+            }
+        } catch (e) {
+            console.error('[Session] Cleanup failed:', e);
+        }
+    }, 60 * 60 * 1000); // Check every hour
+
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });
