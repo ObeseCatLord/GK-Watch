@@ -5,11 +5,11 @@
  * correctly across subsequent runs.
  */
 
-const { getTestDb, closeTestDb, clearTestDb } = require('../../testSetup');
+const { getTestDb, closeTestDb, clearTestDb } = require('../testSetup');
 
 // Mock out dependencies
 const mockSearchAggregator = { reset: jest.fn(), searchAll: jest.fn() };
-jest.mock('../../../scrapers', () => mockSearchAggregator);
+jest.mock('../../scrapers', () => mockSearchAggregator);
 
 let Scheduler;
 let Watchlist;
@@ -17,8 +17,8 @@ let db;
 
 beforeAll(() => {
     db = getTestDb();
-    Scheduler = require('../../../scheduler');
-    Watchlist = require('../../../models/watchlist');
+    Scheduler = require('../../scheduler');
+    Watchlist = require('../../models/watchlist');
 });
 
 afterAll(() => {
