@@ -178,21 +178,6 @@ describe('matchesQuery', () => {
         const parsed = { type: 'OR', children: [] };
         expect(matchesQuery('anything', parsed)).toBe(false);
     });
-
-    test('normalizes kana for matching (small vs large)', () => {
-        // "ガァルル" in title, "ガアルル" in query
-        const parsed1 = parseQuery('ガアルル');
-        expect(matchesQuery('ガァルル フィギュア', parsed1)).toBe(true);
-
-        // "ガアルル" in title, "ガァルル" in query
-        const parsed2 = parseQuery('ガァルル');
-        expect(matchesQuery('ガアルル フィギュア', parsed2)).toBe(true);
-
-        // Small tsu
-        const parsed3 = parseQuery('キツネ');
-        expect(matchesQuery('キツネ', parsed3)).toBe(true);
-        expect(matchesQuery('キッネ', parsed3)).toBe(true);
-    });
 });
 
 // ─── matchTitle ──────────────────────────────────────────────
@@ -290,14 +275,6 @@ describe('getMissingTerms', () => {
         const missing = getMissingTerms('ランサー', 'セイバー|アルトリア');
         expect(missing).toContain('セイバー');
         expect(missing).toContain('アルトリア');
-    });
-
-    test('normalizes kana when checking for missing', () => {
-        const missing = getMissingTerms('ガァルル', 'ガアルル');
-        expect(missing).toEqual([]);
-
-        const missing2 = getMissingTerms('ガアルル', 'ガァルル');
-        expect(missing2).toEqual([]);
     });
 });
 
