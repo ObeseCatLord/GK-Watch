@@ -371,12 +371,12 @@ const Scheduler = {
                 if (existing) {
                     firstSeen = existing.firstSeen;
                     lastSeen = isTimedSource ? now : existing.lastSeen;
-                    isNew = 0;
+                    isNew = existing.isNew;
                     hidden = 0;
                 } else if (duplicateInfo) {
                     firstSeen = duplicateInfo.firstSeen;
                     lastSeen = isTimedSource ? now : duplicateInfo.lastSeen;
-                    isNew = 0;
+                    isNew = duplicateInfo.isNew;
                     hidden = 0;
                 } else {
                     firstSeen = now;
@@ -471,7 +471,7 @@ const Scheduler = {
             }
 
             // Update metadata
-            const newCount = newItems.length;
+            const newCount = stmts.countNew.get(watchId).count;
             stmts.upsertMeta.run(watchId, now, newCount);
 
             // Get total non-hidden count
