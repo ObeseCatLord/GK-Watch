@@ -3,8 +3,8 @@ const app = require('../../server'); // Adjust path as needed based on where thi
 
 describe('Rate Limiting Integration Test', () => {
     it('should return 429 after exceeding rate limit', async () => {
-        // Send 101 requests to exceed the limit of 100
-        const limit = 100;
+        // Send 1001 requests to exceed the limit of 1000
+        const limit = 1000;
         const promises = [];
 
         // We use a lightweight endpoint that doesn't require auth for rate limit checking if possible,
