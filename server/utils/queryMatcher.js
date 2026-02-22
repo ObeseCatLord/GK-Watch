@@ -8,10 +8,28 @@
  *   - term1|term2       → term1 OR term2
  *   - term1 && term2    → term1 AND term2 (explicit)
  *   - Mixed: ガレージキット セイバー|アルトリア → GK AND (Saber OR Altria)
+ * Mixed: ガレージキット セイバー|アルトリア → GK AND (Saber OR Altria)
  *   - "Exact Term"      → Enforces exact match even in non-strict mode
  * 
  * Operator precedence: | binds tighter than && (and space)
  */
+
+const SMALL_TO_LARGE_KANA = {
+    'ぁ': 'あ', 'ぃ': 'い', 'ぅ': 'う', 'ぇ': 'え', 'ぉ': 'お',
+    'っ': 'つ', 'ゃ': 'や', 'ゅ': 'ゆ', 'ょ': 'よ', 'ゎ': 'わ',
+    'ァ': 'ア', 'ィ': 'イ', 'ゥ': 'ウ', 'ェ': 'エ', 'ォ': 'オ',
+    'ッ': 'ツ', 'ャ': 'ヤ', 'ュ': 'ユ', 'ョ': 'ヨ', 'ヮ': 'ワ',
+    'ヵ': 'カ', 'ヶ': 'ケ'
+};
+
+/**
+ * Normalizes small kana to large kana for more robust searches.
+ * e.g., "ガァルル" becomes "ガアルル"
+ */
+function normalizeKana(str) {
+    if (!str) return str;
+    return str.replace(/[ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ]/g, match => SMALL_TO_LARGE_KANA[match]);
+}
 
 // GK synonym variants - any of these match each other
 const GK_VARIANTS = [
@@ -120,11 +138,11 @@ function parseOrGroup(group) {
 function matchesQuery(title, parsedQuery, strict = true) {
     if (!title || !parsedQuery) return false;
 
-    const titleLower = title.toLowerCase();
+    const titleLower = normalizeKana(title.toLowerCase());
 
     switch (parsedQuery.type) {
         case 'TERM': {
-            let termLower = parsedQuery.value.toLowerCase();
+            let termLower = normalizeKana(parsedQuery.value.toLowerCase());
             let isNegated = false;
 
             if (termLower.startsWith('-') && termLower.length > 1) {
@@ -141,9 +159,9 @@ function matchesQuery(title, parsedQuery, strict = true) {
 
             // Check for GK synonym match
             // If negated, we want to ensure NONE of the variants are present
-            if (GK_VARIANTS.some(v => v.toLowerCase() === termLower)) {
+            if (GK_VARIANTS.some(v => normalizeKana(v.toLowerCase()) === termLower)) {
                 const hasVariant = GK_VARIANTS.some(variant =>
-                    titleLower.includes(variant.toLowerCase())
+                    titleLower.includes(normalizeKana(variant.toLowerCase()))
                 );
                 return isNegated ? !hasVariant : hasVariant;
             }
@@ -246,12 +264,12 @@ function getMissingTerms(title, query) {
 
 function findMissing(title, node) {
     if (!title || !node) return [];
-    const titleLower = title.toLowerCase();
+    const titleLower = normalizeKana(title.toLowerCase());
 
     switch (node.type) {
         case 'TERM': {
             // Check logic identical to matchesQuery
-            let termLower = node.value.toLowerCase();
+            let termLower = normalizeKana(node.value.toLowerCase());
             let isNegated = false;
 
             if (termLower.startsWith('-') && termLower.length > 1) {
@@ -265,8 +283,8 @@ function findMissing(title, node) {
             // If we strictly want to ignore non-quoted terms in "missing", we'd need a flag.
             // For now, behave as strict=true (report all missing).
 
-            if (GK_VARIANTS.some(v => v.toLowerCase() === termLower)) {
-                hasMatch = GK_VARIANTS.some(variant => titleLower.includes(variant.toLowerCase()));
+            if (GK_VARIANTS.some(v => normalizeKana(v.toLowerCase()) === termLower)) {
+                hasMatch = GK_VARIANTS.some(variant => titleLower.includes(normalizeKana(variant.toLowerCase())));
             } else {
                 hasMatch = titleLower.includes(termLower);
             }
