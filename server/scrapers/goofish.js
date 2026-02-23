@@ -11,6 +11,47 @@ const USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) Apple
 let cachedCookies = null;
 let lastCookieFileMtime = 0;
 
+// Singleton browser promise to handle concurrent requests
+let browserPromise = null;
+
+function getBrowser() {
+    // If we have a pending or resolved promise, return it
+    if (browserPromise) {
+        return browserPromise;
+    }
+
+    // Launch new browser
+    const isARM = process.arch === 'arm' || process.arch === 'arm64';
+    const executablePath = (process.platform === 'linux' && isARM)
+        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
+        : undefined;
+
+    console.log('[Goofish] Launching new browser instance...');
+
+    // Assign the promise immediately to block other calls
+    browserPromise = puppeteer.launch({
+        headless: true,
+        executablePath,
+        // No userDataDir = temp profile, cleaned up on process exit.
+        // We use createBrowserContext for per-request isolation.
+        pipe: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    }).then(browser => {
+        // Handle disconnect to clear the variable so next call launches a new one
+        browser.once('disconnected', () => {
+            console.log('[Goofish] Browser disconnected.');
+            browserPromise = null;
+        });
+        return browser;
+    }).catch(err => {
+        console.error('[Goofish] Browser launch failed:', err);
+        browserPromise = null;
+        throw err;
+    });
+
+    return browserPromise;
+}
+
 function loadCookies() {
     try {
         if (!fs.existsSync(COOKIES_FILE)) {
@@ -51,41 +92,18 @@ function buildSearchUrl(query) {
 }
 
 async function searchWithPuppeteer(query) {
-    let userDataDir = null;
+    let context = null;
     try {
-        const isARM = process.arch === 'arm' || process.arch === 'arm64';
-        const executablePath = (process.platform === 'linux' && isARM)
-            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-            : undefined;
-
-        const searchUrl = buildSearchUrl(query);
-        const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
-        if (!fs.existsSync(downloadsDir)) {
-            fs.mkdirSync(downloadsDir, { recursive: true });
-        }
-        userDataDir = path.join(downloadsDir, `goofish-profile-${Date.now()}-${Math.random().toString(36).substring(2)}`);
-
-        if (!fs.existsSync(userDataDir)) {
-            fs.mkdirSync(userDataDir, { recursive: true });
-        }
-
-        browser = await puppeteer.launch({
-            headless: true,
-            executablePath,
-            userDataDir,
-            pipe: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        });
-
-        const page = await browser.newPage();
-
-        // 1. Try to load cookies first
+        // 1. Try to load cookies FIRST (Optimization)
         let cookies = loadCookies();
         if (!cookies) {
             console.log('[Goofish] No cookies found. Returning error.');
-            if (browser) await browser.close();
             return [{ error: 'Cookie Error', source: 'Goofish' }];
         }
+
+        const browser = await getBrowser();
+        context = await browser.createBrowserContext();
+        const page = await context.newPage();
 
         console.log(`[Goofish] Loaded ${cookies.length} cookies from file.`);
 
@@ -256,6 +274,7 @@ async function searchWithPuppeteer(query) {
             }
         });
 
+        const searchUrl = buildSearchUrl(query);
         await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
         console.log('[Goofish] Waiting for API capture...');
@@ -282,16 +301,8 @@ async function searchWithPuppeteer(query) {
         console.error('[Goofish] Scrape error:', error.message);
         return null;
     } finally {
-        if (browser) {
-            try { await browser.close(); } catch (e) { }
-        }
-        // Cleanup userDataDir
-        if (userDataDir && fs.existsSync(userDataDir)) {
-            try {
-                fs.rmSync(userDataDir, { recursive: true, force: true });
-            } catch (cleanupErr) {
-                console.error('[Goofish] Warning: Failed to clean up userDataDir:', cleanupErr.message);
-            }
+        if (context) {
+            try { await context.close(); } catch (e) { }
         }
     }
 }
