@@ -51,6 +51,8 @@ const stmts = {
     `),
     deleteExpiredGrace: db.prepare('DELETE FROM results WHERE watch_id = ? AND link = ?'),
     hideResult: db.prepare('UPDATE results SET hidden = ?, is_new = 0 WHERE watch_id = ? AND link = ?'),
+    batchDeleteExpiredGrace: db.prepare('DELETE FROM results WHERE watch_id = ? AND link IN (SELECT value FROM json_each(?))'),
+    batchHideResults: db.prepare('UPDATE results SET hidden = 1, is_new = 0 WHERE watch_id = ? AND link IN (SELECT value FROM json_each(?))'),
 
     // Results meta
     getMeta: db.prepare('SELECT * FROM results_meta WHERE watch_id = ?'),
@@ -406,12 +408,14 @@ const Scheduler = {
             }
 
             // Grace period logic for items not in current results
+            const linksToHide = [];
+            const linksToDelete = [];
+
             for (const item of existingItems) {
                 if (processedLinks.has(item.link)) continue;
 
                 const source = item.source ? item.source.toLowerCase() : '';
                 let preserve = false;
-                let hidden = 1; // Default to hidden
 
                 const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
                     item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
@@ -457,12 +461,17 @@ const Scheduler = {
                 }
 
                 if (preserve) {
-                    // Update hidden/isNew status for preserved items
-                    stmts.hideResult.run(hidden, watchId, item.link);
+                    linksToHide.push(item.link);
                 } else {
-                    // Remove expired items
-                    stmts.deleteExpiredGrace.run(watchId, item.link);
+                    linksToDelete.push(item.link);
                 }
+            }
+
+            if (linksToHide.length > 0) {
+                stmts.batchHideResults.run(watchId, JSON.stringify(linksToHide));
+            }
+            if (linksToDelete.length > 0) {
+                stmts.batchDeleteExpiredGrace.run(watchId, JSON.stringify(linksToDelete));
             }
 
             if (newItems.length > 0) {
