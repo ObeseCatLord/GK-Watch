@@ -22,6 +22,12 @@ const stmts = {
     remove: db.prepare('DELETE FROM watchlist WHERE id = ?'),
     updateLastRun: db.prepare('UPDATE watchlist SET last_run = ?, last_result_count = ? WHERE id = ?'),
     updateSortOrder: db.prepare('UPDATE watchlist SET sort_order = ? WHERE id = ?'),
+    updateSortOrderBatch: db.prepare(`
+        UPDATE watchlist
+        SET sort_order = key
+        FROM json_each(?)
+        WHERE watchlist.id = value
+    `),
     maxSortOrder: db.prepare('SELECT MAX(sort_order) as maxOrder FROM watchlist'),
     count: db.prepare('SELECT COUNT(*) as count FROM watchlist'),
 };
@@ -247,13 +253,8 @@ const Watchlist = {
     },
 
     reorder: async (orderedIds) => {
-        const reorderTransaction = db.transaction(() => {
-            orderedIds.forEach((id, index) => {
-                stmts.updateSortOrder.run(index, id);
-            });
-        });
-        reorderTransaction();
-
+        const json = JSON.stringify(orderedIds);
+        stmts.updateSortOrderBatch.run(json);
         return await Watchlist.getAll();
     }
 };
