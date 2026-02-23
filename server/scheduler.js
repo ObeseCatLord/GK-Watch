@@ -428,7 +428,6 @@ const Scheduler = {
                     if (ageMs < SURUGAYA_GRACE_PERIOD_MS) {
                         if (!item.title || !newTitlesBySource.suruga.has(item.title.trim())) {
                             preserve = true;
-                            hidden = 0; // Suruga-ya items remain visible
                         }
                     }
                 } else if (source.includes('mercari')) {
