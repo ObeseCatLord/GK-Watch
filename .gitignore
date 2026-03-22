@@ -53,3 +53,10 @@ client/README.md
 deploy_remote.sh
 
 ARCHITECTURE.md
+
+recovered_watchlist.json
+remote_results.json
+
+paypay_test_results.txt
+walkthrough.md
+.agent/
