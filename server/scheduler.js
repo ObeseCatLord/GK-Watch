@@ -12,6 +12,39 @@ const db = require('./models/database');
 const fs = require('fs');
 const path = require('path');
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PAYPAY_SOLD_RETENTION_MS = DAY_MS;
+const PAYPAY_GRACE_PERIOD_MS = 2 * DAY_MS;
+
+function isPayPaySource(source) {
+    return String(source || '').toLowerCase().includes('paypay');
+}
+
+function parseTimeMs(value) {
+    if (!value) return null;
+
+    const timeMs = new Date(value).getTime();
+    return Number.isFinite(timeMs) ? timeMs : null;
+}
+
+function getPayPaySoldAtMs(item, nowMs) {
+    if (!item || !isPayPaySource(item.source)) return null;
+
+    const endTimeMs = parseTimeMs(item.endTime || item.end_time);
+    if (endTimeMs !== null && endTimeMs <= nowMs) return endTimeMs;
+
+    if (item.isSold === true || item.sold === true || String(item.itemStatus || '').toUpperCase() === 'SOLD') {
+        return parseTimeMs(item.soldAt) || parseTimeMs(item.firstSeen) || nowMs;
+    }
+
+    return null;
+}
+
+function isExpiredPayPaySold(item, nowMs) {
+    const soldAtMs = getPayPaySoldAtMs(item, nowMs);
+    return soldAtMs !== null && nowMs - soldAtMs >= PAYPAY_SOLD_RETENTION_MS;
+}
+
 // Prepared statements for results
 const stmts = {
     // Results CRUD
@@ -305,7 +338,6 @@ const Scheduler = {
         const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
         const SURUGAYA_GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
         const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
-        const PAYPAY_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
         const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
         const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -366,6 +398,21 @@ const Scheduler = {
                     duplicateInfo = existingByTitleSource.get(duplicateKey);
                 }
 
+                if (isExpiredPayPaySold({
+                    ...result,
+                    source: result.source || existing?.source || duplicateInfo?.source,
+                    firstSeen: existing?.firstSeen || duplicateInfo?.firstSeen
+                }, nowMs)) {
+                    if (existing) {
+                        stmts.deleteExpiredGrace.run(watchId, existing.link);
+                    }
+                    if (duplicateInfo && duplicateInfo.link !== existing?.link) {
+                        stmts.deleteExpiredGrace.run(watchId, duplicateInfo.link);
+                    }
+                    processedLinks.add(result.link);
+                    continue;
+                }
+
                 let firstSeen, lastSeen, isNew, hidden;
 
                 if (existing) {
@@ -412,6 +459,11 @@ const Scheduler = {
                 const source = item.source ? item.source.toLowerCase() : '';
                 let preserve = false;
                 let hidden = 1; // Default to hidden
+
+                if (isExpiredPayPaySold(item, nowMs)) {
+                    stmts.deleteExpiredGrace.run(watchId, item.link);
+                    continue;
+                }
 
                 const lastSeenTime = item.lastSeen ? new Date(item.lastSeen).getTime() :
                     item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
@@ -491,8 +543,25 @@ const Scheduler = {
     },
 
     getResults: async (watchId) => {
-        const meta = stmts.getMeta.get(watchId);
-        const items = stmts.getResultsByWatchId.all(watchId);
+        let meta = stmts.getMeta.get(watchId);
+        let items = stmts.getResultsByWatchId.all(watchId);
+        const nowMs = Date.now();
+
+        const expiredPayPaySoldItems = items.filter(item => isExpiredPayPaySold(item, nowMs));
+        if (expiredPayPaySoldItems.length > 0) {
+            const cleanupTransaction = db.transaction(() => {
+                for (const item of expiredPayPaySoldItems) {
+                    stmts.deleteExpiredGrace.run(watchId, item.link);
+                }
+
+                const newCount = stmts.countNew.get(watchId).count;
+                stmts.upsertMeta.run(watchId, new Date().toISOString(), newCount);
+            });
+            cleanupTransaction();
+
+            meta = stmts.getMeta.get(watchId);
+            items = stmts.getResultsByWatchId.all(watchId);
+        }
 
         if (!meta && items.length === 0) return null;
 

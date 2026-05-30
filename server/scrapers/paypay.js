@@ -8,6 +8,91 @@ const doorzo = require('./doorzo');
 let legacyBlocked = false;
 let legacyBlockedUntil = 0;
 const BLOCK_DURATION = 15 * 60 * 1000; // 15 minutes backoff
+const SOLD_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+function formatPayPayPrice(price) {
+    if (price === null || price === undefined || price === '') return 'N/A';
+
+    const numericPrice = Number(String(price).replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(numericPrice) || numericPrice <= 0) return 'N/A';
+
+    return `¥${numericPrice.toLocaleString()}`;
+}
+
+function normalizeImageUrl(url) {
+    if (!url) return '';
+    if (url.startsWith('//')) return `https:${url}`;
+    return url;
+}
+
+function isTruthyWinner(value) {
+    return value === true || value === 1 || value === '1';
+}
+
+function isExpiredSoldItem(item, nowMs = Date.now()) {
+    if (!item || item.isSold !== true) return false;
+
+    const soldAt = item.soldAt || item.endTime;
+    const soldAtMs = soldAt ? new Date(soldAt).getTime() : NaN;
+    if (!Number.isFinite(soldAtMs)) return false;
+
+    return nowMs - soldAtMs >= SOLD_RETENTION_MS;
+}
+
+function filterExpiredSoldItems(items, context) {
+    const before = items.length;
+    const filtered = items.filter(item => !isExpiredSoldItem(item));
+
+    if (before !== filtered.length) {
+        console.log(`[PayPay] Filtered ${before - filtered.length} SOLD item(s) older than 24h${context ? ` (${context})` : ''}.`);
+    }
+
+    return filtered;
+}
+
+function mapSearchStateItem(item) {
+    if (!item) return null;
+
+    const id = item.id || item.productID || item.productId || item.itemId;
+    const title = item.title || item.productName || item.name;
+    if (!id || !title) return null;
+
+    const status = String(item.itemStatus || item.status || '').toUpperCase();
+    const isSold = status === 'SOLD' || isTruthyWinner(item.hasWinner);
+    const endTime = item.endTime || item.end_time || '';
+
+    return {
+        title,
+        link: `https://paypayfleamarket.yahoo.co.jp/item/${id}`,
+        image: normalizeImageUrl(item.thumbnailImageUrl || item.imageUrl || item.image || ''),
+        price: formatPayPayPrice(item.price || item.JPYPrice),
+        endTime: isSold ? endTime : '',
+        isSold,
+        soldAt: isSold ? endTime : undefined
+    };
+}
+
+function parseNextSearchResults($) {
+    const nextDataText = $('#__NEXT_DATA__').html();
+    if (!nextDataText) return null;
+
+    try {
+        const nextData = JSON.parse(nextDataText);
+        const items = nextData?.props?.initialState?.searchState?.search?.result?.items;
+        if (!Array.isArray(items)) return null;
+
+        const mappedItems = items.map(mapSearchStateItem).filter(Boolean);
+        if (items.length > 0 && mappedItems.length === 0) {
+            console.warn('[PayPay Legacy] Structured search items were present but could not be mapped. Falling back to DOM parser.');
+            return null;
+        }
+
+        return mappedItems;
+    } catch (err) {
+        console.warn(`[PayPay Legacy] Failed to parse __NEXT_DATA__: ${err.message}`);
+        return null;
+    }
+}
 
 // Legacy scraper (Direct PayPay site scraping) - Unreliable due to bot protection
 async function searchLegacy(query, strictEnabled = true) {
@@ -34,59 +119,66 @@ async function searchLegacy(query, strictEnabled = true) {
         });
 
         const $ = cheerio.load(res.data);
-        const results = [];
+        const structuredResults = parseNextSearchResults($);
+        const results = structuredResults || [];
         const seen = new Set();
 
-        const links = $('a[href^="/item/"]');
+        if (!structuredResults) {
+            const links = $('a[href^="/item/"]');
 
-        links.each((i, el) => {
-            try {
-                const href = $(el).attr('href');
-                if (!href || seen.has(href)) return;
-                seen.add(href);
+            links.each((i, el) => {
+                try {
+                    const href = $(el).attr('href');
+                    if (!href || seen.has(href)) return;
+                    seen.add(href);
 
-                const img = $(el).find('img');
-                if (!img.length) return;
+                    const img = $(el).find('img');
+                    if (!img.length) return;
 
-                const title = img.attr('alt');
-                if (!title) return;
+                    const title = img.attr('alt');
+                    if (!title) return;
 
-                const image = img.attr('src');
-                const itemLink = 'https://paypayfleamarket.yahoo.co.jp' + href;
+                    const image = img.attr('src');
+                    const itemLink = 'https://paypayfleamarket.yahoo.co.jp' + href;
+                    const cardText = $(el).closest('li, article, div').text();
+                    const isSold = /SOLD|売り切れ|売れました/.test(cardText);
 
-                let price = 'N/A';
-                const priceElement = $(el).find('p');
-                if (priceElement.length) {
-                    const priceText = priceElement.text();
-                    const priceMatch = priceText.match(/(\d{1,3}(,\d{3})*)円/);
-                    if (priceMatch) {
-                        const priceNum = priceMatch[1]; // Just the number part
-                        price = `¥${priceNum}`;
+                    let price = 'N/A';
+                    const priceElement = $(el).find('p');
+                    if (priceElement.length) {
+                        const priceText = priceElement.text();
+                        const priceMatch = priceText.match(/(\d{1,3}(,\d{3})*)円/);
+                        if (priceMatch) {
+                            const priceNum = priceMatch[1]; // Just the number part
+                            price = `¥${priceNum}`;
+                        }
                     }
-                }
 
-                results.push({
-                    title,
-                    link: itemLink,
-                    image,
-                    price
-                });
-            } catch (e) {
-                // Skip bad items
-            }
-        });
+                    results.push({
+                        title,
+                        link: itemLink,
+                        image,
+                        price,
+                        isSold
+                    });
+                } catch (e) {
+                    // Skip bad items
+                }
+            });
+        }
 
         const parsedQuery = parseQuery(query);
         const hasQuoted = hasQuotedTerms(parsedQuery);
+        const activeResults = filterExpiredSoldItems(results, 'legacy');
 
         if (strictEnabled || hasQuoted) {
-            const filteredResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
-            console.log(`[PayPay Legacy] Found ${results.length} items, ${filteredResults.length} after strict filter${hasQuoted ? ' (Quoted Terms Enforced)' : ''}`);
+            const filteredResults = activeResults.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+            console.log(`[PayPay Legacy] Found ${results.length} items, ${filteredResults.length} after SOLD retention and strict filter${hasQuoted ? ' (Quoted Terms Enforced)' : ''}`);
             return filteredResults;
         }
 
-        console.log(`[PayPay Legacy] Found ${results.length} items (Strict filter disabled)`);
-        return results;
+        console.log(`[PayPay Legacy] Found ${activeResults.length} items after SOLD retention (Strict filter disabled)`);
+        return activeResults;
 
     } catch (error) {
         if (error.response && (error.response.status === 403 || error.response.status === 500 || error.response.status === 429)) {
@@ -285,6 +377,7 @@ async function search(query, strictEnabled = true, filters = []) {
         // Only fall back to Neokyo if Doorzo EXPLICITLY fails (returns null).
         if (results !== null) {
             console.log(`[PayPay] Doorzo scraper successful. Found ${results.length} items.`);
+            results = filterExpiredSoldItems(results, 'Doorzo');
 
             // Apply strict filtering if needed
             const parsedQuery = parseQuery(query);
@@ -313,6 +406,8 @@ async function search(query, strictEnabled = true, filters = []) {
         if (results === null) {
             throw new Error('Neokyo scrape failed');
         }
+
+        results = filterExpiredSoldItems(results, 'Neokyo');
 
         const parsedQuery = parseQuery(query);
         const hasQuoted = hasQuotedTerms(parsedQuery);

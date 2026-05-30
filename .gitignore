@@ -60,3 +60,10 @@ remote_results.json
 paypay_test_results.txt
 walkthrough.md
 .agent/
+
+# Local generated debug/download artifacts
+temp*.tar.gz
+axios_debug.html
+puppeteer_blocked.png
+server/scrapers/prototypes/
+.vscode/
