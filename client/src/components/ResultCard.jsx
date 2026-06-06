@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ResultCard = ({ item, onBlock, isNew }) => {
+const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     const { title, link, image, price, source, endTime } = item;
     const [timeLeft, setTimeLeft] = React.useState('');
 
@@ -60,6 +60,14 @@ const ResultCard = ({ item, onBlock, isNew }) => {
         window.open(fjUrl, '_blank');
     };
 
+    const handleFavoriteToggle = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (onFavoriteToggle) {
+            onFavoriteToggle(item);
+        }
+    };
+
     const safelyGetSource = () => {
         return (source || 'Unknown').toString();
     };
@@ -69,6 +77,15 @@ const ResultCard = ({ item, onBlock, isNew }) => {
             {isNew && <span className="new-ribbon">NEW</span>}
             {onBlock && (
                 <button className="block-btn" onClick={handleBlock} title="Permanently Block">🚫</button>
+            )}
+            {onFavoriteToggle && (
+                <button
+                    className={`favorite-btn ${item.isFavorite ? 'active' : ''}`}
+                    onClick={handleFavoriteToggle}
+                    title={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
+                >
+                    {item.isFavorite ? '★' : '☆'}
+                </button>
             )}
             <button className="fj-btn" onClick={handleFromJapan} title="Open in FromJapan">🛒</button>
             <div className="card-image-container">

@@ -13,12 +13,14 @@ jest.mock('../../scrapers', () => mockSearchAggregator);
 
 let Scheduler;
 let Watchlist;
+let FavoriteItems;
 let db;
 
 beforeAll(() => {
     db = getTestDb();
     Scheduler = require('../../scheduler');
     Watchlist = require('../../models/watchlist');
+    FavoriteItems = require('../../models/favorite_items');
 });
 
 afterAll(() => {
@@ -27,6 +29,7 @@ afterAll(() => {
 
 beforeEach(() => {
     clearTestDb();
+    FavoriteItems._resetCache();
 });
 
 describe('Scheduler.saveResults', () => {
@@ -91,5 +94,34 @@ describe('Scheduler.saveResults', () => {
 
         const meta4 = db.prepare('SELECT new_count FROM results_meta WHERE watch_id = ?').get(watch.id);
         expect(meta4.new_count).toBe(0);
+    });
+
+    test('returns favorite price updates with old and new prices', async () => {
+        const watch = await Watchlist.add({ term: 'favorite-price', strict: false });
+
+        FavoriteItems.add(
+            'favorite-link',
+            'Favorite Price Item',
+            '',
+            '¥1,000',
+            'mercari'
+        );
+
+        const run1 = await Scheduler.saveResults(watch.id, [
+            { link: 'favorite-link', title: 'Favorite Price Item', source: 'mercari', price: '¥1,500' }
+        ], 'favorite-price');
+
+        expect(run1.favoritePriceUpdates).toHaveLength(1);
+        expect(run1.favoritePriceUpdates[0].oldPrice).toBe('¥1,000');
+        expect(run1.favoritePriceUpdates[0].newPrice).toBe('¥1,500');
+
+        const refreshedFavorite = FavoriteItems.getByUrlMap().get('favorite-link');
+        expect(refreshedFavorite.price).toBe('¥1,500');
+
+        const run2 = await Scheduler.saveResults(watch.id, [
+            { link: 'favorite-link', title: 'Favorite Price Item', source: 'mercari', price: '¥1,500' }
+        ], 'favorite-price');
+
+        expect(run2.favoritePriceUpdates).toHaveLength(0);
     });
 });

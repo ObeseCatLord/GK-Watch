@@ -281,6 +281,34 @@ function App() {
     }
   };
 
+  const handleFavoriteToggle = async (item) => {
+    try {
+      const res = await authenticatedFetch('/api/favorites/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: item.link || item.url,
+          title: item.title,
+          image: item.image,
+          price: item.price,
+          bidPrice: item.bidPrice,
+          binPrice: item.binPrice,
+          source: item.source
+        })
+      });
+      const data = await res.json();
+      const isFavorite = !!data.favorite;
+      const itemUrl = item.link || item.url;
+      setResults(prev => prev.map(result =>
+        result.link === itemUrl ? { ...result, isFavorite } : result
+      ));
+      return isFavorite;
+    } catch (err) {
+      console.error('Failed to toggle favorite:', err);
+      return undefined;
+    }
+  };
+
   // Explicitly define standard sites to exclude CN ones
   const STANDARD_SITES = ['mercari', 'yahoo', 'paypay', 'fril', 'surugaya'];
 
@@ -558,7 +586,7 @@ function App() {
           className={view === 'blocked' ? 'active' : ''}
           onClick={() => setView('blocked')}
         >
-          Blocked Items
+          Lists
         </button>
         <button
           className={view === 'options' ? 'active' : ''}
@@ -821,7 +849,12 @@ function App() {
                     {filteredResults
                       .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
                       .map((item, index) => (
-                        <ResultCard key={`${item.source}-${index}`} item={item} onBlock={handleBlock} />
+                        <ResultCard
+                          key={`${item.source}-${index}`}
+                          item={item}
+                          onBlock={handleBlock}
+                          onFavoriteToggle={handleFavoriteToggle}
+                        />
                       ))}
                   </div>
 
@@ -947,6 +980,7 @@ function App() {
           <WatchlistManager
             authenticatedFetch={authenticatedFetch}
             onBlock={handleBlock}
+            onFavoriteToggle={handleFavoriteToggle}
             taobaoEnabled={taobaoEnabled}
             goofishEnabled={goofishEnabled}
             handleExportClipboard={handleExportClipboard}

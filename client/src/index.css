@@ -156,6 +156,7 @@ h1 {
 
 /* Card Action Buttons */
 .block-btn,
+.favorite-btn,
 .fj-btn {
   position: absolute;
   z-index: 10;
@@ -171,6 +172,8 @@ h1 {
 }
 
 .result-card:hover .block-btn,
+.result-card:hover .favorite-btn,
+.favorite-btn.active,
 .result-card:hover .fj-btn {
   opacity: 1;
 }
@@ -188,6 +191,19 @@ h1 {
 .fj-btn {
   top: 8px;
   right: 48px;
+}
+
+.favorite-btn {
+  top: 8px;
+  right: 88px;
+  color: #f6c945;
+}
+
+.favorite-btn:hover,
+.favorite-btn.active {
+  background: rgba(246, 201, 69, 0.9);
+  color: #1a1a1a;
+  transform: scale(1.1);
 }
 
 .fj-btn:hover {
@@ -1332,9 +1348,15 @@ h1 {
 
 .blocked-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2rem;
   align-items: start;
+}
+
+@media (max-width: 1199px) {
+  .blocked-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .blocked-section {
@@ -1756,6 +1778,7 @@ h1 {
   }
 
   .block-btn,
+  .favorite-btn,
   .fj-btn {
     width: 28px;
     height: 28px;

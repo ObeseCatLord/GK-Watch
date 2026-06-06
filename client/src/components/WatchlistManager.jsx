@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ResultCard from './ResultCard';
 
-const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishEnabled, handleExportClipboard }) => {
+const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taobaoEnabled, goofishEnabled, handleExportClipboard }) => {
     const [watchlist, setWatchlist] = useState([]);
     const [newTerm, setNewTerm] = useState('');
     const [selectedResults, setSelectedResults] = useState(null);
@@ -26,7 +26,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
     const [currentQueueItem, setCurrentQueueItem] = useState(null);  // Currently processing item
     const isProcessingRef = React.useRef(false);
     const [sourceFilter, setSourceFilter] = useState('All');
-    const [sortBy, setSortBy] = useState('time'); // 'time', 'name', 'priceHigh', 'priceLow'
+    const [sortBy, setSortBy] = useState('time'); // 'time', 'favorite', 'name', 'priceHigh', 'priceLow'
     const [schedulerProgress, setSchedulerProgress] = useState(null);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 767);
@@ -529,6 +529,18 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
         );
     };
 
+    const handleLocalFavoriteToggle = async (item) => {
+        if (!onFavoriteToggle) return;
+        const isFavorite = await onFavoriteToggle(item);
+        if (typeof isFavorite !== 'boolean') return;
+
+        setSelectedResults(prev =>
+            prev ? prev.map(result =>
+                result.link === item.link ? { ...result, isFavorite } : result
+            ) : null
+        );
+    };
+
     // Export results to HTML file with 5-column grid
     const exportToHtml = (items, filename = 'watchlist_results') => {
         const html = `<!DOCTYPE html>
@@ -611,7 +623,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
             return matchesTitle && matchesSource;
         });
 
-        if (sortBy === 'name') {
+        if (sortBy === 'favorite') {
+            results.sort((a, b) => Number(!!b.isFavorite) - Number(!!a.isFavorite));
+        } else if (sortBy === 'name') {
             results.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
         } else if (sortBy === 'relevance') {
             const item = watchlist.find(i => i.id === selectedId);
@@ -1091,6 +1105,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                     style={{ maxWidth: '180px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem', marginLeft: '10px' }}
                                 >
                                     <option value="time">Sort: Time Scraped</option>
+                                    <option value="favorite">Sort: Favorited</option>
                                     <option value="relevance">Sort: Relevance</option>
                                     <option value="name">Sort: Name</option>
                                     <option value="priceHigh">Sort: Price High→Low</option>
@@ -1108,7 +1123,13 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, taobaoEnabled, goofishE
                                     return filteredAndSortedResults
                                         .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
                                         .map((item, idx) => (
-                                            <ResultCard key={idx} item={item} onBlock={handleLocalBlock} isNew={item.isNew} />
+                                            <ResultCard
+                                                key={idx}
+                                                item={item}
+                                                onBlock={handleLocalBlock}
+                                                onFavoriteToggle={handleLocalFavoriteToggle}
+                                                isNew={item.isNew}
+                                            />
                                         ));
                                 })()}
                             </div>

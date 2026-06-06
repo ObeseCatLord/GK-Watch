@@ -247,7 +247,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
                 if (data.type === 'result' && data.items) {
                     let filtered = BlockedItems.filterResults(data.items);
                     filtered = Blacklist.filterResults(filtered);
-                    data.items = filtered;
+                    data.items = FavoriteItems.annotateResults(filtered);
                 }
                 res.write(`data: ${JSON.stringify(data)}\n\n`);
             };
@@ -269,7 +269,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
         const results = await searchAggregator.searchAll(query, enabledOverride, strict, filters);
         let filteredResults = BlockedItems.filterResults(results);
         filteredResults = Blacklist.filterResults(filteredResults);
-        res.json(filteredResults);
+        res.json(FavoriteItems.annotateResults(filteredResults));
     } catch (error) {
         console.error('Search failed:', error);
         if (!res.headersSent) {
@@ -284,6 +284,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
 // Watchlist Routes
 const Watchlist = require('./models/watchlist');
 const BlockedItems = require('./models/blocked_items');
+const FavoriteItems = require('./models/favorite_items');
 const Scheduler = require('./scheduler');
 
 // Initialize Scheduler
@@ -376,7 +377,8 @@ app.get('/api/results/:id', requireAuth, async (req, res) => {
     let items = results ? results.items : [];
     items = items.filter(i => !i.hidden);
     const filtered = BlockedItems.filterResults(items);
-    res.json({ ...results, items: filtered } || { items: [] });
+    const annotated = FavoriteItems.annotateResults(filtered);
+    res.json(results ? { ...results, items: annotated } : { items: [] });
 
 });
 
@@ -454,6 +456,34 @@ app.post('/api/blocked', requireAuth, (req, res) => {
 
 app.delete('/api/blocked/:id', requireAuth, (req, res) => {
     BlockedItems.remove(req.params.id);
+    res.json({ success: true });
+});
+
+// Favorite Items Routes
+app.get('/api/favorites', requireAuth, (req, res) => {
+    res.json(FavoriteItems.getAll());
+});
+
+app.post('/api/favorites', requireAuth, (req, res) => {
+    const { url, link, title, image, price, source, bidPrice, binPrice } = req.body || {};
+    const itemUrl = url || link;
+    if (!itemUrl) return res.status(400).json({ error: 'URL is required' });
+    res.json(FavoriteItems.add(itemUrl, title, image, price, source, bidPrice, binPrice));
+});
+
+app.post('/api/favorites/toggle', requireAuth, (req, res) => {
+    const item = req.body || {};
+    if (!item.url && !item.link) return res.status(400).json({ error: 'URL is required' });
+    res.json(FavoriteItems.toggle(item));
+});
+
+app.post('/api/favorites/clear-missing', requireAuth, (req, res) => {
+    const removed = FavoriteItems.clearMissingFromResults();
+    res.json({ success: true, removed });
+});
+
+app.delete('/api/favorites/:id', requireAuth, (req, res) => {
+    FavoriteItems.remove(req.params.id);
     res.json({ success: true });
 });
 

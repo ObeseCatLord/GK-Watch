@@ -307,15 +307,17 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const exportWatchlist = async () => {
         try {
             // Fetch all data
-            const [watchlistRes, blacklistRes, blockedRes] = await Promise.all([
+            const [watchlistRes, blacklistRes, blockedRes, favoritesRes] = await Promise.all([
                 authenticatedFetch('/api/watchlist'),
                 authenticatedFetch('/api/blacklist'),
-                authenticatedFetch('/api/blocked')
+                authenticatedFetch('/api/blocked'),
+                authenticatedFetch('/api/favorites')
             ]);
 
             const watchlist = await watchlistRes.json();
             const blacklist = await blacklistRes.json();
             const blocked = await blockedRes.json();
+            const favorites = await favoritesRes.json();
 
             // Create comprehensive export object
             const exportData = {
@@ -329,6 +331,15 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 blockedItems: blocked.map(item => ({
                     url: item.url,
                     title: item.title
+                })),
+                favoriteItems: favorites.map(item => ({
+                    url: item.url,
+                    title: item.title,
+                    image: item.image,
+                    price: item.price,
+                    bidPrice: item.bidPrice,
+                    binPrice: item.binPrice,
+                    source: item.source
                 }))
             };
 
@@ -372,7 +383,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
             if (isJson) {
                 // Handle JSON Backup Import
-                const { watchlist, blacklist, blockedItems } = importData;
+                const { watchlist, blacklist, blockedItems, favoriteItems } = importData;
 
                 // Import Watchlist
                 if (Array.isArray(watchlist)) {
@@ -436,6 +447,25 @@ const OptionsManager = ({ authenticatedFetch }) => {
                             added++;
                         } catch (err) {
                             console.error(`Failed to import blocked item`, err);
+                            errors++;
+                            if (errors === 1) firstError = err.message;
+                        }
+                    }
+                }
+
+                // Import Favorite Items
+                if (Array.isArray(favoriteItems)) {
+                    for (const item of favoriteItems) {
+                        try {
+                            const res = await authenticatedFetch('/api/favorites', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(item)
+                            });
+                            if (!res.ok) throw new Error(`Status ${res.status} (${res.statusText})`);
+                            added++;
+                        } catch (err) {
+                            console.error(`Failed to import favorite item`, err);
                             errors++;
                             if (errors === 1) firstError = err.message;
                         }

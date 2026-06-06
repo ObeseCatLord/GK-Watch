@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 
 const BlockedManager = ({ authenticatedFetch }) => {
     const [blockedItems, setBlockedItems] = useState([]);
+    const [favoriteItems, setFavoriteItems] = useState([]);
     // blacklist state is now just for tracking changes if needed, but we mainly use newTerm for the textarea
     // to avoid confusion, let's rename newTerm to blacklistText
     const [blacklistText, setNewTerm] = useState(''); // Reusing setNewTerm setter to minimize diff, but essentially it's the text block 
 
     useEffect(() => {
         fetchBlockedItems();
+        fetchFavoriteItems();
         fetchBlacklist();
     }, []);
 
@@ -18,6 +20,16 @@ const BlockedManager = ({ authenticatedFetch }) => {
             setBlockedItems(data);
         } catch (err) {
             console.error('Error fetching blocked items:', err);
+        }
+    };
+
+    const fetchFavoriteItems = async () => {
+        try {
+            const res = await authenticatedFetch('/api/favorites');
+            const data = await res.json();
+            setFavoriteItems(data);
+        } catch (err) {
+            console.error('Error fetching favorite items:', err);
         }
     };
 
@@ -65,10 +77,95 @@ const BlockedManager = ({ authenticatedFetch }) => {
         }
     };
 
+    const unfavoriteItem = async (id) => {
+        try {
+            await authenticatedFetch(`/api/favorites/${id}`, {
+                method: 'DELETE'
+            });
+            fetchFavoriteItems();
+        } catch (err) {
+            console.error('Error unfavoriting item:', err);
+        }
+    };
+
+    const clearMissingFavorites = async () => {
+        if (!window.confirm('Clear favorited items that are no longer found in stored results?')) return;
+
+        try {
+            const res = await authenticatedFetch('/api/favorites/clear-missing', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            await fetchFavoriteItems();
+            alert(`Removed ${data.removed || 0} favorited item${data.removed === 1 ? '' : 's'}.`);
+        } catch (err) {
+            console.error('Error clearing missing favorites:', err);
+            alert('Failed to clear missing favorites');
+        }
+    };
+
     return (
         <div className="watchlist-container">
             {/* Desktop: Side-by-side grid, Mobile: Stack */}
             <div className="blocked-grid">
+                {/* Favorite Items Section */}
+                <div className="blocked-section">
+                    <h2>⭐ Favorited Items</h2>
+                    <p style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#888' }}>
+                        Favorited items are tracked for price changes in scheduled email digests.
+                    </p>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                        <button
+                            className="page-btn"
+                            onClick={clearMissingFavorites}
+                            disabled={favoriteItems.length === 0}
+                            title="Unfavorite items that are no longer in stored results"
+                        >
+                            Clear Missing
+                        </button>
+                    </div>
+
+                    <ul className="watchlist-items" style={{ margin: '0' }}>
+                        {favoriteItems.length === 0 && <p style={{ textAlign: 'center' }}>No favorited items.</p>}
+
+                        {favoriteItems.map(item => (
+                            <li key={item.id} className="watchlist-item" style={{ cursor: 'default' }}>
+                                {item.image && (
+                                    <div style={{
+                                        width: '50px',
+                                        height: '50px',
+                                        minWidth: '50px',
+                                        borderRadius: '4px',
+                                        overflow: 'hidden',
+                                        marginRight: '12px',
+                                        background: '#333'
+                                    }}>
+                                        <img
+                                            src={item.image}
+                                            alt=""
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    </div>
+                                )}
+                                <div className="watch-info">
+                                    <span className="watch-term" style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{item.title}</span>
+                                    <span className="watch-meta">
+                                        {item.price || item.bidPrice || item.binPrice || 'No price saved'}
+                                        {item.source && ` • ${item.source}`}
+                                    </span>
+                                    <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" style={{ textDecoration: 'none', color: '#646cff' }}>
+                                        {item.url.substring(0, 50)}...
+                                    </a>
+                                </div>
+                                <button className="delete-btn" onClick={() => unfavoriteItem(item.id)} title="Unfavorite">
+                                    ★
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+
                 {/* Universal Blacklist Section */}
                 <div className="blocked-section">
                     <h2>🚫 Universal Blacklist</h2>

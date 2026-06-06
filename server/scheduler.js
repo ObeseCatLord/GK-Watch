@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const Watchlist = require('./models/watchlist');
 const BlockedItems = require('./models/blocked_items');
 const Blacklist = require('./models/blacklist');
+const FavoriteItems = require('./models/favorite_items');
 const ScheduleSettings = require('./models/schedule');
 const Settings = require('./models/settings');
 const EmailService = require('./emailService');
@@ -295,12 +296,22 @@ const Scheduler = {
                             });
                         }
 
-                        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
+                        const { newItems, totalCount, favoritePriceUpdates } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
+
+                        const digestItemsByLink = new Map();
+                        for (const newItem of newItems || []) {
+                            digestItemsByLink.set(newItem.link, newItem);
+                        }
+                        for (const priceUpdate of favoritePriceUpdates || []) {
+                            digestItemsByLink.set(priceUpdate.link, priceUpdate);
+                        }
+                        const digestItems = Array.from(digestItemsByLink.values());
+
+                        if (digestItems.length > 0 && item.emailNotify !== false) {
+                            allNewItems[item.name] = digestItems;
+                        }
 
                         if (newItems && newItems.length > 0) {
-                            if (item.emailNotify !== false) {
-                                allNewItems[item.name] = newItems;
-                            }
                             if (item.priority === true) {
                                 await NtfyService.sendPriorityAlert(item.name || item.term, newItems);
                             }
@@ -342,12 +353,14 @@ const Scheduler = {
         const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
         let newItems = [];
+        let favoritePriceUpdates = [];
 
         // Run the entire save operation in a transaction for atomicity & performance
         const saveTransaction = db.transaction(() => {
             // Get existing items for this watch ID
             const existingItems = stmts.getResultsByWatchId.all(watchId);
             const existingByLink = new Map(existingItems.map(item => [item.link, item]));
+            const favoritesByUrl = FavoriteItems.getByUrlMap();
 
             // Create map for duplicate detection by Title + Source
             const existingByTitleSource = new Map();
@@ -386,6 +399,7 @@ const Scheduler = {
 
             for (const result of newResults) {
                 const existing = existingByLink.get(result.link);
+                const favorite = favoritesByUrl.get(result.link);
                 const source = result.source ? result.source.toLowerCase() : '';
                 const isTimedSource = source.includes('yahoo') || source.includes('suruga') ||
                     source.includes('mercari') || source.includes('paypay') ||
@@ -411,6 +425,14 @@ const Scheduler = {
                     }
                     processedLinks.add(result.link);
                     continue;
+                }
+
+                if (favorite) {
+                    const priceUpdate = FavoriteItems.getPriceUpdateForResult(result, favorite);
+                    if (priceUpdate) {
+                        favoritePriceUpdates.push(priceUpdate);
+                    }
+                    FavoriteItems.updateSnapshotFromResult(result);
                 }
 
                 let firstSeen, lastSeen, isNew, hidden;
@@ -528,7 +550,7 @@ const Scheduler = {
             // Get total non-hidden count
             const totalCount = stmts.countNonHidden.get(watchId).count;
 
-            return { newItems, totalCount };
+            return { newItems, totalCount, favoritePriceUpdates };
         });
 
         return saveTransaction();

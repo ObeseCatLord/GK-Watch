@@ -89,6 +89,19 @@ function initSchema() {
             blocked_at TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS favorite_items (
+            id TEXT PRIMARY KEY,
+            url TEXT UNIQUE NOT NULL,
+            title TEXT,
+            image TEXT,
+            price TEXT,
+            bid_price TEXT,
+            bin_price TEXT,
+            source TEXT,
+            favorited_at TEXT,
+            updated_at TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS blacklist (
             id TEXT PRIMARY KEY,
             term TEXT NOT NULL,
@@ -120,6 +133,7 @@ function initSchema() {
         CREATE INDEX IF NOT EXISTS idx_results_last_seen ON results(last_seen);
         CREATE INDEX IF NOT EXISTS idx_results_is_new ON results(watch_id, is_new);
         CREATE INDEX IF NOT EXISTS idx_blocked_url ON blocked_items(url);
+        CREATE INDEX IF NOT EXISTS idx_favorite_url ON favorite_items(url);
         CREATE INDEX IF NOT EXISTS idx_watchlist_sort ON watchlist(sort_order);
     `);
 }

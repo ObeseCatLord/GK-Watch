@@ -88,6 +88,19 @@ function getTestDb() {
             blocked_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS favorite_items (
+            id TEXT PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE,
+            title TEXT DEFAULT '',
+            image TEXT DEFAULT '',
+            price TEXT DEFAULT '',
+            bid_price TEXT DEFAULT '',
+            bin_price TEXT DEFAULT '',
+            source TEXT DEFAULT '',
+            favorited_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS blacklist (
             id TEXT PRIMARY KEY,
             term TEXT NOT NULL,
@@ -116,6 +129,7 @@ function getTestDb() {
         CREATE INDEX IF NOT EXISTS idx_results_link ON results(link);
         CREATE INDEX IF NOT EXISTS idx_results_new ON results(watch_id, is_new);
         CREATE INDEX IF NOT EXISTS idx_blocked_url ON blocked_items(url);
+        CREATE INDEX IF NOT EXISTS idx_favorite_url ON favorite_items(url);
     `);
 
     // Replace the database module in require cache BEFORE any model is loaded
@@ -138,6 +152,7 @@ function closeTestDb() {
         '../models/watchlist',
         '../models/blacklist',
         '../models/blocked_items',
+        '../models/favorite_items',
         '../models/schedule',
     ];
 
@@ -177,6 +192,7 @@ function clearTestDb() {
         DELETE FROM results;
         DELETE FROM watchlist;
         DELETE FROM blocked_items;
+        DELETE FROM favorite_items;
         DELETE FROM blacklist;
         DELETE FROM settings;
         DELETE FROM schedule;

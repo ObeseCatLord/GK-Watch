@@ -154,13 +154,20 @@ const EmailService = {
                     for (let j = 0; j < 3; j++) {
                         const item = items[i + j];
                         if (item) {
+                            const priceHtml = item.isPriceUpdate
+                                ? `
+                                            <p style="font-size: 10px; color: #888; margin: 0;">Favorite price update</p>
+                                            <p style="font-size: 11px; color: #777; margin: 2px 0 0 0;">Old: <span style="text-decoration: line-through;">${item.oldPrice}</span></p>
+                                            <p style="font-size: 12px; color: #d32f2f; font-weight: bold; margin: 0;">New: ${item.newPrice}</p>`
+                                : `<p style="font-size: 12px; color: #d32f2f; font-weight: bold; margin: 0;">${item.price}</p>`;
+
                             emailBody += `
                                 <td style="width: 33%; padding: 8px; vertical-align: top;">
                                     <div style="border: 1px solid #eee; border-radius: 6px; background-color: #fafafa; padding: 8px; height: 100%;">
                                         <a href="${item.link}" style="text-decoration: none; color: inherit;">
                                             <img src="${item.image}" alt="" style="width: 100%; max-height: 80px; object-fit: contain; border-radius: 4px; margin-bottom: 5px;">
                                             <p style="font-size: 11px; color: #333; margin: 0 0 5px 0; line-height: 1.2; max-height: 28px; overflow: hidden;">${item.title.substring(0, 50)}${item.title.length > 50 ? '...' : ''}</p>
-                                            <p style="font-size: 12px; color: #d32f2f; font-weight: bold; margin: 0;">${item.price}</p>
+                                            ${priceHtml}
                                             <p style="font-size: 10px; color: #888; margin: 2px 0 0 0;">${item.source}</p>
                                         </a>
                                     </div>
@@ -181,12 +188,12 @@ const EmailService = {
             const info = await transporter.sendMail({
                 from: sender,
                 to: settings.email,
-                subject: `🆕 GKWatch Digest: ${totalCount} New Items Found`,
+                subject: `🆕 GKWatch Digest: ${totalCount} New Items / Updates`,
                 html: `
                     <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto;">
                         <div style="background-color: #333; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
                             <h1 style="margin: 0;">GKWatch Digest</h1>
-                            <p style="margin: 5px 0 0 0;">Found ${totalCount} new items across ${terms.length} watches</p>
+                            <p style="margin: 5px 0 0 0;">Found ${totalCount} new items or favorite price updates across ${terms.length} watches</p>
                         </div>
                         <div style="padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px;">
                             ${emailBody}
