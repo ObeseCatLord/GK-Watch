@@ -115,13 +115,27 @@ describe('Scheduler.saveResults', () => {
         expect(run1.favoritePriceUpdates[0].oldPrice).toBe('¥1,000');
         expect(run1.favoritePriceUpdates[0].newPrice).toBe('¥1,500');
 
+        const storedUpdate = db.prepare('SELECT is_new, new_type FROM results WHERE watch_id = ? AND link = ?').get(watch.id, 'favorite-link');
+        expect(storedUpdate.is_new).toBe(1);
+        expect(storedUpdate.new_type).toBe('updated');
+
+        const apiResults = await Scheduler.getResults(watch.id);
+        expect(apiResults.newCount).toBe(1);
+        expect(apiResults.items[0].isNew).toBe(true);
+        expect(apiResults.items[0].isUpdated).toBe(true);
+        expect(apiResults.items[0].newType).toBe('updated');
+
         const refreshedFavorite = FavoriteItems.getByUrlMap().get('favorite-link');
         expect(refreshedFavorite.price).toBe('¥1,500');
+
+        Scheduler.clearNewFlags(watch.id);
 
         const run2 = await Scheduler.saveResults(watch.id, [
             { link: 'favorite-link', title: 'Favorite Price Item', source: 'mercari', price: '¥1,500' }
         ], 'favorite-price');
 
         expect(run2.favoritePriceUpdates).toHaveLength(0);
+        const meta = db.prepare('SELECT new_count FROM results_meta WHERE watch_id = ?').get(watch.id);
+        expect(meta.new_count).toBe(0);
     });
 });

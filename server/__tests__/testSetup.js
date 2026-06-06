@@ -68,6 +68,7 @@ function getTestDb() {
             first_seen TEXT NOT NULL,
             last_seen TEXT NOT NULL,
             is_new INTEGER DEFAULT 1,
+            new_type TEXT DEFAULT 'new',
             hidden INTEGER DEFAULT 0,
             FOREIGN KEY (watch_id) REFERENCES watchlist(id) ON DELETE CASCADE,
             UNIQUE(watch_id, link)

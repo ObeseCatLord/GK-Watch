@@ -3,6 +3,8 @@ import React from 'react';
 const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     const { title, link, image, price, source, endTime } = item;
     const [timeLeft, setTimeLeft] = React.useState('');
+    const isUpdated = item.isUpdated || item.newType === 'updated';
+    const showStatusRibbon = isNew || isUpdated;
 
     React.useEffect(() => {
         if (!endTime) return;
@@ -73,8 +75,12 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     };
 
     return (
-        <a href={link} target="_blank" rel="noopener noreferrer" className={`result-card ${isNew ? 'is-new' : ''}`}>
-            {isNew && <span className="new-ribbon">NEW</span>}
+        <a href={link} target="_blank" rel="noopener noreferrer" className={`result-card ${showStatusRibbon ? 'is-new' : ''} ${isUpdated ? 'is-updated' : ''}`}>
+            {showStatusRibbon && (
+                <span className={`new-ribbon ${isUpdated ? 'updated-ribbon' : ''}`}>
+                    {isUpdated ? 'UPDATED' : 'NEW'}
+                </span>
+            )}
             {onBlock && (
                 <button className="block-btn" onClick={handleBlock} title="Permanently Block">🚫</button>
             )}

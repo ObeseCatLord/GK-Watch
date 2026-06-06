@@ -618,6 +618,11 @@ h1 {
   box-shadow: 0 0 15px rgba(76, 175, 80, 0.4);
 }
 
+.result-card.is-updated {
+  border-color: #f9a825;
+  box-shadow: 0 0 15px rgba(249, 168, 37, 0.4);
+}
+
 .new-ribbon {
   position: absolute;
   top: 40px;
@@ -630,6 +635,10 @@ h1 {
   z-index: 10;
   border-radius: 0 4px 4px 0;
   box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.updated-ribbon {
+  background: linear-gradient(135deg, #f9a825, #ef6c00);
 }
 
 .delete-btn {

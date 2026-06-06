@@ -71,6 +71,7 @@ function initSchema() {
             first_seen TEXT NOT NULL,
             last_seen TEXT,
             is_new INTEGER DEFAULT 1,
+            new_type TEXT DEFAULT 'new',
             hidden INTEGER DEFAULT 0,
             UNIQUE(watch_id, link)
         );
@@ -124,6 +125,8 @@ function initSchema() {
         );
     `);
 
+    addColumnIfMissing('results', 'new_type', "TEXT DEFAULT 'new'");
+
     // Create indexes (IF NOT EXISTS is implicit with CREATE INDEX IF NOT EXISTS)
     db.exec(`
         CREATE INDEX IF NOT EXISTS idx_results_watch_id ON results(watch_id);
@@ -132,10 +135,18 @@ function initSchema() {
         CREATE INDEX IF NOT EXISTS idx_results_first_seen ON results(first_seen);
         CREATE INDEX IF NOT EXISTS idx_results_last_seen ON results(last_seen);
         CREATE INDEX IF NOT EXISTS idx_results_is_new ON results(watch_id, is_new);
+        CREATE INDEX IF NOT EXISTS idx_results_new_type ON results(watch_id, new_type);
         CREATE INDEX IF NOT EXISTS idx_blocked_url ON blocked_items(url);
         CREATE INDEX IF NOT EXISTS idx_favorite_url ON favorite_items(url);
         CREATE INDEX IF NOT EXISTS idx_watchlist_sort ON watchlist(sort_order);
     `);
+}
+
+function addColumnIfMissing(table, column, definition) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!columns.some(info => info.name === column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
 }
 
 /**
@@ -283,8 +294,8 @@ function migrateFromJson() {
                 const data = JSON.parse(fs.readFileSync(LEGACY_FILES.results, 'utf8'));
                 const insertResult = db.prepare(`
                     INSERT OR IGNORE INTO results 
-                    (watch_id, title, link, image, price, bid_price, bin_price, end_time, source, first_seen, last_seen, is_new, hidden) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (watch_id, title, link, image, price, bid_price, bin_price, end_time, source, first_seen, last_seen, is_new, new_type, hidden)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
                 const insertMeta = db.prepare(`
                     INSERT OR REPLACE INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, ?)
@@ -311,6 +322,7 @@ function migrateFromJson() {
                                 item.firstSeen || new Date().toISOString(),
                                 item.lastSeen || null,
                                 item.isNew ? 1 : 0,
+                                item.newType || (item.isUpdated ? 'updated' : 'new'),
                                 item.hidden ? 1 : 0
                             );
                             totalItems++;

@@ -52,23 +52,23 @@ const stmts = {
     getResultsByWatchId: db.prepare(`
         SELECT title, link, image, price, bid_price as bidPrice, bin_price as binPrice, 
                end_time as endTime, source, first_seen as firstSeen, last_seen as lastSeen, 
-               is_new as isNew, hidden
+               is_new as isNew, new_type as newType, hidden
         FROM results WHERE watch_id = ?
         ORDER BY is_new DESC, first_seen DESC
     `),
     findByLink: db.prepare('SELECT * FROM results WHERE watch_id = ? AND link = ?'),
     findByTitleSource: db.prepare('SELECT * FROM results WHERE watch_id = ? AND title = ? AND source = ?'),
     upsertResult: db.prepare(`
-        INSERT INTO results (watch_id, title, link, image, price, bid_price, bin_price, end_time, source, first_seen, last_seen, is_new, hidden)
-        VALUES (@watchId, @title, @link, @image, @price, @bidPrice, @binPrice, @endTime, @source, @firstSeen, @lastSeen, @isNew, @hidden)
+        INSERT INTO results (watch_id, title, link, image, price, bid_price, bin_price, end_time, source, first_seen, last_seen, is_new, new_type, hidden)
+        VALUES (@watchId, @title, @link, @image, @price, @bidPrice, @binPrice, @endTime, @source, @firstSeen, @lastSeen, @isNew, @newType, @hidden)
         ON CONFLICT(watch_id, link) DO UPDATE SET
             title = @title, image = @image, price = @price, bid_price = @bidPrice, bin_price = @binPrice,
-            end_time = @endTime, last_seen = @lastSeen, is_new = @isNew, hidden = @hidden
+            end_time = @endTime, last_seen = @lastSeen, is_new = @isNew, new_type = @newType, hidden = @hidden
     `),
     deleteResultsByWatchId: db.prepare('DELETE FROM results WHERE watch_id = ?'),
     deleteResultByLink: db.prepare('DELETE FROM results WHERE watch_id = ? AND link = ?'),
-    clearNewFlags: db.prepare('UPDATE results SET is_new = 0 WHERE watch_id = ?'),
-    clearAllNewFlags: db.prepare('UPDATE results SET is_new = 0'),
+    clearNewFlags: db.prepare("UPDATE results SET is_new = 0, new_type = 'new' WHERE watch_id = ?"),
+    clearAllNewFlags: db.prepare("UPDATE results SET is_new = 0, new_type = 'new'"),
     countNonHidden: db.prepare('SELECT COUNT(*) as count FROM results WHERE watch_id = ? AND hidden = 0'),
     countNew: db.prepare('SELECT COUNT(*) as count FROM results WHERE watch_id = ? AND is_new = 1'),
     deleteBySource: db.prepare('DELETE FROM results WHERE watch_id = ? AND source LIKE ?'),
@@ -79,12 +79,12 @@ const stmts = {
     // Grace period cleanup - get items not in the current results set
     getExistingLinks: db.prepare('SELECT link FROM results WHERE watch_id = ?'),
     getExistingForGrace: db.prepare(`
-        SELECT title, link, source, first_seen as firstSeen, last_seen as lastSeen, is_new as isNew, hidden, 
+        SELECT title, link, source, first_seen as firstSeen, last_seen as lastSeen, is_new as isNew, new_type as newType, hidden,
                image, price, bid_price as bidPrice, bin_price as binPrice, end_time as endTime
         FROM results WHERE watch_id = ? AND link NOT IN (SELECT value FROM json_each(?))
     `),
     deleteExpiredGrace: db.prepare('DELETE FROM results WHERE watch_id = ? AND link = ?'),
-    hideResult: db.prepare('UPDATE results SET hidden = ?, is_new = 0 WHERE watch_id = ? AND link = ?'),
+    hideResult: db.prepare("UPDATE results SET hidden = ?, is_new = 0, new_type = 'new' WHERE watch_id = ? AND link = ?"),
 
     // Results meta
     getMeta: db.prepare('SELECT * FROM results_meta WHERE watch_id = ?'),
@@ -427,32 +427,41 @@ const Scheduler = {
                     continue;
                 }
 
+                let priceUpdate = null;
                 if (favorite) {
-                    const priceUpdate = FavoriteItems.getPriceUpdateForResult(result, favorite);
+                    priceUpdate = FavoriteItems.getPriceUpdateForResult(result, favorite);
                     if (priceUpdate) {
                         favoritePriceUpdates.push(priceUpdate);
                     }
                     FavoriteItems.updateSnapshotFromResult(result);
                 }
 
-                let firstSeen, lastSeen, isNew, hidden;
+                let firstSeen, lastSeen, isNew, newType, hidden;
 
                 if (existing) {
                     firstSeen = existing.firstSeen;
                     lastSeen = isTimedSource ? now : existing.lastSeen;
                     isNew = existing.isNew;
+                    newType = existing.newType || 'new';
                     hidden = 0;
                 } else if (duplicateInfo) {
                     firstSeen = duplicateInfo.firstSeen;
                     lastSeen = isTimedSource ? now : duplicateInfo.lastSeen;
                     isNew = duplicateInfo.isNew;
+                    newType = duplicateInfo.newType || 'new';
                     hidden = 0;
                 } else {
                     firstSeen = now;
                     lastSeen = isTimedSource ? now : null;
                     isNew = 1;
+                    newType = 'new';
                     hidden = 0;
                     newItems.push(result);
+                }
+
+                if (priceUpdate) {
+                    isNew = 1;
+                    newType = 'updated';
                 }
 
                 stmts.upsertResult.run({
@@ -468,6 +477,7 @@ const Scheduler = {
                     firstSeen,
                     lastSeen,
                     isNew,
+                    newType,
                     hidden
                 });
 
@@ -591,6 +601,8 @@ const Scheduler = {
         const formattedItems = items.map(item => ({
             ...item,
             isNew: item.isNew === 1,
+            newType: item.newType || 'new',
+            isUpdated: item.isNew === 1 && item.newType === 'updated',
             hidden: item.hidden === 1
         }));
 
