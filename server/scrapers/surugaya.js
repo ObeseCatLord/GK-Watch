@@ -54,7 +54,7 @@ function getSurugayaProductId(link) {
         return null;
     }
 
-    const match = String(link).match(/\/product\/detail\/([A-Za-z0-9]+)/);
+    const match = String(link).match(/\/product\/(?:detail|other)\/([A-Za-z0-9]+)/);
     return match ? match[1] : null;
 }
 

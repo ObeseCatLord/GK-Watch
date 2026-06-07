@@ -62,4 +62,22 @@ describe('Suruga-ya scraper', () => {
         expect(results[0].price).toBe('¥7,200');
         expect(mock.history.get).toHaveLength(1);
     });
+
+    test('hydrates Suruga other-offers URLs from the lowest Neokyo marketplace price', async () => {
+        mock.onGet(/https:\/\/neokyo\.com\/en\/search\/surugaya.*/).reply(200, neokyoMarketplaceHtml('602181471').replace('¥7200', '¥14620'));
+
+        const results = await surugaya._hydrateMissingSurugayaPrices([
+            {
+                title: '魂魄妖夢 「東方project」 ガレージキット ワンダーフェスティバル2019夏＆イベント限定',
+                link: 'https://www.suruga-ya.jp/product/other/602181471',
+                image: 'https://cdn.suruga-ya.jp/pics_webp/boxart_m/602181471m.jpg.webp',
+                price: 'N/A',
+                source: 'Suruga-ya'
+            }
+        ]);
+
+        expect(results[0].price).toBe('¥14,620');
+        expect(results[0].link).toBe('https://www.suruga-ya.jp/product/other/602181471');
+        expect(mock.history.get).toHaveLength(1);
+    });
 });
