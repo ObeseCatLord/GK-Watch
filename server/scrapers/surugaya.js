@@ -12,6 +12,51 @@ const doorzo = require('./doorzo');
 const NEOKYO_SEARCH_URL = 'https://neokyo.com/en/search/surugaya';
 const MAX_PAGES_LIMIT = 200; // Safety limit to prevent infinite loops
 const DELAY_BETWEEN_PAGES = 300; // ms delay between page requests
+const PRICE_HYDRATION_CONCURRENCY = 3;
+
+function formatYenPrice(value) {
+    const priceNum = parseInt(String(value).replace(/,/g, ''), 10);
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+        return 'N/A';
+    }
+    return `¥${priceNum.toLocaleString()}`;
+}
+
+function extractSurugayaPrice(priceText, allowLooseNumber = false) {
+    if (!priceText || priceText === 'N/A') {
+        return 'N/A';
+    }
+
+    const normalized = String(priceText).replace(/\s+/g, ' ').trim();
+
+    const marketplaceMatch = normalized.match(/(?:Marketplace|Other shops?|他のショップ)[\s\S]{0,120}?(?:[¥￥]\s*([\d,]+)|([\d,]+)\s*(?:円|Yen|JPY))/i);
+    if (marketplaceMatch) {
+        return formatYenPrice(marketplaceMatch[1] || marketplaceMatch[2]);
+    }
+
+    const yenMatch = normalized.match(/[¥￥]\s*([\d,]+)|([\d,]+)\s*(?:円|Yen|JPY)/i);
+    if (yenMatch) {
+        return formatYenPrice(yenMatch[1] || yenMatch[2]);
+    }
+
+    if (allowLooseNumber) {
+        const looseMatch = normalized.match(/(\d[\d,]*)/);
+        if (looseMatch) {
+            return formatYenPrice(looseMatch[1]);
+        }
+    }
+
+    return 'N/A';
+}
+
+function getSurugayaProductId(link) {
+    if (!link) {
+        return null;
+    }
+
+    const match = String(link).match(/\/product\/detail\/([A-Za-z0-9]+)/);
+    return match ? match[1] : null;
+}
 
 /**
  * Build the search URL for a given page (sorted by modification date, newest first)
@@ -75,13 +120,7 @@ function parseResults($) {
 
         if (title && link) {
             // Extract price number from text like "Marketplace: from ¥900 ~" or "990 Yen"
-            const priceMatch = priceText.match(/(\d[\d,]*)/);
-            let price = 'N/A';
-            if (priceMatch) {
-                // Remove commas first to parse, then re-format with commas
-                const priceNum = parseInt(priceMatch[1].replace(/,/g, ''), 10);
-                price = `¥${priceNum.toLocaleString()}`;
-            }
+            const price = extractSurugayaPrice(priceText, true);
 
             // Store both Neokyo link (for detail fetch) and Suruga-ya link (for display)
             const neokyoLink = link.startsWith('http') ? link : `https://neokyo.com${link}`;
@@ -206,6 +245,74 @@ async function fetchPageWithAxios(url) {
     }
 }
 
+async function fetchNeokyoPriceByProductId(productId) {
+    const searchUrl = buildSearchUrl(productId, 1);
+
+    try {
+        const response = await axios.get(searchUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+            },
+            timeout: 10000
+        });
+
+        const $ = cheerio.load(response.data);
+        const results = parseResults($);
+        const match = results.find(item => getSurugayaProductId(item.link) === productId && item.price !== 'N/A');
+        return match ? match.price : 'N/A';
+    } catch (error) {
+        console.log(`[Suruga-ya] Failed to hydrate price for ${productId} from Neokyo: ${error.message}`);
+        return 'N/A';
+    }
+}
+
+async function hydrateMissingSurugayaPrices(results) {
+    if (!Array.isArray(results) || results.length === 0) {
+        return results;
+    }
+
+    const targets = results
+        .map((item, index) => ({ item, index, productId: getSurugayaProductId(item.link) }))
+        .filter(({ item, productId }) => productId && (!item.price || item.price === 'N/A'));
+
+    if (targets.length === 0) {
+        return results;
+    }
+
+    const priceCache = new Map();
+    let hydratedCount = 0;
+    let nextIndex = 0;
+
+    async function getCachedPrice(productId) {
+        if (!priceCache.has(productId)) {
+            priceCache.set(productId, fetchNeokyoPriceByProductId(productId));
+        }
+        return priceCache.get(productId);
+    }
+
+    async function worker() {
+        while (nextIndex < targets.length) {
+            const target = targets[nextIndex++];
+            const price = await getCachedPrice(target.productId);
+            if (price && price !== 'N/A') {
+                results[target.index] = { ...target.item, price };
+                hydratedCount++;
+            }
+        }
+    }
+
+    const workerCount = Math.min(PRICE_HYDRATION_CONCURRENCY, targets.length);
+    await Promise.all(Array.from({ length: workerCount }, worker));
+
+    if (hydratedCount > 0) {
+        console.log(`[Suruga-ya] Hydrated ${hydratedCount}/${targets.length} missing prices from Neokyo marketplace data.`);
+    }
+
+    return results;
+}
+
 /**
  * Try to scrape all pages with Axios
  */
@@ -324,7 +431,7 @@ async function search(query, strict = true, filters = []) {
                 console.log(`[Suruga-ya] Strict filtering (Doorzo) removed ${preStrictCount - results.length} items.`);
             }
 
-            return results;
+            return await hydrateMissingSurugayaPrices(results);
         } else {
             console.log('[Suruga-ya] Doorzo failed (returned null). Falling back to Neokyo...');
         }
@@ -409,6 +516,7 @@ async function search(query, strict = true, filters = []) {
                 const { neokyoLink, ...rest } = item;
                 return rest;
             });
+            results = await hydrateMissingSurugayaPrices(results);
             console.log(`[Suruga-ya] Neokyo search successful (${results.length} items).`);
             return results;
         }
@@ -422,8 +530,9 @@ async function search(query, strict = true, filters = []) {
         console.log('[Suruga-ya] Attempting Fallback: DEJapan...');
         const dejapanResults = await dejapan.searchSurugaya(query, strict, filters);
         if (dejapanResults !== null) {
-            console.log(`[Suruga-ya] DEJapan search successful (${dejapanResults.length} items).`);
-            return dejapanResults;
+            const results = await hydrateMissingSurugayaPrices(dejapanResults);
+            console.log(`[Suruga-ya] DEJapan search successful (${results.length} items).`);
+            return results;
         }
     } catch (err) {
         console.warn(`[Suruga-ya] DEJapan error: ${err.message}. All methods failed.`);
@@ -434,4 +543,10 @@ async function search(query, strict = true, filters = []) {
     return [];
 }
 
-module.exports = { search };
+module.exports = {
+    search,
+    _parseResults: parseResults,
+    _extractSurugayaPrice: extractSurugayaPrice,
+    _hydrateMissingSurugayaPrices: hydrateMissingSurugayaPrices,
+    _fetchNeokyoPriceByProductId: fetchNeokyoPriceByProductId
+};
