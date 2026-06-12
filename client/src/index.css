@@ -7,7 +7,7 @@
   --yahoo-color: #ff0033;
   --mercari-color: #ea352d;
   --surugaya-color: #2b3990;
-  --mandarake-color: #d60000;
+  --mandarake-color: #7ecbff;
   --paypay-color: #ff0033;
   --fril-color: #ff6b81;
   --taobao-color: #ff5000;
@@ -282,6 +282,14 @@ h1 {
 
 .source-badge.mandarake {
   background-color: var(--mandarake-color);
+  color: #fff;
+  border-color: rgba(0, 0, 0, 0.65);
+  -webkit-text-stroke: 0.35px #050505;
+  text-shadow:
+    -1px -1px 0 #050505,
+    1px -1px 0 #050505,
+    -1px 1px 0 #050505,
+    1px 1px 0 #050505;
 }
 
 .source-badge.paypay-flea-market {
