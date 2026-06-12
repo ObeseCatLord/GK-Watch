@@ -51,6 +51,18 @@ describe('Watchlist', () => {
             expect(item.active).toBe(true);
             expect(item.emailNotify).toBe(true); // Watchlist defaults emailNotify to true
             expect(item.priority).toBe(false);
+            expect(item.siteOptions.mandarake.mode).toBe('full');
+            expect(item.enabledSites.mandarake).toBe(true);
+        });
+
+        test('persists Mandarake site options', async () => {
+            const item = await Watchlist.add({
+                term: 'test_mandarake_options',
+                siteOptions: { mandarake: { mode: 'garageKit' } }
+            });
+
+            const retrieved = await Watchlist.get(item.id);
+            expect(retrieved.siteOptions.mandarake.mode).toBe('garageKit');
         });
 
         test('returns existing item for duplicate terms', async () => {
@@ -94,6 +106,13 @@ describe('Watchlist', () => {
             await Watchlist.update(item.id, { active: false });
             const updated = await Watchlist.get(item.id);
             expect(updated.active).toBe(false);
+        });
+
+        test('updates Mandarake site options', async () => {
+            const item = await Watchlist.add({ term: 'test_update_mandarake_options' });
+            await Watchlist.update(item.id, { siteOptions: { mandarake: { mode: 'garageKit' } } });
+            const updated = await Watchlist.get(item.id);
+            expect(updated.siteOptions.mandarake.mode).toBe('garageKit');
         });
     });
 

@@ -121,6 +121,7 @@ const Scheduler = {
                 { key: 'surugaya', pattern: '%suruga%' },
                 { key: 'taobao', pattern: '%taobao%' },
                 { key: 'goofish', pattern: '%goofish%' },
+                { key: 'mandarake', pattern: '%mandarake%' },
             ];
 
             for (const { key, pattern } of sourceMappings) {
@@ -266,7 +267,7 @@ const Scheduler = {
                     await Promise.all(terms.map(async (term) => {
                         console.log(`[Batch] - Searching: ${term}`);
                         try {
-                            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || []);
+                            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || [], null, item.siteOptions || {});
                             if (searchAggregator.isPayPayFailed && searchAggregator.isPayPayFailed()) {
                                 payPayErrorOccurred = true;
                             }
@@ -351,6 +352,7 @@ const Scheduler = {
         const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
         const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
         const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
+        const MANDARAKE_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 
         let newItems = [];
         let favoritePriceUpdates = [];
@@ -379,6 +381,7 @@ const Scheduler = {
                 paypay: new Set(),
                 taobao: new Set(),
                 goofish: new Set(),
+                mandarake: new Set(),
             };
 
             newResults.forEach(result => {
@@ -392,6 +395,7 @@ const Scheduler = {
                 else if (source.includes('paypay')) newTitlesBySource.paypay.add(title);
                 else if (source === 'taobao') newTitlesBySource.taobao.add(title);
                 else if (source === 'goofish') newTitlesBySource.goofish.add(title);
+                else if (source === 'mandarake') newTitlesBySource.mandarake.add(title);
             });
 
             // Process new results
@@ -403,7 +407,7 @@ const Scheduler = {
                 const source = result.source ? result.source.toLowerCase() : '';
                 const isTimedSource = source.includes('yahoo') || source.includes('suruga') ||
                     source.includes('mercari') || source.includes('paypay') ||
-                    source === 'taobao' || source === 'goofish';
+                    source === 'taobao' || source === 'goofish' || source === 'mandarake';
 
                 let duplicateInfo = null;
                 if (result.title && result.source) {
@@ -535,6 +539,12 @@ const Scheduler = {
                 } else if (source === 'goofish') {
                     if (ageMs < GOOFISH_GRACE_PERIOD_MS) {
                         if (!item.title || !newTitlesBySource.goofish.has(item.title.trim())) {
+                            preserve = true;
+                        }
+                    }
+                } else if (source === 'mandarake') {
+                    if (ageMs < MANDARAKE_GRACE_PERIOD_MS) {
+                        if (!item.title || !newTitlesBySource.mandarake.has(item.title.trim())) {
                             preserve = true;
                         }
                     }

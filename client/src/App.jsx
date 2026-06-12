@@ -310,7 +310,7 @@ function App() {
   };
 
   // Explicitly define standard sites to exclude CN ones
-  const STANDARD_SITES = ['mercari', 'yahoo', 'paypay', 'fril', 'surugaya'];
+  const STANDARD_SITES = ['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'mandarake'];
 
   const [siteErrors, setSiteErrors] = useState([]);
 
@@ -478,14 +478,20 @@ function App() {
       `${queryTerm} レジンキャストキット`
     ];
 
-    // Force strict for GK searches
-    const sitesParam = `&sites=${STANDARD_SITES.join(',')}&strict=${strictMode}`;
+    // Force strict for GK searches. Mandarake can use its own garage-kit category,
+    // so it searches the base query once instead of the suffix variants.
+    const suffixSites = STANDARD_SITES.filter(site => site !== 'mandarake');
+    const sitesParam = `&sites=${suffixSites.join(',')}&strict=${strictMode}`;
 
     try {
       // Run searches in parallel
       const promises = terms.map(term =>
         fetchStream(`/api/search?q=${encodeURIComponent(term)}${sitesParam}`)
           .catch(err => console.error(`Error searching ${term}:`, err))
+      );
+      promises.push(
+        fetchStream(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=mandarake&strict=${strictMode}&mandarakeMode=garageKit`)
+          .catch(err => console.error(`Error searching Mandarake GK for ${queryTerm}:`, err))
       );
       await Promise.all(promises);
     } catch (err) {

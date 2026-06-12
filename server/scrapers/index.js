@@ -6,7 +6,7 @@ const surugaya = require('./surugaya');
 const taobao = require('./taobao');
 
 const goofish = require('./goofish');
-// Mandarake removed as out of scope
+const mandarake = require('./mandarake');
 
 let payPayFailed = false;
 
@@ -24,7 +24,7 @@ function extractQuotedTerms(query) {
     return matches;
 }
 
-async function searchAll(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null) {
+async function searchAll(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}) {
     console.log(`Starting search for: ${query}`);
     const settings = Settings.get();
 
@@ -35,7 +35,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
 
     // Defaults (safe fallback) or use override
     // Taobao defaults to false - only enabled when explicitly requested (e.g., Search Taobao button)
-    const enabled = enabledOverride || settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false };
+    const enabled = enabledOverride || settings.enabledSites || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false, goofish: false, mandarake: false };
 
     // Determine strict settings:
     // User Request: Options tab (Global Settings) takes priority for DISABLE logic.
@@ -43,7 +43,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     // Logic: EffectiveStrict = Override (Watch) AND Global.
     // Both must be TRUE for strict mode to be active.
 
-    const globalStrict = settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true };
+    const globalStrict = settings.strictFiltering || { mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: true, goofish: true, mandarake: true };
     let strict;
 
     if (strictOverride === null || strictOverride === undefined) {
@@ -53,7 +53,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
         // Have override (boolean or object)
         // Resolve override to object first
         const overrideObj = typeof strictOverride === 'boolean'
-            ? { mercari: strictOverride, yahoo: strictOverride, paypay: strictOverride, fril: strictOverride, surugaya: strictOverride, taobao: strictOverride }
+            ? { mercari: strictOverride, yahoo: strictOverride, paypay: strictOverride, fril: strictOverride, surugaya: strictOverride, taobao: strictOverride, goofish: strictOverride, mandarake: strictOverride }
             : strictOverride;
 
         // Apply AND logic (Lax wins)
@@ -64,7 +64,8 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             fril: overrideObj.fril !== false && globalStrict.fril !== false,
             surugaya: overrideObj.surugaya !== false && globalStrict.surugaya !== false,
             taobao: overrideObj.taobao !== false && globalStrict.taobao !== false,
-            goofish: overrideObj.goofish !== false && (globalStrict.goofish ?? true) !== false
+            goofish: overrideObj.goofish !== false && (globalStrict.goofish ?? true) !== false,
+            mandarake: overrideObj.mandarake !== false && (globalStrict.mandarake ?? true) !== false
         };
     }
 
@@ -78,6 +79,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
         if (settings.enabledSites.surugaya === false) enabled.surugaya = false;
         if (settings.enabledSites.taobao === false) enabled.taobao = false;
         if (settings.enabledSites.goofish === false) enabled.goofish = false;
+        if (settings.enabledSites.mandarake === false) enabled.mandarake = false;
     }
 
     // Run all scrapers in parallel
@@ -95,6 +97,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     if (enabled.surugaya !== false) totalScrapers++;
     if (enabled.taobao !== false) totalScrapers++;
     if (enabled.goofish !== false) totalScrapers++;
+    if (enabled.mandarake !== false) totalScrapers++;
 
     // Helper to log duration and emit progress
     const loggedPromise = async (name, promiseFn, onProgress) => {
@@ -192,6 +195,10 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
         scraperTasks.push({ name: 'Goofish', promise: loggedPromise('Goofish', (cb) => goofish.search(query, strict.goofish ?? true), onProgress) });
     }
 
+    if (enabled.mandarake !== false) {
+        scraperTasks.push({ name: 'Mandarake', promise: loggedPromise('Mandarake', (cb) => mandarake.search(query, strict.mandarake ?? true, filters, siteOptions.mandarake || {}), onProgress) });
+    }
+
     const results = await Promise.allSettled(scraperTasks.map(t => t.promise));
     let flatResults = [];
 
@@ -224,6 +231,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     if (quotedTerms.length > 0) {
         const beforeCount = flatResults.length;
         flatResults = flatResults.filter(item => {
+            if (item.error) return true;
             if (!item.title) return false;
             const titleLower = item.title.toLowerCase();
             return quotedTerms.every(term => titleLower.includes(term.toLowerCase()));
@@ -242,11 +250,15 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     // we enforce strictness if the user/watch has requested it.
     if (flatResults.length > 0) {
         const parsedQuery = queryMatcher.parseQuery(query);
+        const mandarakeParsedQuery = queryMatcher.parseQuery(mandarake.getEffectiveQuery(query, siteOptions.mandarake || {}));
         const beforeCount = flatResults.length;
 
         flatResults = flatResults.filter(item => {
+            if (item.error) return true;
+
             // Determine strict setting for this item's source
             let isStrict = true;
+            let itemParsedQuery = parsedQuery;
             const source = item.source;
 
             if (source === 'Mercari') isStrict = strict.mercari ?? true;
@@ -257,12 +269,16 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             // Taobao/Goofish strictness often handled by API, but safer to enforce
             else if (source === 'Taobao') isStrict = strict.taobao ?? true;
             else if (source === 'Goofish') isStrict = strict.goofish ?? true;
+            else if (source === 'Mandarake') {
+                isStrict = strict.mandarake ?? true;
+                itemParsedQuery = mandarakeParsedQuery;
+            }
 
             // If strict is disabled for this site, pass it through
             if (!isStrict) return true;
 
             // Otherwise check match
-            return queryMatcher.matchesQuery(item.title, parsedQuery, true);
+            return queryMatcher.matchesQuery(item.title, itemParsedQuery, true);
         });
 
         if (flatResults.length < beforeCount) {
@@ -286,4 +302,3 @@ function isPayPayFailed() {
 }
 
 module.exports = { searchAll, reset, isPayPayFailed };
-

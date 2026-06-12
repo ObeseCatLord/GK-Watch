@@ -192,7 +192,8 @@ app.get('/api/search', requireAuth, async (req, res) => {
                 fril: false,
                 surugaya: false,
                 taobao: false,
-                goofish: false
+                goofish: false,
+                mandarake: false
             };
             requestedSites.forEach(site => {
                 if (enabledOverride.hasOwnProperty(site)) {
@@ -203,6 +204,12 @@ app.get('/api/search', requireAuth, async (req, res) => {
         }
 
         const strict = req.query.strict !== 'false'; // Default true
+        const siteOptions = {};
+        if (req.query.mandarakeMode === 'garageKit') {
+            siteOptions.mandarake = { mode: 'garageKit' };
+        } else if (req.query.mandarakeMode === 'full') {
+            siteOptions.mandarake = { mode: 'full' };
+        }
 
         // Handle negative filters (complex filters)
         // Supports array format (?filters[]=foo&filters[]=bar) or comma-separated string (?filters=foo,bar)
@@ -253,7 +260,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
             };
 
             try {
-                await searchAggregator.searchAll(query, enabledOverride, strict, filters, onProgress);
+                await searchAggregator.searchAll(query, enabledOverride, strict, filters, onProgress, siteOptions);
                 res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
             } catch (err) {
                 console.error('SSE Search error:', err);
@@ -266,7 +273,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
         }
 
         // Legacy blocking behavior
-        const results = await searchAggregator.searchAll(query, enabledOverride, strict, filters);
+        const results = await searchAggregator.searchAll(query, enabledOverride, strict, filters, null, siteOptions);
         let filteredResults = BlockedItems.filterResults(results);
         filteredResults = Blacklist.filterResults(filteredResults);
         res.json(FavoriteItems.annotateResults(filteredResults));
@@ -670,13 +677,18 @@ app.get('/api/goofish/status', requireAuth, (req, res) => {
     res.json({ hasCookies: goofishScraper.hasValidCookies() });
 });
 
+const mandarakeScraper = require('./scrapers/mandarake');
+app.get('/api/mandarake/status', requireAuth, (req, res) => {
+    res.json({ hasCookies: mandarakeScraper.hasValidCookies() });
+});
+
 // Update Cookies
 app.post('/api/cookies/:site', requireAuth, async (req, res) => {
     try {
         const { site } = req.params;
         const { cookies } = req.body;
 
-        if (!['taobao', 'goofish'].includes(site)) {
+        if (!['taobao', 'goofish', 'mandarake'].includes(site)) {
             return res.status(400).json({ error: 'Invalid site' });
         }
 
@@ -793,7 +805,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         const filters = [...new Set([...(item.filters || []), ...globalFilters])];
 
         const resultsArray = await Promise.all(terms.map(term =>
-            searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, filters)
+            searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, filters, null, item.siteOptions || {})
         ));
 
         for (const results of resultsArray) {

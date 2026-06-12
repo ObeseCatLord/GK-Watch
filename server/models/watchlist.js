@@ -5,18 +5,18 @@ const stmts = {
     getAll: db.prepare(`
         SELECT id, name, terms, created_at as createdAt, last_run as lastRun, 
                last_result_count as lastResultCount, active, email_notify as emailNotify, 
-               priority, strict, filters, enabled_sites as enabledSites, sort_order as sortOrder
+               priority, strict, filters, enabled_sites as enabledSites, site_options as siteOptions, sort_order as sortOrder
         FROM watchlist ORDER BY sort_order ASC, created_at ASC
     `),
     getById: db.prepare('SELECT * FROM watchlist WHERE id = ?'),
     insert: db.prepare(`
-        INSERT INTO watchlist (id, name, terms, created_at, last_run, last_result_count, active, email_notify, priority, strict, filters, enabled_sites, sort_order)
-        VALUES (@id, @name, @terms, @createdAt, @lastRun, @lastResultCount, @active, @emailNotify, @priority, @strict, @filters, @enabledSites, @sortOrder)
+        INSERT INTO watchlist (id, name, terms, created_at, last_run, last_result_count, active, email_notify, priority, strict, filters, enabled_sites, site_options, sort_order)
+        VALUES (@id, @name, @terms, @createdAt, @lastRun, @lastResultCount, @active, @emailNotify, @priority, @strict, @filters, @enabledSites, @siteOptions, @sortOrder)
     `),
     update: db.prepare(`
         UPDATE watchlist SET name=@name, terms=@terms, last_run=@lastRun, last_result_count=@lastResultCount, 
         active=@active, email_notify=@emailNotify, priority=@priority, strict=@strict, 
-        filters=@filters, enabled_sites=@enabledSites, sort_order=@sortOrder
+        filters=@filters, enabled_sites=@enabledSites, site_options=@siteOptions, sort_order=@sortOrder
         WHERE id=@id
     `),
     remove: db.prepare('DELETE FROM watchlist WHERE id = ?'),
@@ -32,7 +32,15 @@ const DEFAULT_ENABLED_SITES = {
     paypay: true,
     fril: true,
     surugaya: true,
-    taobao: false
+    taobao: false,
+    goofish: false,
+    mandarake: true
+};
+
+const DEFAULT_SITE_OPTIONS = {
+    mandarake: {
+        mode: 'full'
+    }
 };
 
 /**
@@ -44,6 +52,7 @@ function rowToItem(row) {
     const terms = JSON.parse(row.terms || '[]');
     const filters = JSON.parse(row.filters || '[]');
     const enabledSites = JSON.parse(row.enabledSites || '{}');
+    const siteOptions = JSON.parse(row.siteOptions || '{}');
 
     return {
         id: row.id,
@@ -59,6 +68,14 @@ function rowToItem(row) {
         strict: row.strict === 1 || row.strict === true || row.strict === undefined,
         filters,
         enabledSites: { ...DEFAULT_ENABLED_SITES, ...enabledSites },
+        siteOptions: {
+            ...DEFAULT_SITE_OPTIONS,
+            ...siteOptions,
+            mandarake: {
+                ...DEFAULT_SITE_OPTIONS.mandarake,
+                ...(siteOptions.mandarake || {})
+            }
+        },
         sortOrder: row.sortOrder
     };
 }
@@ -80,6 +97,7 @@ function itemToParams(item) {
         strict: item.strict !== false ? 1 : 0,
         filters: JSON.stringify(item.filters || []),
         enabledSites: JSON.stringify(item.enabledSites || DEFAULT_ENABLED_SITES),
+        siteOptions: JSON.stringify(item.siteOptions || DEFAULT_SITE_OPTIONS),
         sortOrder: item.sortOrder != null ? item.sortOrder : null
     };
 }
@@ -106,6 +124,7 @@ const Watchlist = {
                 lastResultCount: row.last_result_count,
                 emailNotify: row.email_notify,
                 enabledSites: row.enabled_sites,
+                siteOptions: row.site_options,
                 sortOrder: row.sort_order
             });
         } catch (err) {
@@ -152,6 +171,7 @@ const Watchlist = {
             strict: data.strict !== false,
             filters: data.filters || [],
             enabledSites: data.enabledSites || { ...DEFAULT_ENABLED_SITES },
+            siteOptions: data.siteOptions || { ...DEFAULT_SITE_OPTIONS },
             sortOrder
         };
 
@@ -210,6 +230,7 @@ const Watchlist = {
             strict: true,
             filters: [],
             enabledSites: { ...DEFAULT_ENABLED_SITES },
+            siteOptions: { ...DEFAULT_SITE_OPTIONS },
             sortOrder
         };
 

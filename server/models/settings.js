@@ -21,7 +21,9 @@ const DEFAULT_SETTINGS = {
         paypay: true,
         fril: true,
         surugaya: true,
-        taobao: false
+        taobao: false,
+        goofish: false,
+        mandarake: false
     },
     strictFiltering: {
         mercari: true,
@@ -29,7 +31,9 @@ const DEFAULT_SETTINGS = {
         paypay: true,
         fril: true,
         surugaya: true,
-        taobao: true
+        taobao: true,
+        goofish: true,
+        mandarake: true
     },
     allowYahooInternationalShipping: false,
     concurrency: 3
@@ -59,7 +63,18 @@ const Settings = {
                 }
             }
 
-            const parsed = { ...DEFAULT_SETTINGS, ...stored };
+            const parsed = {
+                ...DEFAULT_SETTINGS,
+                ...stored,
+                enabledSites: {
+                    ...DEFAULT_SETTINGS.enabledSites,
+                    ...(stored.enabledSites || {})
+                },
+                strictFiltering: {
+                    ...DEFAULT_SETTINGS.strictFiltering,
+                    ...(stored.strictFiltering || {})
+                }
+            };
 
             // Decrypt sensitive fields
             if (parsed.smtpPass) {
@@ -96,7 +111,16 @@ const Settings = {
             newSettings.loginEnabled = false;
         }
 
-        const updated = { ...current, ...newSettings };
+        const updated = {
+            ...current,
+            ...newSettings,
+            enabledSites: newSettings.enabledSites
+                ? { ...(current.enabledSites || {}), ...newSettings.enabledSites }
+                : current.enabledSites,
+            strictFiltering: newSettings.strictFiltering
+                ? { ...(current.strictFiltering || {}), ...newSettings.strictFiltering }
+                : current.strictFiltering
+        };
 
         // Encrypt sensitive fields before saving
         const toSave = { ...updated };

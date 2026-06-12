@@ -54,6 +54,7 @@ function initSchema() {
             strict INTEGER DEFAULT 1,
             filters TEXT DEFAULT '[]',
             enabled_sites TEXT DEFAULT '{}',
+            site_options TEXT DEFAULT '{}',
             sort_order INTEGER
         );
 
@@ -126,6 +127,7 @@ function initSchema() {
     `);
 
     addColumnIfMissing('results', 'new_type', "TEXT DEFAULT 'new'");
+    addColumnIfMissing('watchlist', 'site_options', "TEXT DEFAULT '{}'");
 
     // Create indexes (IF NOT EXISTS is implicit with CREATE INDEX IF NOT EXISTS)
     db.exec(`

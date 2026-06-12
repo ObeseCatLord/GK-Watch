@@ -34,7 +34,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
     // Cookie Upload State
     const [showCookieModal, setShowCookieModal] = useState(false);
-    const [cookieSite, setCookieSite] = useState(null); // 'taobao' or 'goofish'
+    const [cookieSite, setCookieSite] = useState(null); // 'taobao', 'goofish', or 'mandarake'
     const [cookieContent, setCookieContent] = useState('');
     const [cookieError, setCookieError] = useState('');
     const [cookieSuccess, setCookieSuccess] = useState('');
@@ -591,13 +591,14 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 </p>
 
                 <div className="sites-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px', marginTop: '15px' }}>
-                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao', 'goofish'].map(site => {
+                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'mandarake', 'taobao', 'goofish'].map(site => {
                         const siteName = site === 'yahoo' ? 'Yahoo Auctions' :
                             site === 'fril' ? 'Rakuma (Fril)' :
                                 site === 'paypay' ? 'PayPay Flea Market' :
                                     site === 'surugaya' ? 'Suruga-ya' :
-                                        site === 'taobao' ? 'Taobao' :
-                                            site === 'goofish' ? 'Goofish (Xianyu)' : 'Mercari';
+                                        site === 'mandarake' ? 'Mandarake' :
+                                            site === 'taobao' ? 'Taobao' :
+                                                site === 'goofish' ? 'Goofish (Xianyu)' : 'Mercari';
                         return (
                             <div key={site} className="site-card" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
                                 <h4 style={{ textTransform: 'capitalize', marginTop: 0, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -641,6 +642,20 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                                         return;
                                                     }
                                                 }
+                                                if (site === 'mandarake' && checked) {
+                                                    // Verify cookies before enabling
+                                                    try {
+                                                        const res = await authenticatedFetch('/api/mandarake/status');
+                                                        const data = await res.json();
+                                                        if (!data.hasCookies) {
+                                                            setCookieSite('mandarake');
+                                                            return; // Do not toggle yet
+                                                        }
+                                                    } catch (err) {
+                                                        console.error('Error checking Mandarake status:', err);
+                                                        return;
+                                                    }
+                                                }
                                                 handleNestedChange('enabledSites', site, checked);
                                             }}
                                             style={{ marginRight: '8px' }}
@@ -648,7 +663,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                         Enable Search
                                     </label>
 
-                                    {(site === 'taobao' || site === 'goofish') && (
+                                    {(site === 'taobao' || site === 'goofish' || site === 'mandarake') && (
                                         <div style={{ marginTop: '5px', marginLeft: '24px' }}>
                                             <button
                                                 className="edit-btn"
@@ -676,8 +691,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                                 <div style={{ marginTop: '10px', background: '#333', padding: '10px', borderRadius: '8px', border: '1px solid #444' }}>
                                                     <p style={{ color: '#aaa', fontSize: '0.8rem', marginBottom: '8px', lineHeight: '1.4' }}>
                                                         1. Install <b>Cookie-Editor</b> extension.<br />
-                                                        2. Log in to <b>{site === 'taobao' ? 'Taobao' : 'Goofish'}</b>.<br />
-                                                        3. Click <b>Export</b> → <b>Export as JSON</b>.<br />
+                                                        2. Log in to <b>{site === 'taobao' ? 'Taobao' : site === 'goofish' ? 'Goofish' : 'Mandarake'}</b>.<br />
+                                                        3. Click <b>Export</b> - <b>Export as JSON</b>.<br />
                                                         4. Paste below and Save.
                                                     </p>
 

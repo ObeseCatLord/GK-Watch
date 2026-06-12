@@ -50,6 +50,7 @@ function getTestDb() {
             priority INTEGER DEFAULT 0,
             sort_order INTEGER DEFAULT 0,
             enabled_sites TEXT DEFAULT '{}',
+            site_options TEXT DEFAULT '{}',
             strict INTEGER DEFAULT 1,
             filters TEXT DEFAULT '[]'
         );

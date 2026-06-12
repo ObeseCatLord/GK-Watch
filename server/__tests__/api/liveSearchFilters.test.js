@@ -54,12 +54,14 @@ describe('Live Search Filters API', () => {
 
         expect(response.status).toBe(200);
         // Verify searchAll was called with filters=['foo', 'bar']
-        // searchAll(query, enabledOverride, strict, filters)
+        // searchAll(query, enabledOverride, strict, filters, onProgress, siteOptions)
         expect(mockSearchAll).toHaveBeenCalledWith(
             'test',
             null,
             true,
-            expect.arrayContaining(['foo', 'bar'])
+            expect.arrayContaining(['foo', 'bar']),
+            null,
+            {}
         );
     });
 
@@ -75,7 +77,9 @@ describe('Live Search Filters API', () => {
             'test',
             null,
             true,
-            expect.arrayContaining(['foo', 'bar'])
+            expect.arrayContaining(['foo', 'bar']),
+            null,
+            {}
         );
     });
 
@@ -85,7 +89,9 @@ describe('Live Search Filters API', () => {
             'test',
             null,
             true,
-            ['foo']
+            ['foo'],
+            null,
+            {}
         );
     });
 
@@ -95,11 +101,27 @@ describe('Live Search Filters API', () => {
             'test',
             null,
             true,
-            expect.arrayContaining(['foo', 'bar'])
+            expect.arrayContaining(['foo', 'bar']),
+            null,
+            {}
         );
         // Should not contain empty string
         const calls = mockSearchAll.mock.calls[0];
         const filters = calls[3];
         expect(filters).toHaveLength(2);
+    });
+
+    test('passes Mandarake garage-kit mode to scraper options', async () => {
+        const response = await request(app).get('/api/search?q=test&sites=mandarake&mandarakeMode=garageKit');
+
+        expect(response.status).toBe(200);
+        expect(mockSearchAll).toHaveBeenCalledWith(
+            'test',
+            expect.objectContaining({ mandarake: true }),
+            true,
+            [],
+            null,
+            { mandarake: { mode: 'garageKit' } }
+        );
     });
 });

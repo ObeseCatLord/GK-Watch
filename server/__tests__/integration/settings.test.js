@@ -40,6 +40,8 @@ describe('Settings', () => {
             expect(settings.enabledSites.mercari).toBe(true);
             expect(settings.enabledSites.yahoo).toBe(true);
             expect(settings.enabledSites.taobao).toBe(false);
+            expect(settings.enabledSites.mandarake).toBe(false);
+            expect(settings.strictFiltering.mandarake).toBe(true);
         });
 
         test('includes concurrency setting (from PR #39)', () => {
@@ -123,6 +125,7 @@ describe('Settings', () => {
             expect(settings.enabledSites.mercari).toBe(false);
             expect(settings.enabledSites.yahoo).toBe(true);
             expect(settings.enabledSites.surugaya).toBe(false);
+            expect(settings.enabledSites.mandarake).toBe(false);
         });
     });
 });

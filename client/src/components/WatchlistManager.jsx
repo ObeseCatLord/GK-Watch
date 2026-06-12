@@ -1,6 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import ResultCard from './ResultCard';
 
+const DEFAULT_ENABLED_SITES = {
+    mercari: true,
+    yahoo: true,
+    paypay: true,
+    fril: true,
+    surugaya: true,
+    taobao: false,
+    goofish: false,
+    mandarake: true
+};
+
+const DEFAULT_SITE_OPTIONS = {
+    mandarake: { mode: 'full' }
+};
+
+const SITE_LABELS = {
+    mercari: 'Mercari',
+    yahoo: 'Yahoo',
+    paypay: 'PayPay',
+    fril: 'Fril',
+    surugaya: 'Suruga-ya',
+    taobao: 'Taobao',
+    goofish: 'Goofish',
+    mandarake: 'Mandarake'
+};
+
 const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taobaoEnabled, goofishEnabled, handleExportClipboard }) => {
     const [watchlist, setWatchlist] = useState([]);
     const [newTerm, setNewTerm] = useState('');
@@ -81,6 +107,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const [editTerms, setEditTerms] = useState('');
     const [editFilters, setEditFilters] = useState('');
     const [editEnabledSites, setEditEnabledSites] = useState({});
+    const [editSiteOptions, setEditSiteOptions] = useState(DEFAULT_SITE_OPTIONS);
     const [editStrict, setEditStrict] = useState(true);
     const [newStrict, setNewStrict] = useState(true);
     const [globalSettings, setGlobalSettings] = useState({}); // Renamed to avoid collision with 'activeSettings' maybe? No, 'settings' is fine but distinct from local settings maps.
@@ -260,10 +287,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 body: JSON.stringify({
                     term: newTerm,
                     strict: newStrict,
-                    enabledSites: {
-                        mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true,
-                        taobao: false, goofish: false
-                    }
+                    enabledSites: { ...DEFAULT_ENABLED_SITES },
+                    siteOptions: { mandarake: { mode: 'full' } }
                 })
             });
             const data = await res.json();
@@ -292,10 +317,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     name: terms[0], // Set name explicitly to first term
                     filters: [],
                     strict: newStrict,
-                    enabledSites: {
-                        mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true,
-                        taobao: false, goofish: false
-                    }
+                    enabledSites: { ...DEFAULT_ENABLED_SITES },
+                    siteOptions: { mandarake: { mode: 'garageKit' } }
                 })
             });
             setNewTerm('');
@@ -316,7 +339,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             fril: false,
             surugaya: false,
             taobao: taobaoEnabled,
-            goofish: goofishEnabled
+            goofish: goofishEnabled,
+            mandarake: false
         };
 
         try {
@@ -449,8 +473,14 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         // Join filters with newline for textarea
         const filters = item.filters || [];
         setEditFilters(filters.join('\n'));
-        setEditEnabledSites(item.enabledSites || {
-            mercari: true, yahoo: true, paypay: true, fril: true, surugaya: true, taobao: false, goofish: false
+        setEditEnabledSites(item.enabledSites || { ...DEFAULT_ENABLED_SITES });
+        setEditSiteOptions({
+            ...DEFAULT_SITE_OPTIONS,
+            ...(item.siteOptions || {}),
+            mandarake: {
+                ...DEFAULT_SITE_OPTIONS.mandarake,
+                ...(item.siteOptions?.mandarake || {})
+            }
         });
         setEditStrict(item.strict !== false);
     };
@@ -469,7 +499,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             await authenticatedFetch(`/api/watchlist/${editingItem.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: editName, terms, filters, enabledSites: editEnabledSites, strict: editStrict })
+                body: JSON.stringify({ name: editName, terms, filters, enabledSites: editEnabledSites, siteOptions: editSiteOptions, strict: editStrict })
             });
             setEditingItem(null);
             fetchWatchlist();
@@ -929,10 +959,10 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                             <div style={{ marginBottom: '20px' }}>
                                 <label style={{ display: 'block', marginBottom: '5px' }}>Enabled Services:</label>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'taobao', 'goofish'].map(site => {
+                                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'mandarake', 'taobao', 'goofish'].map(site => {
                                         const isGloballyEnabled = globalSettings.enabledSites?.[site] !== false;
-                                        // Special case for Taobao/Goofish: disable if globally OFF
-                                        const isDisabled = (site === 'taobao' || site === 'goofish') && !isGloballyEnabled;
+                                        // Cookie-backed sites should not be enabled per-watch while globally off.
+                                        const isDisabled = (site === 'taobao' || site === 'goofish' || site === 'mandarake') && !isGloballyEnabled;
 
                                         return (
                                             <label key={site} style={{ display: 'flex', alignItems: 'center', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
@@ -946,11 +976,30 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                                     disabled={isDisabled}
                                                     style={{ marginRight: '8px' }}
                                                 />
-                                                {site.charAt(0).toUpperCase() + site.slice(1)}
+                                                {SITE_LABELS[site] || site.charAt(0).toUpperCase() + site.slice(1)}
                                             </label>
                                         );
                                     })}
                                 </div>
+                                {editEnabledSites.mandarake !== false && (
+                                    <div style={{ marginTop: '12px', marginLeft: '4px' }}>
+                                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem' }}>Mandarake Mode:</label>
+                                        <select
+                                            value={editSiteOptions.mandarake?.mode || 'full'}
+                                            onChange={e => setEditSiteOptions(prev => ({
+                                                ...prev,
+                                                mandarake: {
+                                                    ...(prev.mandarake || {}),
+                                                    mode: e.target.value
+                                                }
+                                            }))}
+                                            style={{ width: '100%', padding: '8px', background: '#333', border: '1px solid #555', color: 'white' }}
+                                        >
+                                            <option value="full">Full site search</option>
+                                            <option value="garageKit">Garage kits only</option>
+                                        </select>
+                                    </div>
+                                )}
                             </div>
                             <div style={{ marginBottom: '20px' }}>
                                 <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
