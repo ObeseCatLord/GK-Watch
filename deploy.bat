@@ -1,6 +1,8 @@
 @echo off
 setlocal
 
+cd /d "%~dp0"
+
 echo.
 echo ================================
 echo  GK Watcher Deployment Setup
@@ -29,13 +31,17 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo Installing server dependencies...
 cd server
+rem Puppeteer 24 downloads both Chrome and chrome-headless-shell by default.
+rem GK Watcher launches normal Chrome; skipping the separate shell avoids
+rem install failures from stale or partial shell caches on Windows.
+set "PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD=true"
 call npm install
-if %ERRORLEVEL% neq 0 (
-    echo [WARN] npm install failed. Retrying with PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true...
-    set PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+if errorlevel 1 (
+    echo [WARN] npm install failed. Retrying once...
     call npm install
-    if %ERRORLEVEL% neq 0 (
+    if errorlevel 1 (
         echo [ERROR] Failed to install server dependencies. Please check your internet connection or proxy settings.
+        echo [ERROR] If the error mentions Puppeteer cache, delete "%USERPROFILE%\.cache\puppeteer" and run deploy.bat again.
         pause
         exit /b 1
     )
@@ -46,7 +52,7 @@ echo.
 echo Installing client dependencies...
 cd client
 call npm install
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Failed to install client dependencies.
     pause
     exit /b 1
@@ -55,7 +61,7 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo Building client...
 call npm run build
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Failed to build client.
     pause
     exit /b 1
