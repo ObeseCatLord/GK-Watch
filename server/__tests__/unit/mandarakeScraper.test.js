@@ -67,4 +67,11 @@ describe('Mandarake scraper helpers', () => {
         });
         expect(results[0].itemNo).toEqual(['cmp-foo', '0181099788']);
     });
+
+    test('strict matching supports Mandarake English Touhou titles for Japanese queries', () => {
+        expect(mandarake.matchesMandarakeQuery('WSC Touhou Project Reimu Hakurei', '東方', true)).toBe(true);
+        expect(mandarake.matchesMandarakeQuery('Modeling Barrier Resin Cast Kit Reimu Hakurei', '東方', true)).toBe(true);
+        expect(mandarake.matchesMandarakeQuery('Antique Heart SD Komeiji Satori', '東方', true)).toBe(true);
+        expect(mandarake.matchesMandarakeQuery('Unrelated Saber Resin Cast Kit', '東方', true)).toBe(false);
+    });
 });
