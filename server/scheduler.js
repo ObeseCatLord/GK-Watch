@@ -46,6 +46,31 @@ function isExpiredPayPaySold(item, nowMs) {
     return soldAtMs !== null && nowMs - soldAtMs >= PAYPAY_SOLD_RETENTION_MS;
 }
 
+function normalizePersistableResult(result) {
+    if (!result || result.error) return null;
+
+    const link = String(result.link || '').trim();
+    if (!link) return null;
+
+    return link === result.link ? result : { ...result, link };
+}
+
+function filterPersistableResults(results, context = '') {
+    if (!Array.isArray(results) || results.length === 0) return [];
+
+    const filtered = results
+        .map(normalizePersistableResult)
+        .filter(Boolean);
+
+    const skipped = results.length - filtered.length;
+    if (skipped > 0) {
+        const label = context ? ` for ${context}` : '';
+        console.log(`[Scheduler] Skipped ${skipped} non-persistable result(s)${label}.`);
+    }
+
+    return filtered;
+}
+
 // Prepared statements for results
 const stmts = {
     // Results CRUD
@@ -273,8 +298,11 @@ const Scheduler = {
                             }
                             if (results && results.length > 0) {
                                 for (const res of results) {
-                                    if (!uniqueResultsMap.has(res.link)) {
-                                        uniqueResultsMap.set(res.link, res);
+                                    const persistable = normalizePersistableResult(res);
+                                    if (!persistable) continue;
+
+                                    if (!uniqueResultsMap.has(persistable.link)) {
+                                        uniqueResultsMap.set(persistable.link, persistable);
                                     }
                                 }
                             }
@@ -292,7 +320,7 @@ const Scheduler = {
                         if (item.filters && item.filters.length > 0) {
                             const filterTerms = item.filters.map(f => f.toLowerCase());
                             filtered = filtered.filter(result => {
-                                const titleLower = result.title.toLowerCase();
+                                const titleLower = String(result.title || '').toLowerCase();
                                 return !filterTerms.some(term => titleLower.includes(term));
                             });
                         }
@@ -347,6 +375,7 @@ const Scheduler = {
     saveResults: (watchId, newResults, term = '', payPayError = false) => {
         const now = new Date().toISOString();
         const nowMs = Date.now();
+        const persistableResults = filterPersistableResults(newResults, term || watchId);
         const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
         const SURUGAYA_GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
         const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
@@ -384,7 +413,7 @@ const Scheduler = {
                 mandarake: new Set(),
             };
 
-            newResults.forEach(result => {
+            persistableResults.forEach(result => {
                 if (!result.title) return;
                 const title = result.title.trim();
                 const source = result.source ? result.source.toLowerCase() : '';
@@ -401,7 +430,7 @@ const Scheduler = {
             // Process new results
             const processedLinks = new Set();
 
-            for (const result of newResults) {
+            for (const result of persistableResults) {
                 const existing = existingByLink.get(result.link);
                 const favorite = favoritesByUrl.get(result.link);
                 const source = result.source ? result.source.toLowerCase() : '';

@@ -138,4 +138,26 @@ describe('Scheduler.saveResults', () => {
         const meta = db.prepare('SELECT new_count FROM results_meta WHERE watch_id = ?').get(watch.id);
         expect(meta.new_count).toBe(0);
     });
+
+    test('skips scraper error and missing-link results before saving', async () => {
+        const watch = await Watchlist.add({ term: 'bad-results', strict: false });
+
+        const run = await Scheduler.saveResults(watch.id, [
+            { error: 'timeout of 30000ms exceeded', source: 'Mandarake' },
+            { title: 'No Link Item', source: 'Mercari', price: '¥1,000' },
+            { link: 'valid-link', title: 'Valid Item', source: 'Mandarake', price: '¥2,000' }
+        ], 'bad-results');
+
+        expect(run.newItems).toHaveLength(1);
+        expect(run.newItems[0].link).toBe('valid-link');
+        expect(run.totalCount).toBe(1);
+
+        const rows = db.prepare('SELECT link, title, source FROM results WHERE watch_id = ?').all(watch.id);
+        expect(rows).toEqual([
+            { link: 'valid-link', title: 'Valid Item', source: 'Mandarake' }
+        ]);
+
+        const meta = db.prepare('SELECT new_count FROM results_meta WHERE watch_id = ?').get(watch.id);
+        expect(meta.new_count).toBe(1);
+    });
 });
