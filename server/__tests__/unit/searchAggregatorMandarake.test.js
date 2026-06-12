@@ -47,7 +47,7 @@ describe('search aggregator Mandarake integration', () => {
         mockMandarakeSearch.mockReset();
     });
 
-    test('strict-filters Mandarake garage-kit searches with the stripped base query', async () => {
+    test('never strict-filters Mandarake garage-kit searches', async () => {
         mockMandarakeSearch.mockResolvedValue([
             {
                 title: 'Fate Saber Resin Statue',
@@ -83,10 +83,13 @@ describe('search aggregator Mandarake integration', () => {
 
         expect(mockMandarakeSearch).toHaveBeenCalledWith(
             'Saber ガレージキット',
-            true,
+            false,
             [],
             { mode: 'garageKit' }
         );
-        expect(results.map(item => item.title)).toEqual(['Fate Saber Resin Statue']);
+        expect(results.map(item => item.title)).toEqual([
+            'Fate Saber Resin Statue',
+            'Fate Rin Resin Statue'
+        ]);
     });
 });

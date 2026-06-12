@@ -241,10 +241,8 @@ function applyFilters(results, query, strict, filters) {
         });
     }
 
-    const parsedQuery = queryMatcher.parseQuery(query);
-    const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
-
-    if (strict || hasQuoted) {
+    if (strict) {
+        const parsedQuery = queryMatcher.parseQuery(query);
         filtered = filtered.filter(item => queryMatcher.matchesQuery(item.title, parsedQuery, strict));
     }
 
@@ -289,7 +287,7 @@ async function search(query, strict = true, filters = [], options = {}) {
         }
 
         const parsed = parseResults(html);
-        const filtered = applyFilters(parsed, effectiveQuery, strict, filters);
+        const filtered = applyFilters(parsed, effectiveQuery, false, filters);
         console.log(`[Mandarake] Found ${parsed.length} item(s), ${filtered.length} after filtering.`);
         return filtered;
     } catch (error) {

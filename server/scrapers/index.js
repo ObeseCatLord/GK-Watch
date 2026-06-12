@@ -196,7 +196,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     }
 
     if (enabled.mandarake !== false) {
-        scraperTasks.push({ name: 'Mandarake', promise: loggedPromise('Mandarake', (cb) => mandarake.search(query, strict.mandarake ?? true, filters, siteOptions.mandarake || {}), onProgress) });
+        scraperTasks.push({ name: 'Mandarake', promise: loggedPromise('Mandarake', (cb) => mandarake.search(query, false, filters, siteOptions.mandarake || {}), onProgress) });
     }
 
     const results = await Promise.allSettled(scraperTasks.map(t => t.promise));
@@ -232,6 +232,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
         const beforeCount = flatResults.length;
         flatResults = flatResults.filter(item => {
             if (item.error) return true;
+            if (item.source === 'Mandarake') return true;
             if (!item.title) return false;
             const titleLower = item.title.toLowerCase();
             return quotedTerms.every(term => titleLower.includes(term.toLowerCase()));
@@ -250,7 +251,6 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     // we enforce strictness if the user/watch has requested it.
     if (flatResults.length > 0) {
         const parsedQuery = queryMatcher.parseQuery(query);
-        const mandarakeParsedQuery = queryMatcher.parseQuery(mandarake.getEffectiveQuery(query, siteOptions.mandarake || {}));
         const beforeCount = flatResults.length;
 
         flatResults = flatResults.filter(item => {
@@ -270,8 +270,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             else if (source === 'Taobao') isStrict = strict.taobao ?? true;
             else if (source === 'Goofish') isStrict = strict.goofish ?? true;
             else if (source === 'Mandarake') {
-                isStrict = strict.mandarake ?? true;
-                itemParsedQuery = mandarakeParsedQuery;
+                isStrict = false;
             }
 
             // If strict is disabled for this site, pass it through
