@@ -15,9 +15,74 @@ function decodeHexUrl(hex) {
     } catch { return null; }
 }
 
+function normalizeWebsite(targetSite = 'paypay') {
+    if (targetSite === 'surugaya' || targetSite === 'mercari') {
+        return targetSite;
+    }
+    return 'paypay';
+}
+
+function sourceNameForWebsite(website) {
+    if (website === 'paypay') return 'PayPay Flea Market';
+    if (website === 'mercari') return 'Mercari';
+    return 'Suruga-ya';
+}
+
+function buildMercariLink(item) {
+    const asin = String(item.Asin || '').trim();
+    if (asin) {
+        if (/^m\d+$/.test(asin)) return `https://jp.mercari.com/item/${asin}`;
+        return `https://jp.mercari.com/shops/product/${asin}`;
+    }
+
+    const decoded = decodeHexUrl(item.Url);
+    if (decoded) {
+        const match = decoded.match(/\/(?:jp\/items|items|item)\/([^/?#]+)/);
+        if (match && match[1]) {
+            return /^m\d+$/.test(match[1])
+                ? `https://jp.mercari.com/item/${match[1]}`
+                : `https://jp.mercari.com/shops/product/${match[1]}`;
+        }
+        return decoded;
+    }
+
+    return '';
+}
+
+function mapDoorzoItem(item, website) {
+    const formattedPrice = item.JPYPrice ? `¥${Number(item.JPYPrice).toLocaleString()}` : 'N/A';
+
+    let link = '';
+    if (website === 'paypay') {
+        link = `https://paypayfleamarket.yahoo.co.jp/item/${item.Url}`;
+    } else if (website === 'surugaya') {
+        const decoded = decodeHexUrl(item.Url);
+        if (decoded) {
+            const match = decoded.match(/detail\/([a-zA-Z0-9]+)/);
+            if (match) {
+                link = `https://www.suruga-ya.jp/product/detail/${match[1]}`;
+            } else {
+                link = decoded;
+            }
+        } else {
+            link = `https://www.suruga-ya.jp/product/detail/${item.Url}`;
+        }
+    } else if (website === 'mercari') {
+        link = buildMercariLink(item);
+    }
+
+    return {
+        title: item.Name,
+        price: formattedPrice,
+        link,
+        image: item.ImageUrl,
+        source: sourceNameForWebsite(website)
+    };
+}
+
 async function search(query, targetSite = 'paypay') {
     // Doorzo requires specific params to filter
-    const website = targetSite === 'surugaya' ? 'surugaya' : 'paypay';
+    const website = normalizeWebsite(targetSite);
 
     // Note: Doorzo allows filtering by multiple sites, but our architecture splits them.
     const params = {
@@ -73,57 +138,7 @@ async function search(query, targetSite = 'paypay') {
 
         console.log(`[Doorzo] Finished searching "${query}" on ${website}. Total items: ${allItems.length}`);
 
-        return allItems.map(item => {
-            // Item structure:
-            // {
-            //   "ImageUrl": "...",
-            //   "Url": "z509043052" (PayPay ID) OR Hex String (Suruga-ya),
-            //   "Name": "...",
-            //   "JPYPrice": 75000,
-            // }
-
-            // Format price: 75000 -> "¥75,000"
-            // Format price: 75000 -> "¥75,000"
-            const formattedPrice = item.JPYPrice ? `¥${Number(item.JPYPrice).toLocaleString()}` : 'N/A';
-
-            // Determine Link
-            let link = '';
-            if (website === 'paypay') {
-                link = `https://paypayfleamarket.yahoo.co.jp/item/${item.Url}`;
-            } else if (website === 'surugaya') {
-                // Suruga-ya URLs often come as hex encoded strings, or native IDs
-                // But based on benchmark, they use a generic detail structure or we can reconstruct generic
-                const decoded = decodeHexUrl(item.Url);
-                // If it decodes to a URL, use it? Or use doorzo wrapper?
-                // Doorzo wrapper: https://www.doorzo.com/en/mall/surugaya/detail/[ID?]
-                // Actually, based on benchmark output: '68747470... ' -> https://www.suruga-ya.jp/product/detail/602277652
-                // We should return the Doorzo proxy link if possible, or the native link if that's what we have.
-                // IMPORTANT: Ideally we link to the Proxy (Doorzo) so the user can buy.
-                // The item.Url seems to be the NATIVE url hex encoded.
-                // We need to extract the ID from it to build a Doorzo link.
-                // Decoded: https://www.suruga-ya.jp/product/detail/602277652
-                // Doorzo Link: https://www.doorzo.com/en/mall/surugaya/detail/602277652
-                if (decoded) {
-                    const match = decoded.match(/detail\/([a-zA-Z0-9]+)/);
-                    if (match) {
-                        link = `https://www.suruga-ya.jp/product/detail/${match[1]}`;
-                    } else {
-                        link = decoded; // Fallback to native
-                    }
-                } else {
-                    // Fallback if decode fails (unlikely if API behaves as expected)
-                    link = `https://www.suruga-ya.jp/product/detail/${item.Url}`;
-                }
-            }
-
-            return {
-                title: item.Name,
-                price: formattedPrice,
-                link: link,
-                image: item.ImageUrl,
-                source: website === 'paypay' ? 'PayPay Flea Market' : 'Suruga-ya' // Match system source names
-            };
-        });
+        return allItems.map(item => mapDoorzoItem(item, website));
 
     } catch (err) {
         console.error(`[Doorzo] Error searching for "${query}" on ${website}:`, err.message);
@@ -131,25 +146,10 @@ async function search(query, targetSite = 'paypay') {
         // Better to return what we have if possible, but scraper logic expects null on critical failure.
         // If we have items, return them.
         if (allItems.length > 0) {
-            return allItems.map(item => { /* ... map logic duplicated ... */
-                // To avoid code duplication, we could refactor map to function, but inline for now is robust
-                const formattedPrice = item.JPYPrice ? `¥${Number(item.JPYPrice).toLocaleString()}` : 'N/A';
-                let link = '';
-                if (website === 'paypay') {
-                    link = `https://paypayfleamarket.yahoo.co.jp/item/${item.Url}`;
-                } else if (website === 'surugaya') {
-                    const decoded = decodeHexUrl(item.Url);
-                    if (decoded) {
-                        const match = decoded.match(/detail\/([a-zA-Z0-9]+)/);
-                        if (match) { link = `https://www.suruga-ya.jp/product/detail/${match[1]}`; }
-                        else { link = decoded; }
-                    } else { link = `https://www.suruga-ya.jp/product/detail/${item.Url}`; }
-                }
-                return { title: item.Name, price: formattedPrice, link: link, image: item.ImageUrl, source: website === 'paypay' ? 'PayPay Flea Market' : 'Suruga-ya' };
-            });
+            return allItems.map(item => mapDoorzoItem(item, website));
         }
         return null;
     }
 }
 
-module.exports = { search };
+module.exports = { search, _mapDoorzoItem: mapDoorzoItem };

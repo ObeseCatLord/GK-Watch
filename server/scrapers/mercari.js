@@ -1,5 +1,6 @@
 const fs = require('fs');
 const dejapan = require('./dejapan');
+const doorzo = require('./doorzo');
 const path = require('path');
 const os = require('os');
 const puppeteer = require('puppeteer');
@@ -681,6 +682,35 @@ async function searchNeokyo(query, strictEnabled, filters) {
     }
 }
 
+async function searchDoorzo(query, strictEnabled = true, filters = []) {
+    console.log(`[Mercari Doorzo] Searching Doorzo for ${query}...`);
+
+    const results = await doorzo.search(query, 'mercari');
+    if (results === null) return null;
+
+    let filtered = Array.isArray(results) ? results : [];
+
+    if (filters && filters.length > 0) {
+        const filterTerms = filters.map(f => String(f).trim().toLowerCase()).filter(Boolean);
+        const preCount = filtered.length;
+        filtered = filtered.filter(item => {
+            const titleLower = String(item.title || '').toLowerCase();
+            return !filterTerms.some(term => titleLower.includes(term));
+        });
+        console.log(`[Mercari Doorzo] Negative filtering removed ${preCount - filtered.length} items.`);
+    }
+
+    const parsedQuery = parseQuery(query);
+    const hasQuoted = hasQuotedTerms(parsedQuery);
+    if (strictEnabled || hasQuoted || (filters && filters.length > 0)) {
+        const preCount = filtered.length;
+        filtered = filtered.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
+        console.log(`[Mercari Doorzo] Local filtering: ${preCount} -> ${filtered.length} items.`);
+    }
+
+    return filtered;
+}
+
 async function search(query, strictEnabled = true, filters = [], onProgress = null) {
 
     if (isDisabled) {
@@ -695,21 +725,21 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
             console.log(`[Mercari] Axios search successful (${axiosResults.length} items).`);
             return axiosResults;
         }
-        console.warn('[Mercari] Axios failed (returned null), falling back to DEJapan...');
+        console.warn('[Mercari] Axios failed (returned null), falling back to Doorzo...');
     } catch (err) {
-        console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to DEJapan...`);
+        console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to Doorzo...`);
     }
 
-    // Priority 2: DEJapan (Fast/Axios + Full Titles)
+    // Priority 2: Doorzo (Fast/Axios + native Mercari IDs)
     try {
-        const dejapanResults = await dejapan.search(query, strictEnabled, filters);
-        if (dejapanResults !== null) {
-            console.log(`[Mercari] DEJapan search successful (${dejapanResults.length} items).`);
-            return dejapanResults;
+        const doorzoResults = await searchDoorzo(query, strictEnabled, filters);
+        if (doorzoResults !== null) {
+            console.log(`[Mercari] Doorzo search successful (${doorzoResults.length} items).`);
+            return doorzoResults;
         }
-        console.warn('[Mercari] DEJapan failed (returned null), falling back to Neokyo...');
+        console.warn('[Mercari] Doorzo failed (returned null), falling back to Neokyo...');
     } catch (err) {
-        console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to Neokyo...`);
+        console.warn(`[Mercari] Doorzo error: ${err.message}, falling back to Neokyo...`);
     }
 
     // Priority 3: Neokyo (Fast/Axios)
@@ -724,7 +754,19 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
         console.warn(`[Mercari] Neokyo error: ${err.message}.`);
     }
 
-    // Priority 4: Native Scraper (Puppeteer) - Ultimate Fallback
+    // Priority 4: DEJapan (Fast/Axios + Full Titles)
+    try {
+        const dejapanResults = await dejapan.search(query, strictEnabled, filters);
+        if (dejapanResults !== null) {
+            console.log(`[Mercari] DEJapan search successful (${dejapanResults.length} items).`);
+            return dejapanResults;
+        }
+        console.warn('[Mercari] DEJapan failed (returned null), falling back to native scraper...');
+    } catch (err) {
+        console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to native scraper...`);
+    }
+
+    // Priority 5: Native Scraper (Puppeteer) - Ultimate Fallback
     // Only used if ALL direct/proxy methods fail.
     console.log('[Mercari] All Axios methods failed. Attempting Native (Puppeteer) fallback...');
     const MAX_RETRIES = 1;
@@ -745,4 +787,4 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
 }
 
 
-module.exports = { search, reset, searchNeokyo };
+module.exports = { search, reset, searchAxios, searchDoorzo, searchNeokyo };

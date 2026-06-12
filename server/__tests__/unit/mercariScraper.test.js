@@ -100,4 +100,97 @@ describe('Mercari Scraper Retry Logic', () => {
         logSpy.mockRestore();
         warnSpy.mockRestore();
     });
+
+    test('falls back to Doorzo before DEJapan and captures token pages', async () => {
+        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
+
+        let doorzoCallCount = 0;
+        mock.onGet('https://sig.doorzo.com/').reply(() => {
+            doorzoCallCount++;
+            if (doorzoCallCount === 1) {
+                return [200, {
+                    code: 0,
+                    data: {
+                        items: [{
+                            ImageUrl: 'https://example.com/one.jpg',
+                            Asin: 'm111',
+                            Url: '',
+                            Name: 'test query garage kit one',
+                            JPYPrice: 1000
+                        }],
+                        nextPageToken: 'next-token'
+                    }
+                }];
+            }
+
+            return [200, {
+                code: 0,
+                data: {
+                    items: [{
+                        ImageUrl: 'https://example.com/two.jpg',
+                        Asin: 'm222',
+                        Url: '',
+                        Name: 'test query garage kit two',
+                        JPYPrice: 2000
+                    }],
+                    nextPageToken: null
+                }
+            }];
+        });
+
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
+
+        const results = await search('test query', true, []);
+
+        expect(doorzoCallCount).toBe(2);
+        expect(results).toHaveLength(2);
+        expect(results.map(item => item.link)).toEqual([
+            'https://jp.mercari.com/item/m111',
+            'https://jp.mercari.com/item/m222'
+        ]);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to Doorzo'));
+        expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Doorzo search successful'));
+
+        logSpy.mockRestore();
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
+
+    test('falls back from Doorzo to Neokyo before DEJapan', async () => {
+        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
+        mock.onGet('https://sig.doorzo.com/').reply(503, {});
+        mock.onGet(/https:\/\/neokyo\.com\/en\/search\/mercari.*/).reply(200, `
+            <div class="product-card">
+                <a class="product-link" href="/en/product/mercari/m333">test query garage kit neokyo</a>
+                <img class="card-img-top" src="https://example.com/neokyo.jpg" />
+                <div class="price"><b>3,000 yen</b></div>
+            </div>
+        `);
+
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
+
+        const results = await search('test query', true, []);
+
+        expect(results).toHaveLength(1);
+        expect(results[0]).toMatchObject({
+            title: 'test query garage kit neokyo',
+            link: 'https://jp.mercari.com/item/m333',
+            price: '¥3,000'
+        });
+
+        const requestedUrls = mock.history.get.map(request => request.url);
+        expect(requestedUrls).toContain('https://sig.doorzo.com/');
+        expect(requestedUrls.some(url => url.startsWith('https://neokyo.com/en/search/mercari'))).toBe(true);
+        expect(requestedUrls.some(url => url.includes('dejapan.com/en/shopping/mercari'))).toBe(false);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to Neokyo'));
+        expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Neokyo search successful'));
+
+        logSpy.mockRestore();
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
 });
