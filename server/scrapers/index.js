@@ -277,10 +277,6 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             // If strict is disabled for this site, pass it through
             if (!isStrict) return true;
 
-            if (source === 'Mandarake') {
-                return mandarake.matchesMandarakeQuery(item.title, mandarake.getEffectiveQuery(query, siteOptions.mandarake || {}), true);
-            }
-
             // Otherwise check match
             return queryMatcher.matchesQuery(item.title, itemParsedQuery, true);
         });

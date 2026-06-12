@@ -10,7 +10,7 @@ describe('Mandarake scraper helpers', () => {
         expect(url.searchParams.get('soldOut')).toBe('1');
         expect(url.searchParams.get('dispAdult')).toBe('0');
         expect(url.searchParams.get('dispCount')).toBe('240');
-        expect(url.searchParams.get('lang')).toBe('en');
+        expect(url.searchParams.get('lang')).toBe('ja');
     });
 
     test('builds garage-kit category URLs and strips GK suffixes', () => {
@@ -33,10 +33,10 @@ describe('Mandarake scraper helpers', () => {
                   <div class="basic">
                     <span class="shop">Nakano</span>
                     <span class="itemno">cmp-foo (0181099788)</span>
-                    <span class="stock">In stock</span>
+                    <span class="stock">在庫あります</span>
                   </div>
-                  <div class="title"><a>Fate Saber Garage Kit</a></div>
-                  <div class="price">12,000 yen</div>
+                  <div class="title"><a>東方Project 博麗霊夢 ガレージキット</a></div>
+                  <div class="price">12,000円</div>
                 </div>
                 <div class="block">
                   <div class="pic">
@@ -58,7 +58,7 @@ describe('Mandarake scraper helpers', () => {
 
         expect(results).toHaveLength(1);
         expect(results[0]).toMatchObject({
-            title: 'Fate Saber Garage Kit',
+            title: '東方Project 博麗霊夢 ガレージキット',
             link: 'https://order.mandarake.co.jp/order/detailPage/item?itemCode=abc123&ref=list',
             image: 'https://order.mandarake.co.jp/images/item.jpg',
             price: '¥12,000',
@@ -66,12 +66,5 @@ describe('Mandarake scraper helpers', () => {
             shopName: 'Nakano'
         });
         expect(results[0].itemNo).toEqual(['cmp-foo', '0181099788']);
-    });
-
-    test('strict matching supports Mandarake English Touhou titles for Japanese queries', () => {
-        expect(mandarake.matchesMandarakeQuery('WSC Touhou Project Reimu Hakurei', '東方', true)).toBe(true);
-        expect(mandarake.matchesMandarakeQuery('Modeling Barrier Resin Cast Kit Reimu Hakurei', '東方', true)).toBe(true);
-        expect(mandarake.matchesMandarakeQuery('Antique Heart SD Komeiji Satori', '東方', true)).toBe(true);
-        expect(mandarake.matchesMandarakeQuery('Unrelated Saber Resin Cast Kit', '東方', true)).toBe(false);
     });
 });

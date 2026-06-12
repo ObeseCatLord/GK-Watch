@@ -39,7 +39,7 @@ const DEFAULT_ENABLED_SITES = {
 
 const DEFAULT_SITE_OPTIONS = {
     mandarake: {
-        mode: 'full'
+        mode: 'garageKit'
     }
 };
 

@@ -13,7 +13,7 @@ const DEFAULT_ENABLED_SITES = {
 };
 
 const DEFAULT_SITE_OPTIONS = {
-    mandarake: { mode: 'full' }
+    mandarake: { mode: 'garageKit' }
 };
 
 const SITE_LABELS = {
@@ -288,7 +288,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     term: newTerm,
                     strict: newStrict,
                     enabledSites: { ...DEFAULT_ENABLED_SITES },
-                    siteOptions: { mandarake: { mode: 'full' } }
+                    siteOptions: { mandarake: { mode: 'garageKit' } }
                 })
             });
             const data = await res.json();
@@ -985,7 +985,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     <div style={{ marginTop: '12px', marginLeft: '4px' }}>
                                         <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem' }}>Mandarake Mode:</label>
                                         <select
-                                            value={editSiteOptions.mandarake?.mode || 'full'}
+                                            value={editSiteOptions.mandarake?.mode || 'garageKit'}
                                             onChange={e => setEditSiteOptions(prev => ({
                                                 ...prev,
                                                 mandarake: {

@@ -21,7 +21,7 @@ const DEFAULT_SEARCH_PARAMS = {
     sort: 'arrival',
     sortOrder: '1',
     dispCount: '240',
-    lang: 'en'
+    lang: 'ja'
 };
 
 const GARAGE_KIT_SUFFIXES = [
@@ -34,50 +34,6 @@ const GARAGE_KIT_SUFFIXES = [
     'resin kit',
     'resin cast kit'
 ];
-
-const STRICT_QUERY_SYNONYMS = {
-    '東方': [
-        'touhou',
-        'reimu',
-        'hakurei',
-        'marisa',
-        'kirisame',
-        'youmu',
-        'satori',
-        'komeiji',
-        'koishi',
-        'remilia',
-        'flandre',
-        'cirno',
-        'sanae',
-        'patchouli',
-        'alice',
-        'reisen',
-        'yuyuko',
-        'yukari',
-        'mokou',
-        'aya',
-        'tenshi',
-        'utsuho',
-        'ran',
-        'chen',
-        'youyoumu',
-        'koumakyou',
-        'eiyashou',
-        'fuujinroku'
-    ],
-    '東方project': ['touhou'],
-    '博麗霊夢': ['reimu', 'hakurei'],
-    '霊夢': ['reimu', 'hakurei'],
-    '霧雨魔理沙': ['marisa', 'kirisame'],
-    '魔理沙': ['marisa', 'kirisame'],
-    '魂魄妖夢': ['youmu', 'konpaku'],
-    '妖夢': ['youmu', 'konpaku'],
-    '古明地さとり': ['satori', 'komeiji'],
-    'さとり': ['satori', 'komeiji'],
-    '古明地こいし': ['koishi', 'komeiji'],
-    'こいし': ['koishi', 'komeiji']
-};
 
 let cachedCookies = null;
 let lastCookiesLoadTime = 0;
@@ -175,34 +131,6 @@ function buildSearchUrl(query, options = {}) {
     });
 
     return `${MANDARAKE_SEARCH_URL}?${params.toString()}`;
-}
-
-function expandStrictQuery(query) {
-    return String(query || '')
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .map(term => {
-            const key = term.toLowerCase();
-            const synonyms = STRICT_QUERY_SYNONYMS[key];
-            if (!synonyms) return term;
-            return [term, ...synonyms].join('|');
-        })
-        .join(' ');
-}
-
-function matchesMandarakeQuery(title, query, strict = true) {
-    const parsedQuery = queryMatcher.parseQuery(query);
-    if (queryMatcher.matchesQuery(title, parsedQuery, strict)) {
-        return true;
-    }
-
-    const expandedQuery = expandStrictQuery(query);
-    if (expandedQuery === String(query || '').trim()) {
-        return false;
-    }
-
-    return queryMatcher.matchesQuery(title, queryMatcher.parseQuery(expandedQuery), strict);
 }
 
 function absoluteUrl(value) {
@@ -317,7 +245,7 @@ function applyFilters(results, query, strict, filters) {
     const hasQuoted = queryMatcher.hasQuotedTerms(parsedQuery);
 
     if (strict || hasQuoted) {
-        filtered = filtered.filter(item => matchesMandarakeQuery(item.title, query, strict));
+        filtered = filtered.filter(item => queryMatcher.matchesQuery(item.title, parsedQuery, strict));
     }
 
     return filtered;
@@ -376,7 +304,6 @@ module.exports = {
     buildSearchUrl,
     parseResults,
     getEffectiveQuery,
-    matchesMandarakeQuery,
     GARAGE_KIT_CATEGORY_CODE,
     EVERYTHING_CATEGORY_CODE
 };

@@ -51,18 +51,18 @@ describe('Watchlist', () => {
             expect(item.active).toBe(true);
             expect(item.emailNotify).toBe(true); // Watchlist defaults emailNotify to true
             expect(item.priority).toBe(false);
-            expect(item.siteOptions.mandarake.mode).toBe('full');
+            expect(item.siteOptions.mandarake.mode).toBe('garageKit');
             expect(item.enabledSites.mandarake).toBe(true);
         });
 
         test('persists Mandarake site options', async () => {
             const item = await Watchlist.add({
                 term: 'test_mandarake_options',
-                siteOptions: { mandarake: { mode: 'garageKit' } }
+                siteOptions: { mandarake: { mode: 'full' } }
             });
 
             const retrieved = await Watchlist.get(item.id);
-            expect(retrieved.siteOptions.mandarake.mode).toBe('garageKit');
+            expect(retrieved.siteOptions.mandarake.mode).toBe('full');
         });
 
         test('returns existing item for duplicate terms', async () => {
