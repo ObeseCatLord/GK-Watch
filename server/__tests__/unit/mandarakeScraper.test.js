@@ -67,4 +67,87 @@ describe('Mandarake scraper helpers', () => {
         });
         expect(results[0].itemNo).toEqual(['cmp-foo', '0181099788']);
     });
+
+    test('parses and recognizes garage-kit detail categories', () => {
+        const garageKitHtml = `
+            <table>
+              <tr class="category_path">
+                <th>カテゴリ</th>
+                <td>TOY &gt; ジャンル別 &gt; ガレージキットTOY &gt; 作品別 &gt; ゲーム</td>
+              </tr>
+            </table>
+        `;
+        const figureHtml = `
+            <table>
+              <tr class="category_path">
+                <th>カテゴリ</th>
+                <td>TOY &gt; ジャンル別 &gt; 美少女フィギュアTOY &gt; 作品別 &gt; ゲーム</td>
+              </tr>
+            </table>
+        `;
+
+        expect(mandarake.parseDetailCategory(garageKitHtml)).toContain('ガレージキット');
+        expect(mandarake.isGarageKitCategory(mandarake.parseDetailCategory(garageKitHtml))).toBe(true);
+        expect(mandarake.isGarageKitCategory(mandarake.parseDetailCategory(figureHtml))).toBe(false);
+    });
+
+    test('filters garage-kit mode results by verified detail category', async () => {
+        const results = [
+            {
+                title: 'リキッドストーン カラーレジンキャストキット 東方',
+                link: 'https://order.mandarake.co.jp/order/detailPage/item?itemCode=1333360573&ref=list&categoryCode=020107'
+            },
+            {
+                title: 'GRIFFON ENTERPRISES 楽園の巫女 博麗霊夢(赤服) PVC',
+                link: 'https://order.mandarake.co.jp/order/detailPage/item?itemCode=1319291778&ref=list&categoryCode=020107'
+            },
+            {
+                title: 'MAXFACTORY figma 東方Project 十六夜咲夜 76',
+                link: 'https://order.mandarake.co.jp/order/detailPage/item?itemCode=1338079157&ref=list&categoryCode=020107'
+            }
+        ];
+
+        const detailFetcher = jest.fn(async (detailUrl) => {
+            const itemCode = mandarake.getItemCode(detailUrl);
+            if (itemCode === '1333360573') {
+                return `
+                    <table>
+                      <tr class="category_path">
+                        <th>カテゴリ</th>
+                        <td>TOY &gt; ジャンル別 &gt; ガレージキットTOY &gt; 作品別 &gt; ゲーム</td>
+                      </tr>
+                    </table>
+                `;
+            }
+
+            if (itemCode === '1319291778') {
+                return `
+                    <table>
+                      <tr class="category_path">
+                        <th>カテゴリ</th>
+                        <td>TOY &gt; ジャンル別 &gt; 美少女フィギュアTOY &gt; 作品別 &gt; ゲーム &gt; その他</td>
+                      </tr>
+                    </table>
+                `;
+            }
+
+            return `
+                <table>
+                  <tr class="category_path">
+                    <th>カテゴリ</th>
+                    <td>TOY &gt; ジャンル別 &gt; アクションフィギュア &gt; figmaTOY</td>
+                  </tr>
+                </table>
+            `;
+        });
+
+        const filtered = await mandarake.filterGarageKitResults(results, [], {
+            fetchDetailHtml: detailFetcher,
+            concurrency: 2
+        });
+
+        expect(detailFetcher).toHaveBeenCalledTimes(3);
+        expect(filtered).toHaveLength(1);
+        expect(filtered[0].link).toContain('itemCode=1333360573');
+    });
 });
