@@ -533,56 +533,74 @@ app.get('/api/schedule', requireAuth, (req, res) => {
         jst: jstHour,
         cst: ScheduleSettings.jstToCst(jstHour)
     }));
-    res.json({ enabledHours: settings.enabledHours, hoursWithCst });
+    const slotsWithCst = (settings.enabledSlots || []).map(jstSlot => {
+        const cstSlot = (jstSlot - (15 * 60) + (24 * 60)) % (24 * 60);
+        return {
+            jstSlot,
+            jst: ScheduleSettings.formatSlot(jstSlot),
+            cst: ScheduleSettings.formatSlot(cstSlot)
+        };
+    });
+
+    res.json({
+        enabledHours: settings.enabledHours,
+        enabledSlots: settings.enabledSlots,
+        intervalMinutes: settings.intervalMinutes,
+        hoursWithCst,
+        slotsWithCst
+    });
 });
 
 
 app.post('/api/schedule', requireAuth, (req, res) => {
-    const { enabledHours } = req.body;
-    if (!Array.isArray(enabledHours)) {
+    const { enabledHours, enabledSlots, intervalMinutes } = req.body;
+    if (intervalMinutes !== undefined && ![30, 60].includes(Number(intervalMinutes))) {
+        return res.status(400).json({ error: 'intervalMinutes must be 30 or 60' });
+    }
+    if (enabledSlots !== undefined && !Array.isArray(enabledSlots)) {
+        return res.status(400).json({ error: 'enabledSlots must be an array' });
+    }
+    if (enabledSlots === undefined && !Array.isArray(enabledHours)) {
         return res.status(400).json({ error: 'enabledHours must be an array' });
     }
-    const settings = ScheduleSettings.setEnabledHours(enabledHours);
-    res.json({ success: true, enabledHours: settings.enabledHours });
+    const settings = ScheduleSettings.setSchedule({ enabledHours, enabledSlots, intervalMinutes });
+    res.json({
+        success: true,
+        enabledHours: settings.enabledHours,
+        enabledSlots: settings.enabledSlots,
+        intervalMinutes: settings.intervalMinutes
+    });
 });
 
 // Check scheduler status
 app.get('/api/status', requireAuth, (req, res) => {
 
     const settings = ScheduleSettings.get();
-    const enabledHours = settings.enabledHours || [];
+    const enabledSlots = settings.enabledSlots || [];
 
     // Calculate next scheduled time
     let nextScheduled = null;
     let minutesUntilNext = null;
 
-    if (enabledHours.length > 0) {
+    if (enabledSlots.length > 0) {
         const now = new Date();
-        const currentJstHour = (now.getUTCHours() + 9) % 24;
-        const currentMinute = now.getUTCMinutes();
+        const currentJstSlot = (((now.getUTCHours() + 9) % 24) * 60) + now.getUTCMinutes();
 
-        // Find next enabled hour
-        const sortedHours = [...enabledHours].sort((a, b) => a - b);
+        // Find next enabled slot
+        const sortedSlots = [...enabledSlots].sort((a, b) => a - b);
+        let nextSlot = sortedSlots.find(slot => slot >= currentJstSlot);
 
-        // Find if there's an upcoming hour today (after current JST hour, or current hour if before :00)
-        let nextHour = sortedHours.find(h => h > currentJstHour || (h === currentJstHour && currentMinute === 0));
-
-        if (!nextHour && nextHour !== 0) {
+        if (nextSlot === undefined) {
             // Wrap to next day
-            nextHour = sortedHours[0];
+            nextSlot = sortedSlots[0];
         }
 
         // Calculate minutes until next run
-        if (nextHour > currentJstHour) {
-            minutesUntilNext = (nextHour - currentJstHour) * 60 - currentMinute;
-        } else if (nextHour === currentJstHour && currentMinute === 0) {
-            minutesUntilNext = 0;
-        } else {
-            // Next day
-            minutesUntilNext = (24 - currentJstHour + nextHour) * 60 - currentMinute;
-        }
+        minutesUntilNext = nextSlot >= currentJstSlot
+            ? nextSlot - currentJstSlot
+            : (24 * 60) - currentJstSlot + nextSlot;
 
-        nextScheduled = `${nextHour}:00 JST`;
+        nextScheduled = `${ScheduleSettings.formatSlot(nextSlot)} JST`;
     }
 
     res.json({

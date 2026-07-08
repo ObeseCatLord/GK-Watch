@@ -174,12 +174,12 @@ const Scheduler = {
     },
 
     start: () => {
-        console.log('Scheduler started. Checking every hour based on JST schedule.');
+        console.log('Scheduler started. Checking every 30 minutes based on JST schedule.');
 
         // Check for resume state on startup
         Scheduler.resume();
 
-        cron.schedule('0 * * * *', async () => {
+        cron.schedule('0,30 * * * *', async () => {
             if (Scheduler.isRunning) {
                 console.log('[Scheduler] Search already running, skipping scheduled run.');
                 return;

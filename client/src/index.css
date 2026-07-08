@@ -890,15 +890,60 @@ h1 {
   gap: 0.5rem;
 }
 
+.hour-grid.half-hour-grid {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.schedule-controls {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem 0 1rem;
+}
+
+.schedule-interval-toggle {
+  display: inline-flex;
+  background: #252525;
+  border: 1px solid #444;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segment-btn {
+  min-width: 5rem;
+  border: 0;
+  border-right: 1px solid #444;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.segment-btn:last-child {
+  border-right: 0;
+}
+
+.segment-btn:hover {
+  background: #333;
+  color: var(--text-primary);
+}
+
+.segment-btn.active {
+  background: var(--accent-color);
+  color: white;
+}
+
 .hour-btn {
   background: #2a2a2a;
   border: 1px solid #444;
   border-radius: 8px;
   padding: 0.5rem;
+  min-height: 3.6rem;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   transition: all 0.2s;
 }
 
@@ -1822,6 +1867,10 @@ h1 {
     grid-template-columns: repeat(4, 1fr);
   }
 
+  .hour-grid.half-hour-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
   .watchlist-item {
     padding: 0.5rem;
     font-size: 0.8rem;
@@ -1862,6 +1911,10 @@ h1 {
   }
 
   .hour-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .hour-grid.half-hour-grid {
     grid-template-columns: repeat(3, 1fr);
   }
 

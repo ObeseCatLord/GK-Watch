@@ -17,7 +17,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [ntfyTestStatus, setNtfyTestStatus] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showLoginPassword, setShowLoginPassword] = useState(false);
-    const [enabledHours, setEnabledHours] = useState([]);
+    const [enabledSlots, setEnabledSlots] = useState([]);
+    const [scheduleInterval, setScheduleInterval] = useState(60);
     const saveTimeoutRef = React.useRef(null);
 
     const [timeZoneName, setTimeZoneName] = useState('Local');
@@ -74,38 +75,72 @@ const OptionsManager = ({ authenticatedFetch }) => {
         try {
             const res = await authenticatedFetch('/api/schedule');
             const data = await res.json();
-            setEnabledHours(data.enabledHours || []);
+            const interval = normalizeScheduleInterval(data.intervalMinutes);
+            const slots = Array.isArray(data.enabledSlots)
+                ? data.enabledSlots
+                : (data.enabledHours || []).map(hour => hour * 60);
+
+            setScheduleInterval(interval);
+            setEnabledSlots(normalizeSlots(slots, interval));
         } catch (err) {
             console.error('Error fetching schedule:', err);
         }
     };
 
-    const toggleHour = async (hour) => {
-        const newHours = enabledHours.includes(hour)
-            ? enabledHours.filter(h => h !== hour)
-            : [...enabledHours, hour].sort((a, b) => a - b);
+    const normalizeScheduleInterval = (interval) => Number(interval) === 30 ? 30 : 60;
 
-        setEnabledHours(newHours);
+    const normalizeSlots = (slots, interval) => {
+        const normalizedInterval = normalizeScheduleInterval(interval);
+        return [...new Set((slots || [])
+            .map(slot => Number(slot))
+            .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 24 * 60 && slot % normalizedInterval === 0))]
+            .sort((a, b) => a - b);
+    };
+
+    const saveSchedule = async (slots, interval = scheduleInterval) => {
+        const normalizedInterval = normalizeScheduleInterval(interval);
+        const normalizedSlots = normalizeSlots(slots, normalizedInterval);
+
+        setScheduleInterval(normalizedInterval);
+        setEnabledSlots(normalizedSlots);
 
         try {
             await authenticatedFetch('/api/schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ enabledHours: newHours })
+                body: JSON.stringify({
+                    intervalMinutes: normalizedInterval,
+                    enabledSlots: normalizedSlots
+                })
             });
         } catch (err) {
             console.error('Error saving schedule:', err);
         }
     };
 
-    const jstToLocal = (jstHour) => {
-        // JST is UTC+9
-        // Calculate offset difference between Local and JST
-        const offset = -new Date().getTimezoneOffset() / 60;
-        const diff = offset - 9;
-        let localHour = (jstHour + diff) % 24;
-        if (localHour < 0) localHour += 24;
-        return Math.floor(localHour);
+    const toggleSlot = async (slot) => {
+        const newSlots = enabledSlots.includes(slot)
+            ? enabledSlots.filter(s => s !== slot)
+            : [...enabledSlots, slot];
+
+        await saveSchedule(newSlots, scheduleInterval);
+    };
+
+    const changeScheduleInterval = async (interval) => {
+        await saveSchedule(enabledSlots, interval);
+    };
+
+    const formatSlot = (slot) => {
+        const normalized = ((slot % (24 * 60)) + (24 * 60)) % (24 * 60);
+        const hour = Math.floor(normalized / 60);
+        const minute = normalized % 60;
+        return `${hour}:${String(minute).padStart(2, '0')}`;
+    };
+
+    const jstToLocalSlot = (jstSlot) => {
+        const offsetMinutes = -new Date().getTimezoneOffset();
+        const diffMinutes = offsetMinutes - (9 * 60);
+        return (jstSlot + diffMinutes + (24 * 60)) % (24 * 60);
     };
 
     const savePassword = async () => {
@@ -566,18 +601,36 @@ const OptionsManager = ({ authenticatedFetch }) => {
             <div className="options-section">
                 <h3>⏰ Search Schedule</h3>
                 <p className="options-description">
-                    Click hours to toggle when automatic searches run (JST / {timeZoneName} displayed).
+                    Click time slots to toggle when automatic searches run (JST / {timeZoneName} displayed).
                 </p>
-                <div className="hour-grid">
-                    {Array.from({ length: 24 }, (_, i) => (
+                <div className="schedule-controls">
+                    <div className="schedule-interval-toggle" role="group" aria-label="Schedule interval">
                         <button
-                            key={i}
-                            className={`hour-btn ${enabledHours.includes(i) ? 'active' : ''}`}
-                            onClick={() => toggleHour(i)}
-                            title={`JST ${i}:00 / ${timeZoneName} ${jstToLocal(i)}:00`}
+                            type="button"
+                            className={`segment-btn ${scheduleInterval === 60 ? 'active' : ''}`}
+                            onClick={() => changeScheduleInterval(60)}
                         >
-                            <span className="jst-hour">{i}:00 JST</span>
-                            <span className="cst-hour">{jstToLocal(i)}:00 {timeZoneName}</span>
+                            1 hour
+                        </button>
+                        <button
+                            type="button"
+                            className={`segment-btn ${scheduleInterval === 30 ? 'active' : ''}`}
+                            onClick={() => changeScheduleInterval(30)}
+                        >
+                            30 min
+                        </button>
+                    </div>
+                </div>
+                <div className={`hour-grid ${scheduleInterval === 30 ? 'half-hour-grid' : ''}`}>
+                    {Array.from({ length: (24 * 60) / scheduleInterval }, (_, i) => i * scheduleInterval).map(slot => (
+                        <button
+                            key={slot}
+                            className={`hour-btn ${enabledSlots.includes(slot) ? 'active' : ''}`}
+                            onClick={() => toggleSlot(slot)}
+                            title={`JST ${formatSlot(slot)} / ${timeZoneName} ${formatSlot(jstToLocalSlot(slot))}`}
+                        >
+                            <span className="jst-hour">{formatSlot(slot)} JST</span>
+                            <span className="cst-hour">{formatSlot(jstToLocalSlot(slot))} {timeZoneName}</span>
                         </button>
                     ))}
                 </div>

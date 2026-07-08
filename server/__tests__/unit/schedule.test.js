@@ -56,6 +56,12 @@ describe('ScheduleSettings', () => {
             const settings = ScheduleSettings.get();
             expect(Array.isArray(settings.enabledHours)).toBe(true);
         });
+
+        test('returns enabledSlots and interval defaults', () => {
+            const settings = ScheduleSettings.get();
+            expect(Array.isArray(settings.enabledSlots)).toBe(true);
+            expect(settings.intervalMinutes).toBe(60);
+        });
     });
 
     describe('setEnabledHours', () => {
@@ -63,6 +69,8 @@ describe('ScheduleSettings', () => {
             ScheduleSettings.setEnabledHours([0, 6, 12, 18]);
             const settings = ScheduleSettings.get();
             expect(settings.enabledHours).toEqual([0, 6, 12, 18]);
+            expect(settings.enabledSlots).toEqual([0, 360, 720, 1080]);
+            expect(settings.intervalMinutes).toBe(60);
         });
 
         test('overwrites previous hours', () => {
@@ -84,6 +92,55 @@ describe('ScheduleSettings', () => {
         test('returns false when enabledHours is empty', () => {
             ScheduleSettings.setEnabledHours([]);
             expect(ScheduleSettings.isScheduledNow()).toBe(false);
+        });
+
+        test('matches hourly schedules only on the hour', () => {
+            ScheduleSettings.setEnabledHours([0]);
+
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:00:00.000Z'))).toBe(true);
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:30:00.000Z'))).toBe(false);
+        });
+
+        test('matches half-hour slots when interval is 30 minutes', () => {
+            ScheduleSettings.setSchedule({
+                intervalMinutes: 30,
+                enabledSlots: [0, 30, 90]
+            });
+
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:00:00.000Z'))).toBe(true);
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:30:00.000Z'))).toBe(true);
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T16:30:00.000Z'))).toBe(true);
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:15:00.000Z'))).toBe(false);
+        });
+    });
+
+    describe('setSchedule', () => {
+        test('normalizes half-hour slots and keeps whole-hour compatibility', () => {
+            ScheduleSettings.setSchedule({
+                intervalMinutes: 30,
+                enabledSlots: [30, 0, 30, 60, 75, 1440, -30]
+            });
+
+            const settings = ScheduleSettings.get();
+            expect(settings.intervalMinutes).toBe(30);
+            expect(settings.enabledSlots).toEqual([0, 30, 60]);
+            expect(settings.enabledHours).toEqual([0, 1]);
+        });
+
+        test('switching back to hourly drops half-hour-only slots', () => {
+            ScheduleSettings.setSchedule({
+                intervalMinutes: 30,
+                enabledSlots: [0, 30, 60]
+            });
+            ScheduleSettings.setSchedule({
+                intervalMinutes: 60,
+                enabledSlots: ScheduleSettings.get().enabledSlots
+            });
+
+            const settings = ScheduleSettings.get();
+            expect(settings.intervalMinutes).toBe(60);
+            expect(settings.enabledSlots).toEqual([0, 60]);
+            expect(settings.enabledHours).toEqual([0, 1]);
         });
     });
 });
