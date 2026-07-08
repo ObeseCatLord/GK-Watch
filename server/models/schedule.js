@@ -7,6 +7,7 @@ const upsertSetting = db.prepare('INSERT OR REPLACE INTO schedule (key, value) V
 const DEFAULT_SCHEDULE = {
     enabledHours: [],
     enabledSlots: [],
+    disabledHalfHourSlots: [],
     intervalMinutes: 60,
     timezone: 'JST'
 };
@@ -52,6 +53,10 @@ function slotsToHours(slots) {
         .map(slot => slot / 60);
 }
 
+function normalizeHalfHourSlots(slots) {
+    return normalizeSlots(slots, 30).filter(slot => slot % 60 === 30);
+}
+
 function getJstSlot(date = new Date()) {
     const jstHour = (date.getUTCHours() + 9) % 24;
     return jstHour * 60 + date.getUTCMinutes();
@@ -76,7 +81,12 @@ const ScheduleSettings = {
 
             const slotsRow = getSetting.get('enabledSlots');
             if (slotsRow) {
-                schedule.enabledSlots = normalizeSlots(JSON.parse(slotsRow.value), schedule.intervalMinutes);
+                schedule.enabledSlots = normalizeSlots(JSON.parse(slotsRow.value), 30);
+            }
+
+            const disabledHalfHoursRow = getSetting.get('disabledHalfHourSlots');
+            if (disabledHalfHoursRow) {
+                schedule.disabledHalfHourSlots = normalizeHalfHourSlots(JSON.parse(disabledHalfHoursRow.value));
             }
 
             const hoursRow = getSetting.get('enabledHours');
@@ -101,23 +111,27 @@ const ScheduleSettings = {
         settings.intervalMinutes = 60;
         settings.enabledHours = normalizeHours(hours);
         settings.enabledSlots = hoursToSlots(settings.enabledHours);
+        settings.disabledHalfHourSlots = [];
         upsertSetting.run('intervalMinutes', JSON.stringify(settings.intervalMinutes));
         upsertSetting.run('enabledHours', JSON.stringify(settings.enabledHours));
         upsertSetting.run('enabledSlots', JSON.stringify(settings.enabledSlots));
+        upsertSetting.run('disabledHalfHourSlots', JSON.stringify(settings.disabledHalfHourSlots));
         cachedSchedule = settings;
         return { ...settings };
     },
 
-    setSchedule: ({ enabledSlots, enabledHours, intervalMinutes } = {}) => {
+    setSchedule: ({ enabledSlots, enabledHours, disabledHalfHourSlots, intervalMinutes } = {}) => {
         const settings = ScheduleSettings.get();
         settings.intervalMinutes = normalizeInterval(intervalMinutes ?? settings.intervalMinutes);
         const sourceSlots = Array.isArray(enabledSlots) ? enabledSlots : hoursToSlots(enabledHours);
-        settings.enabledSlots = normalizeSlots(sourceSlots, settings.intervalMinutes);
+        settings.enabledSlots = normalizeSlots(sourceSlots, 30);
+        settings.disabledHalfHourSlots = normalizeHalfHourSlots(disabledHalfHourSlots ?? settings.disabledHalfHourSlots);
         settings.enabledHours = slotsToHours(settings.enabledSlots);
 
         upsertSetting.run('intervalMinutes', JSON.stringify(settings.intervalMinutes));
         upsertSetting.run('enabledHours', JSON.stringify(settings.enabledHours));
         upsertSetting.run('enabledSlots', JSON.stringify(settings.enabledSlots));
+        upsertSetting.run('disabledHalfHourSlots', JSON.stringify(settings.disabledHalfHourSlots));
         cachedSchedule = settings;
         return { ...settings };
     },

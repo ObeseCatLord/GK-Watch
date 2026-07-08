@@ -18,6 +18,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [showPassword, setShowPassword] = useState(false);
     const [showLoginPassword, setShowLoginPassword] = useState(false);
     const [enabledSlots, setEnabledSlots] = useState([]);
+    const [disabledHalfHourSlots, setDisabledHalfHourSlots] = useState([]);
     const [scheduleInterval, setScheduleInterval] = useState(60);
     const saveTimeoutRef = React.useRef(null);
 
@@ -79,9 +80,13 @@ const OptionsManager = ({ authenticatedFetch }) => {
             const slots = Array.isArray(data.enabledSlots)
                 ? data.enabledSlots
                 : (data.enabledHours || []).map(hour => hour * 60);
+            const disabledSlots = Array.isArray(data.disabledHalfHourSlots)
+                ? data.disabledHalfHourSlots
+                : [];
 
             setScheduleInterval(interval);
-            setEnabledSlots(normalizeSlots(slots, interval));
+            setEnabledSlots(normalizeSlots(slots));
+            setDisabledHalfHourSlots(normalizeHalfHourSlots(disabledSlots));
         } catch (err) {
             console.error('Error fetching schedule:', err);
         }
@@ -89,20 +94,42 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
     const normalizeScheduleInterval = (interval) => Number(interval) === 30 ? 30 : 60;
 
-    const normalizeSlots = (slots, interval) => {
-        const normalizedInterval = normalizeScheduleInterval(interval);
+    const normalizeSlots = (slots) => {
         return [...new Set((slots || [])
             .map(slot => Number(slot))
-            .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 24 * 60 && slot % normalizedInterval === 0))]
+            .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 24 * 60 && slot % 30 === 0))]
             .sort((a, b) => a - b);
     };
 
-    const saveSchedule = async (slots, interval = scheduleInterval) => {
+    const normalizeHalfHourSlots = (slots) => {
+        return normalizeSlots(slots).filter(slot => slot % 60 === 30);
+    };
+
+    const applyHalfHourDefaults = (slots, disabledSlots) => {
+        const disabledSet = new Set(normalizeHalfHourSlots(disabledSlots));
+        const slotSet = new Set(normalizeSlots(slots));
+
+        for (const slot of Array.from(slotSet)) {
+            if (slot % 60 !== 0) continue;
+            const halfHourSlot = slot + 30;
+            if (halfHourSlot < 24 * 60 && !disabledSet.has(halfHourSlot)) {
+                slotSet.add(halfHourSlot);
+            }
+        }
+
+        return Array.from(slotSet).sort((a, b) => a - b);
+    };
+
+    const saveSchedule = async (slots, interval = scheduleInterval, disabledSlots = disabledHalfHourSlots, applyDefaults = interval === 30) => {
         const normalizedInterval = normalizeScheduleInterval(interval);
-        const normalizedSlots = normalizeSlots(slots, normalizedInterval);
+        const normalizedDisabledSlots = normalizeHalfHourSlots(disabledSlots);
+        const normalizedSlots = applyDefaults && normalizedInterval === 30
+            ? applyHalfHourDefaults(slots, normalizedDisabledSlots)
+            : normalizeSlots(slots);
 
         setScheduleInterval(normalizedInterval);
         setEnabledSlots(normalizedSlots);
+        setDisabledHalfHourSlots(normalizedDisabledSlots);
 
         try {
             await authenticatedFetch('/api/schedule', {
@@ -110,7 +137,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     intervalMinutes: normalizedInterval,
-                    enabledSlots: normalizedSlots
+                    enabledSlots: normalizedSlots,
+                    disabledHalfHourSlots: normalizedDisabledSlots
                 })
             });
         } catch (err) {
@@ -119,15 +147,23 @@ const OptionsManager = ({ authenticatedFetch }) => {
     };
 
     const toggleSlot = async (slot) => {
-        const newSlots = enabledSlots.includes(slot)
-            ? enabledSlots.filter(s => s !== slot)
-            : [...enabledSlots, slot];
+        const normalizedSlot = Number(slot);
+        const isHalfHourSlot = normalizedSlot % 60 === 30;
+        const isEnabled = enabledSlots.includes(normalizedSlot);
+        const newSlots = isEnabled
+            ? enabledSlots.filter(s => s !== normalizedSlot)
+            : [...enabledSlots, normalizedSlot];
+        const newDisabledHalfHourSlots = isHalfHourSlot
+            ? (isEnabled
+                ? normalizeHalfHourSlots([...disabledHalfHourSlots, normalizedSlot])
+                : disabledHalfHourSlots.filter(s => s !== normalizedSlot))
+            : disabledHalfHourSlots;
 
-        await saveSchedule(newSlots, scheduleInterval);
+        await saveSchedule(newSlots, scheduleInterval, newDisabledHalfHourSlots);
     };
 
     const changeScheduleInterval = async (interval) => {
-        await saveSchedule(enabledSlots, interval);
+        await saveSchedule(enabledSlots, interval, disabledHalfHourSlots, interval === 30);
     };
 
     const formatSlot = (slot) => {

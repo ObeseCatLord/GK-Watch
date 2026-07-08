@@ -545,6 +545,7 @@ app.get('/api/schedule', requireAuth, (req, res) => {
     res.json({
         enabledHours: settings.enabledHours,
         enabledSlots: settings.enabledSlots,
+        disabledHalfHourSlots: settings.disabledHalfHourSlots,
         intervalMinutes: settings.intervalMinutes,
         hoursWithCst,
         slotsWithCst
@@ -553,21 +554,25 @@ app.get('/api/schedule', requireAuth, (req, res) => {
 
 
 app.post('/api/schedule', requireAuth, (req, res) => {
-    const { enabledHours, enabledSlots, intervalMinutes } = req.body;
+    const { enabledHours, enabledSlots, disabledHalfHourSlots, intervalMinutes } = req.body;
     if (intervalMinutes !== undefined && ![30, 60].includes(Number(intervalMinutes))) {
         return res.status(400).json({ error: 'intervalMinutes must be 30 or 60' });
     }
     if (enabledSlots !== undefined && !Array.isArray(enabledSlots)) {
         return res.status(400).json({ error: 'enabledSlots must be an array' });
     }
+    if (disabledHalfHourSlots !== undefined && !Array.isArray(disabledHalfHourSlots)) {
+        return res.status(400).json({ error: 'disabledHalfHourSlots must be an array' });
+    }
     if (enabledSlots === undefined && !Array.isArray(enabledHours)) {
         return res.status(400).json({ error: 'enabledHours must be an array' });
     }
-    const settings = ScheduleSettings.setSchedule({ enabledHours, enabledSlots, intervalMinutes });
+    const settings = ScheduleSettings.setSchedule({ enabledHours, enabledSlots, disabledHalfHourSlots, intervalMinutes });
     res.json({
         success: true,
         enabledHours: settings.enabledHours,
         enabledSlots: settings.enabledSlots,
+        disabledHalfHourSlots: settings.disabledHalfHourSlots,
         intervalMinutes: settings.intervalMinutes
     });
 });
@@ -576,7 +581,8 @@ app.post('/api/schedule', requireAuth, (req, res) => {
 app.get('/api/status', requireAuth, (req, res) => {
 
     const settings = ScheduleSettings.get();
-    const enabledSlots = settings.enabledSlots || [];
+    const enabledSlots = (settings.enabledSlots || [])
+        .filter(slot => slot % (settings.intervalMinutes || 60) === 0);
 
     // Calculate next scheduled time
     let nextScheduled = null;
