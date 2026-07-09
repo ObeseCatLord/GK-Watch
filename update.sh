@@ -14,6 +14,13 @@ cd "$SCRIPT_DIR"
 echo "📥 Pulling latest changes..."
 git pull
 
+# Configure system journal retention on Linux servers when possible. This is
+# best-effort so normal user updates do not fail if sudo is unavailable.
+if [ -x "$SCRIPT_DIR/scripts/configure-journald-retention.sh" ]; then
+    echo "🧹 Configuring system journal retention..."
+    "$SCRIPT_DIR/scripts/configure-journald-retention.sh" || echo "⚠️  Journal retention setup failed; continuing update."
+fi
+
 # Install server dependencies
 echo "📦 Installing server dependencies..."
 cd server

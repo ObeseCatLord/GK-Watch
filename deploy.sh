@@ -11,6 +11,13 @@ echo "================================"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Configure system journal retention on Linux servers when possible. This is
+# best-effort so normal user deployments do not fail if sudo is unavailable.
+if [ -x "$SCRIPT_DIR/scripts/configure-journald-retention.sh" ]; then
+    echo "🧹 Configuring system journal retention..."
+    "$SCRIPT_DIR/scripts/configure-journald-retention.sh" || echo "⚠️  Journal retention setup failed; continuing deployment."
+fi
+
 # Helper function to detect package manager and install
 install_dependency() {
     local PKG_NAME=$1
