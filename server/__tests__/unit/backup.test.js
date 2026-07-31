@@ -76,6 +76,7 @@ describe('backup module operational security', () => {
         expect(destination.endsWith('.db')).toBe(true);
         expect(fs.existsSync(destination)).toBe(true);
         expect(() => backup.verifyBackup(destination)).not.toThrow();
+        expect(fs.readdirSync(backupDir).some(name => name.startsWith('.gkwatch-'))).toBe(false);
     });
 
     test('verifies encrypted backups created with a valid key', async () => {

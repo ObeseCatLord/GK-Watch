@@ -11,6 +11,11 @@ const DB_PATH = path.resolve(process.env.GKWATCH_DB_PATH || path.join(DATA_DIR, 
 const BACKUP_DIR = path.resolve(process.env.GKWATCH_BACKUP_DIR || path.join(DATA_DIR, 'backups'));
 const MAGIC = Buffer.from('GKWATCH-BACKUP-V1\n', 'ascii');
 
+function removeDatabaseSidecars(filePath) {
+    fs.rmSync(`${filePath}-wal`, { force: true });
+    fs.rmSync(`${filePath}-shm`, { force: true });
+}
+
 function encryptionKey() {
     if (!process.env.GKWATCH_BACKUP_KEY) return null;
     const key = Buffer.from(process.env.GKWATCH_BACKUP_KEY, 'base64');
@@ -84,6 +89,7 @@ async function createBackup() {
     try {
         fs.chmodSync(temporary, 0o600);
         verifyDatabase(temporary);
+        removeDatabaseSidecars(temporary);
         if (key) {
             encryptFile(temporary, destination, key);
             fs.unlinkSync(temporary);
@@ -93,6 +99,7 @@ async function createBackup() {
         pruneBackups();
         return destination;
     } catch (error) {
+        removeDatabaseSidecars(temporary);
         fs.rmSync(temporary, { force: true });
         fs.rmSync(destination, { force: true });
         throw error;
@@ -102,7 +109,11 @@ async function createBackup() {
 function verifyBackup(source) {
     const resolved = path.resolve(source);
     if (!resolved.endsWith('.enc')) {
-        verifyDatabase(resolved);
+        try {
+            verifyDatabase(resolved);
+        } finally {
+            removeDatabaseSidecars(resolved);
+        }
         return;
     }
 
@@ -113,6 +124,7 @@ function verifyBackup(source) {
         decryptFile(resolved, temporary, key);
         verifyDatabase(temporary);
     } finally {
+        removeDatabaseSidecars(temporary);
         fs.rmSync(temporary, { force: true });
     }
 }

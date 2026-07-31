@@ -78,6 +78,11 @@ if ! command -v node &> /dev/null || ! command -v npm &> /dev/null; then
     exit 1
 fi
 
+if command -v gcc-10 >/dev/null 2>&1 && command -v g++-10 >/dev/null 2>&1; then
+    export CC=gcc-10
+    export CXX=g++-10
+fi
+
 if ! node -e "const [a,b,c]=process.versions.node.split('.').map(Number);const ok=(a===20&&(b>18||(b===18&&c>=1)))||(a>20&&a<27);process.exit(ok?0:1)"; then
     echo "❌ Node.js 20.18.1 through 26.x is required. Found $(node -v)."
     exit 1

@@ -11,6 +11,11 @@ echo "🔄 Updating GK Watcher..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+if command -v gcc-10 >/dev/null 2>&1 && command -v g++-10 >/dev/null 2>&1; then
+    export CC=gcc-10
+    export CXX=g++-10
+fi
+
 # Pull latest changes
 echo "📥 Pulling latest changes..."
 git pull --ff-only
