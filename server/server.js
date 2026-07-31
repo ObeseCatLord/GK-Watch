@@ -56,10 +56,14 @@ app.use(express.json());
 
 // API Endpoint
 const rateLimit = require('express-rate-limit');
+const configuredApiRateLimit = Number(process.env.GKWATCH_API_RATE_LIMIT);
+const apiRateLimitMax = Number.isInteger(configuredApiRateLimit) && configuredApiRateLimit >= 10 && configuredApiRateLimit <= 100000
+    ? configuredApiRateLimit
+    : 1000;
 
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute
-    max: 1000, // Limit each IP to 1000 requests per windowMs
+    max: apiRateLimitMax,
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
     message: { error: 'Too many requests, please try again later.' }

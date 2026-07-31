@@ -1,5 +1,6 @@
 const request = require('supertest');
 const http = require('http');
+process.env.GKWATCH_API_RATE_LIMIT = '20';
 const app = require('../../server');
 
 describe('Rate Limiting Integration Test', () => {
@@ -14,22 +15,18 @@ describe('Rate Limiting Integration Test', () => {
     });
 
     afterAll(async () => {
+        delete process.env.GKWATCH_API_RATE_LIMIT;
         if (!server) return;
         await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     });
 
     it('should return 429 after exceeding rate limit', async () => {
-        // Send 1001 requests to exceed the limit of 1000
-        const limit = 1000;
-        const promises = [];
+        const limit = 20;
 
-        // We use a lightweight endpoint that doesn't require auth for rate limit checking if possible,
-        // but our rate limiter is on /api/, so we can hit /api/auth-status which is public.
         for (let i = 0; i < limit; i++) {
-            promises.push(request(server).get('/api/auth-status'));
+            const response = await request(server).get('/api/auth-status');
+            expect(response.status).toBe(200);
         }
-
-        await Promise.all(promises);
 
         const response = await request(server).get('/api/auth-status');
 
