@@ -21,6 +21,16 @@ Ntfy defaults to `https://ntfy.sh`. Self-hosted public endpoints must be explici
 
 `GET /api/health` is the deployment readiness endpoint. PM2 runs the application and an online SQLite backup at 03:00 daily through `ecosystem.config.js`.
 
+When TLS terminates at a reverse proxy, forward the original request metadata to the Node server. Cookie-authenticated writes use these headers for same-origin enforcement:
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $host;
+```
+
 Backups default to `server/data/backups` with mode `0600`. Set `GKWATCH_BACKUP_DIR` to a protected off-host mount and `GKWATCH_BACKUP_KEY` to a base64-encoded 32-byte key for encrypted backups. Verify a restore artifact without replacing production data:
 
 ```bash

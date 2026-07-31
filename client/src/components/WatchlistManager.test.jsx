@@ -89,6 +89,55 @@ describe('WatchlistManager', () => {
         });
     });
 
+    it('opens a watch with new items and marks its results as seen', async () => {
+        mockAuthenticatedFetch.mockImplementation((url, options = {}) => {
+            if (url === '/api/watchlist') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => [{ id: 'watch-new', term: 'new items', name: 'New Watch', active: true }]
+                });
+            }
+            if (url === '/api/watchlist/newcounts') {
+                return Promise.resolve({ ok: true, json: async () => ({ 'watch-new': 3 }) });
+            }
+            if (url === '/api/status') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({ isRunning: false, completionVersion: 0 })
+                });
+            }
+            if (String(url).startsWith('/api/results/watch-new?')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        items: [{ title: 'New Result', link: 'https://example.test/new-result', source: 'mercari' }],
+                        total: 1,
+                        page: 1,
+                        pageSize: 24,
+                        totalPages: 1,
+                        sources: ['mercari']
+                    })
+                });
+            }
+            if (url === '/api/results/watch-new/seen' && options.method === 'POST') {
+                return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
+            }
+            return Promise.resolve({ ok: true, json: async () => ({}) });
+        });
+
+        render(<WatchlistManager authenticatedFetch={mockAuthenticatedFetch} />);
+
+        fireEvent.click(await screen.findByText('New Watch'));
+
+        await waitFor(() => {
+            expect(mockAuthenticatedFetch).toHaveBeenCalledWith(
+                '/api/results/watch-new/seen',
+                expect.objectContaining({ method: 'POST' })
+            );
+        });
+        expect(await screen.findByTestId('ResultCard')).toBeInTheDocument();
+    });
+
     it('loads malformed paginated results response using client-side pagination', async () => {
         const malformedItems = Array.from({ length: 25 }, (_, index) => ({
             title: `Fallback ${index + 1}`,

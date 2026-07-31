@@ -1,12 +1,24 @@
 
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import App from '../App';
 import React from 'react';
 
 // Mock child components to isolate App logic
 vi.mock('../components/ResultCard', () => ({ default: () => <div>ResultCard</div> }));
-vi.mock('../components/WatchlistManager', () => ({ default: () => <div>WatchlistManager</div> }));
+vi.mock('../components/WatchlistManager', () => ({
+    default: ({ authenticatedFetch }) => (
+        <div>
+            WatchlistManager
+            <button
+                type="button"
+                onClick={() => authenticatedFetch('/api/results/watch-1/seen', { method: 'POST' }).catch(() => {})}
+            >
+                Open watch with new items
+            </button>
+        </div>
+    )
+}));
 vi.mock('../components/BlockedManager', () => ({ default: () => <div>BlockedManager</div> }));
 vi.mock('../components/OptionsManager', () => ({ default: () => <div>OptionsManager</div> }));
 vi.mock('../components/Clock', () => ({ default: () => <div>Clock</div> }));
@@ -19,9 +31,14 @@ describe('App Regression Test', () => {
         // Suppress expected console errors during test (e.g. "Failed to load search history")
         console.error = vi.fn();
 
-        // Mock fetch globally
-        globalThis.fetch = vi.fn(() => Promise.resolve({
+        globalThis.fetch = vi.fn();
+    });
+
+    beforeEach(() => {
+        globalThis.fetch.mockReset();
+        globalThis.fetch.mockImplementation(() => Promise.resolve({
             ok: true,
+            status: 200,
             json: () => Promise.resolve({})
         }));
     });
@@ -114,4 +131,81 @@ describe('App Regression Test', () => {
         expect(searchSignals[1].aborted).toBe(false);
         vi.unstubAllGlobals();
     });
+
+    it('keeps the current session and view when a write is forbidden', async () => {
+        globalThis.fetch.mockImplementation((url) => {
+            if (url === '/api/auth-status') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ loginRequired: true, authenticated: true })
+                });
+            }
+            if (url === '/api/results/watch-1/seen') {
+                return Promise.resolve({
+                    ok: false,
+                    status: 403,
+                    json: async () => ({ error: 'Cross-origin request denied' })
+                });
+            }
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        });
+
+        render(<App />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Open watch with new items' }));
+
+        await waitFor(() => {
+            expect(globalThis.fetch).toHaveBeenCalledWith(
+                '/api/results/watch-1/seen',
+                expect.objectContaining({ method: 'POST', credentials: 'same-origin' })
+            );
+        });
+        expect(screen.getByText('WatchlistManager')).toBeInTheDocument();
+        expect(screen.queryByPlaceholderText('Password')).not.toBeInTheDocument();
+    });
+
+    it('shows the login screen when an authenticated request returns 401', async () => {
+        globalThis.fetch.mockImplementation((url) => {
+            if (url === '/api/auth-status') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ loginRequired: true, authenticated: true })
+                });
+            }
+            if (url === '/api/results/watch-1/seen') {
+                return Promise.resolve({ ok: false, status: 401, json: async () => ({}) });
+            }
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        });
+
+        render(<App />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Open watch with new items' }));
+
+        expect(await screen.findByPlaceholderText('Password')).toBeInTheDocument();
+    });
+
+    it.each(['/api/taobao/status', '/api/goofish/status'])(
+        'does not clear the session when the startup probe %s is forbidden',
+        async (forbiddenUrl) => {
+            globalThis.fetch.mockImplementation((url) => {
+                if (url === '/api/auth-status') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ loginRequired: true, authenticated: true })
+                    });
+                }
+                if (url === forbiddenUrl) {
+                    return Promise.resolve({ ok: false, status: 403, json: async () => ({}) });
+                }
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+            });
+
+            render(<App />);
+
+            expect(await screen.findByText('WatchlistManager')).toBeInTheDocument();
+            expect(screen.queryByPlaceholderText('Password')).not.toBeInTheDocument();
+        }
+    );
 });

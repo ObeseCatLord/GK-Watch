@@ -73,5 +73,19 @@ describe('Login Rate Limiting Integration Test', () => {
             .set('Origin', 'http://127.0.0.1:5173')
             .send({ concurrency: 3 });
         expect(allowedWrite.status).toBe(200);
+
+        const proxiedHttpsWrite = await agent.post('/api/settings')
+            .set('Host', 'gkwatch.example.test')
+            .set('Origin', 'https://gkwatch.example.test')
+            .set('X-Forwarded-Proto', 'https')
+            .send({ concurrency: 4 });
+        expect(proxiedHttpsWrite.status).toBe(200);
+
+        const mismatchedOriginWrite = await agent.post('/api/settings')
+            .set('Host', 'gkwatch.example.test')
+            .set('Origin', 'https://attacker.example.test')
+            .set('X-Forwarded-Proto', 'https')
+            .send({ concurrency: 5 });
+        expect(mismatchedOriginWrite.status).toBe(403);
     });
 });

@@ -66,7 +66,7 @@ function App() {
     const checkAuth = async () => {
       try {
         const res = await fetch('/api/auth-status', { credentials: 'same-origin' });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
           clearAuthSession();
           setCheckingAuth(false);
           return;
@@ -85,7 +85,7 @@ function App() {
 
         // Check Taobao status
         const tbRes = await fetch('/api/taobao/status', { credentials: 'same-origin' });
-        if (tbRes.status === 401 || tbRes.status === 403) {
+        if (tbRes.status === 401) {
           clearAuthSession();
           setCheckingAuth(false);
           return;
@@ -97,7 +97,7 @@ function App() {
 
         // Check Goofish status
         const gfRes = await fetch('/api/goofish/status', { credentials: 'same-origin' });
-        if (gfRes.status === 401 || gfRes.status === 403) {
+        if (gfRes.status === 401) {
           clearAuthSession();
           setCheckingAuth(false);
           return;
@@ -148,9 +148,12 @@ function App() {
     }
 
     const res = await fetch(url, { ...options, headers, signal, credentials: 'same-origin' });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       clearAuthSession();
       throw new Error('Unauthorized');
+    }
+    if (res.status === 403) {
+      throw new Error('Forbidden');
     }
     return res;
   }, [clearAuthSession]);
