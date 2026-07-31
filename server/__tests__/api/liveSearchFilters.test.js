@@ -36,7 +36,9 @@ jest.mock('../../models/blacklist', () => ({
 // Mock Scheduler to prevent cron jobs starting
 jest.mock('../../scheduler', () => ({
     start: jest.fn(),
-    isRunning: false
+    isRunning: false,
+    progress: null,
+    completionVersion: 12
 }));
 
 const app = require('../../server');
@@ -46,6 +48,13 @@ describe('Live Search Filters API', () => {
         mockSearchAll.mockClear();
         // Default mock implementation to return empty array
         mockSearchAll.mockResolvedValue([]);
+    });
+
+    test('status exposes the scheduler completion version', async () => {
+        const response = await request(app).get('/api/status');
+
+        expect(response.status).toBe(200);
+        expect(response.body.completionVersion).toBe(12);
     });
 
     test('parses comma-separated filters correctly', async () => {

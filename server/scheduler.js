@@ -127,6 +127,7 @@ const Scheduler = {
     isRunning: false,
     progress: null,
     shouldAbort: false,
+    completionVersion: 0,
 
     // No longer need results cache - SQLite is the source of truth
     // Keep loadResults/persistResults as no-ops for backward compatibility
@@ -369,6 +370,7 @@ const Scheduler = {
             Scheduler.isRunning = false;
             Scheduler.progress = null;
             Scheduler.shouldAbort = false;
+            Scheduler.completionVersion += 1;
         }
     },
 

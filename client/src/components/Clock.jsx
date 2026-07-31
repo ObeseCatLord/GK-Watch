@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from 'react';
 
+const JST_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+});
+const LOCAL_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+});
+
 const Clock = () => {
     const [time, setTime] = useState(new Date());
     const [countdown, setCountdown] = useState(null);
@@ -22,8 +36,8 @@ const Clock = () => {
                 const res = await fetch('/api/status', { headers });
                 if (!res.ok) throw new Error(res.statusText);
                 const data = await res.json();
-                setIsRunning(data.isRunning);
-                setCountdown(data.minutesUntilNext);
+                setIsRunning(previous => previous === data.isRunning ? previous : data.isRunning);
+                setCountdown(previous => previous === data.minutesUntilNext ? previous : data.minutesUntilNext);
             } catch (err) {
                 console.error('Error fetching status:', err);
             }
@@ -45,21 +59,10 @@ const Clock = () => {
     };
 
     // Format for JST (Japan Standard Time)
-    const jstTime = time.toLocaleString('en-US', {
-        timeZone: 'Asia/Tokyo',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    });
+    const jstTime = JST_TIME_FORMATTER.format(time);
 
     // Format for Local Time
-    const localTime = time.toLocaleString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    });
+    const localTime = LOCAL_TIME_FORMATTER.format(time);
 
     const [timeZoneName, setTimeZoneName] = useState('Local');
 

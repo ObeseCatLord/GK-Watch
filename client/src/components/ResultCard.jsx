@@ -96,7 +96,7 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
             <button className="fj-btn" onClick={handleFromJapan} title="Open in FromJapan">🛒</button>
             <div className="card-image-container">
                 {image ? (
-                    <img src={image} alt={title} className="card-image" loading="lazy" referrerPolicy="no-referrer" />
+                    <img src={image} alt={title} className="card-image" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
                 ) : (
                     <div className="no-image">No Image</div>
                 )}
@@ -131,4 +131,4 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     );
 };
 
-export default ResultCard;
+export default React.memo(ResultCard);

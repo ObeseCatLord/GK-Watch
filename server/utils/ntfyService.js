@@ -1,7 +1,7 @@
 const Settings = require('../models/settings');
 
 const NtfyService = {
-    send: async (title, message, priority = 'default', tags = []) => {
+    send: async (title, message, priority = 'default', tags = [], options = {}) => {
         const settings = Settings.get();
 
         if (!settings.ntfyEnabled || !settings.ntfyTopic) {
@@ -45,7 +45,9 @@ const NtfyService = {
                 message: message,
                 title: title,
                 priority: p,
-                tags: tags
+                tags: tags,
+                ...(options.click ? { click: options.click } : {}),
+                ...(options.actions?.length ? { actions: options.actions } : {})
             };
 
             const response = await fetch(url, {
@@ -74,9 +76,22 @@ const NtfyService = {
             newItems.slice(0, 3).map(i => `• ${i.title} (${i.price})`).join('\n') +
             (count > 3 ? `\n...and ${count - 3} more` : '');
 
+        const linkedItems = newItems
+            .filter(item => typeof item.link === 'string' && /^https?:\/\//i.test(item.link))
+            .slice(0, 3);
+        const actions = linkedItems.map((item, index) => ({
+            action: 'view',
+            label: linkedItems.length === 1 ? 'Open listing' : `Open ${index + 1}`,
+            url: item.link,
+            clear: true
+        }));
+
         // Priority 5 (Max) triggers "Emergency" alerts usually (wakes up user)
         // Tags: 'rotating_light' (siren)
-        return await NtfyService.send(title, message, 5, ['rotating_light', 'warning']);
+        return await NtfyService.send(title, message, 5, ['rotating_light', 'warning'], {
+            click: linkedItems[0]?.link,
+            actions
+        });
     }
 };
 

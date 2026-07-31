@@ -1783,20 +1783,22 @@ h1 {
   .watchlist-sidebar {
     position: fixed;
     top: 0;
-    left: -280px;
+    left: 0;
     width: 260px;
     height: 100vh;
     background: #1a1a1a;
     z-index: 999;
     overflow-y: auto;
     padding: 1rem;
-    transition: left 0.3s ease, visibility 0.3s;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease, visibility 0.3s;
+    will-change: transform;
     box-shadow: 4px 0 15px rgba(0, 0, 0, 0.3);
     visibility: hidden;
   }
 
   .watchlist-sidebar.open {
-    left: 0;
+    transform: translateX(0);
     visibility: visible;
   }
 
@@ -1897,6 +1899,44 @@ h1 {
 
   .backup-buttons {
     flex-direction: column;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .result-card,
+  .card-image,
+  .block-btn,
+  .favorite-btn,
+  .fj-btn,
+  .watchlist-item,
+  .search-input {
+    transition: none;
+  }
+
+  .result-card {
+    contain: layout paint style;
+    box-shadow: none;
+  }
+
+  .result-card:hover,
+  .result-card.is-new,
+  .result-card.is-updated {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .result-card:hover .card-image {
+    transform: none;
+  }
+
+  .source-badge,
+  .time-badge {
+    backdrop-filter: none;
+  }
+
+  .new-badge,
+  .watchlist-item.has-new {
+    animation: none;
   }
 }
 

@@ -30,12 +30,17 @@ describe('WatchlistManager', () => {
 
     it('loads watchlist successfully', async () => {
         const mockData = [{ id: '1', term: 'test', active: true }];
-        mockAuthenticatedFetch.mockResolvedValueOnce({
-            json: async () => mockData
-        });
-        // Subsequent calls for other fetches (new counts, etc.)
-        mockAuthenticatedFetch.mockResolvedValue({
-            json: async () => ({})
+        mockAuthenticatedFetch.mockImplementation((url) => {
+            if (url === '/api/watchlist') {
+                return Promise.resolve({ ok: true, json: async () => mockData });
+            }
+            if (url === '/api/status') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({ isRunning: false, completionVersion: 0 })
+                });
+            }
+            return Promise.resolve({ ok: true, json: async () => ({}) });
         });
 
         render(<WatchlistManager authenticatedFetch={mockAuthenticatedFetch} />);
@@ -51,12 +56,21 @@ describe('WatchlistManager', () => {
         // Mock success response for run-now
         mockAuthenticatedFetch.mockImplementation((url) => {
             if (url === '/api/run-now') {
-                return Promise.resolve({ json: async () => ({ success: true }) });
+                return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
             }
             if (url === '/api/watchlist') {
-                return Promise.resolve({ json: async () => [{ id: '1', term: 'test', active: true }] });
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => [{ id: '1', term: 'test', active: true }]
+                });
             }
-            return Promise.resolve({ json: async () => [] }); // Default for others
+            if (url === '/api/status') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({ isRunning: false, completionVersion: 0 })
+                });
+            }
+            return Promise.resolve({ ok: true, json: async () => ({}) });
         });
 
         render(<WatchlistManager authenticatedFetch={mockAuthenticatedFetch} />);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ResultCard from './components/ResultCard';
 import WatchlistManager from './components/WatchlistManager';
 import BlockedManager from './components/BlockedManager';
@@ -6,6 +6,18 @@ import OptionsManager from './components/OptionsManager';
 import Clock from './components/Clock';
 
 const MAX_HISTORY = 10;
+const ITEMS_PER_PAGE = 24;
+
+const getAuthHeaders = () => {
+  const token = sessionStorage.getItem('gkwatch_token');
+  return token ? { 'x-auth-token': token } : {};
+};
+
+const parsePrice = (priceStr) => {
+  if (!priceStr) return 0;
+  const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
+  return match ? parseFloat(match[0]) : 0;
+};
 
 function App() {
   const [view, setView] = useState('watchlist'); // 'search', 'watchlist', 'blocked', 'options'
@@ -21,7 +33,6 @@ function App() {
   const [sourceFilter, setSourceFilter] = useState('All');
   const [resultFilter, setResultFilter] = useState('');
   const [sortBy, setSortBy] = useState('time'); // 'time', 'name', 'priceHigh', 'priceLow'
-  const ITEMS_PER_PAGE = 24;
 
   // Login protection state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -97,21 +108,13 @@ function App() {
     }
   };
 
-  const getAuthHeaders = () => {
-    const token = sessionStorage.getItem('gkwatch_token');
-    return token ? { 'x-auth-token': token } : {};
-  };
-
-  const authenticatedFetch = async (url, options = {}) => {
+  const authenticatedFetch = useCallback(async (url, options = {}) => {
     const headers = { ...options.headers, ...getAuthHeaders() };
 
     // Default to 300s (5 min) timeout if not provided
     let signal = options.signal;
-    let controller = null;
     if (!signal) {
-      controller = new AbortController();
-      setTimeout(() => controller.abort(), 300000);
-      signal = controller.signal;
+      signal = AbortSignal.timeout(300000);
     }
 
     const res = await fetch(url, { ...options, headers, signal });
@@ -122,7 +125,7 @@ function App() {
       throw new Error('Unauthorized');
     }
     return res;
-  };
+  }, []);
 
   // Reset page when filter changes
   useEffect(() => {
@@ -267,7 +270,7 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleBlock = async (item) => {
+  const handleBlock = useCallback(async (item) => {
     try {
       await authenticatedFetch('/api/blocked', {
         method: 'POST',
@@ -279,9 +282,9 @@ function App() {
     } catch (err) {
       console.error('Failed to block item:', err);
     }
-  };
+  }, [authenticatedFetch]);
 
-  const handleFavoriteToggle = async (item) => {
+  const handleFavoriteToggle = useCallback(async (item) => {
     try {
       const res = await authenticatedFetch('/api/favorites/toggle', {
         method: 'POST',
@@ -307,7 +310,7 @@ function App() {
       console.error('Failed to toggle favorite:', err);
       return undefined;
     }
-  };
+  }, [authenticatedFetch]);
 
   // Explicitly define standard sites to exclude CN ones
   const STANDARD_SITES = ['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'mandarake'];
@@ -351,62 +354,84 @@ function App() {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let pendingItems = [];
+    let flushTimer = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    const flushPendingItems = () => {
+      if (flushTimer) clearTimeout(flushTimer);
+      flushTimer = null;
+      if (pendingItems.length === 0) return;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop(); // Keep the last partial line
+      const batch = pendingItems;
+      pendingItems = [];
+      setResults(prev => {
+        const existingLinks = new Set(prev.map(item => item.link));
+        const uniqueItems = batch.filter(item => {
+          if (!item.link || existingLinks.has(item.link)) return false;
+          existingLinks.add(item.link);
+          return true;
+        });
+        return uniqueItems.length > 0 ? [...prev, ...uniqueItems] : prev;
+      });
+    };
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
+    const queueItems = (items) => {
+      pendingItems.push(...items);
+      if (!flushTimer) flushTimer = setTimeout(flushPendingItems, 150);
+    };
 
-            if (data.type === 'start') {
-              setProgress(prev => ({ ...prev, total: data.totalScrapers, current: data.source }));
-            } else if (data.type === 'result') {
-              if (data.items && data.items.length > 0) {
-                const cleanData = processResults(data.items);
-                setResults(prev => {
-                  // Simple deduplication logic
-                  const existingLinks = new Set(prev.map(i => i.link));
-                  const newItems = cleanData.filter(i => !existingLinks.has(i.link));
-                  return [...prev, ...newItems];
-                });
-              }
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-              // Only increment completion if this is the FINAL result packet for this scraper
-              if (data.partial === false) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop(); // Keep the last partial line
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === 'start') {
+                setProgress(prev => ({ ...prev, total: data.totalScrapers, current: data.source }));
+              } else if (data.type === 'result') {
+                if (data.items && data.items.length > 0) {
+                  queueItems(processResults(data.items));
+                }
+
+                // Only increment completion if this is the FINAL result packet for this scraper
+                if (data.partial === false) {
+                  setProgress(prev => ({
+                    ...prev,
+                    completed: prev.completed + 1,
+                    current: `${data.source} Finished`
+                  }));
+                } else {
+                  setProgress(prev => ({
+                    ...prev,
+                    current: `${data.source} (Found ${data.items.length} items...)`
+                  }));
+                }
+              } else if (data.type === 'error') {
+                console.error(`Scraper error from ${data.source}: ${data.error}`);
                 setProgress(prev => ({
                   ...prev,
                   completed: prev.completed + 1,
-                  current: `${data.source} Finished`
+                  current: `${data.source} Failed`
                 }));
-              } else {
-                // Update current status without incrementing count
-                setProgress(prev => ({
-                  ...prev,
-                  current: `${data.source} (Found ${data.items.length} items...)`
-                }));
+              } else if (data.type === 'done') {
+                flushPendingItems();
               }
-            } else if (data.type === 'error') {
-              console.error(`Scraper error from ${data.source}: ${data.error}`);
-              setProgress(prev => ({
-                ...prev,
-                completed: prev.completed + 1,
-                current: `${data.source} Failed`
-              }));
-            } else if (data.type === 'done') {
-              // Stream complete
+            } catch (e) {
+              console.error('Error parsing SSE data:', e);
             }
-          } catch (e) {
-            console.error('Error parsing SSE data:', e);
           }
         }
       }
+    } finally {
+      flushPendingItems();
     }
   };
 
@@ -539,6 +564,45 @@ function App() {
       setLoading(false);
     }
   };
+
+  const liveSources = useMemo(
+    () => [...new Set(results.map(item => item.source).filter(Boolean))].sort(),
+    [results]
+  );
+
+  const filteredResults = useMemo(() => {
+    const normalizedFilter = resultFilter.toLowerCase();
+    let nextResults = results.filter(item => {
+      if (normalizedFilter && !(item.title || '').toLowerCase().includes(normalizedFilter)) return false;
+      return sourceFilter === 'All' || item.source === sourceFilter;
+    });
+
+    if (sortBy === 'name') {
+      nextResults = [...nextResults].sort((a, b) =>
+        (a.title || '').localeCompare(b.title || '', 'ja')
+      );
+    } else if (sortBy === 'relevance') {
+      const keywords = executedQuery.toLowerCase().split(/\s+/).filter(Boolean);
+      const countMatches = (title) => {
+        const lowerTitle = (title || '').toLowerCase();
+        return keywords.reduce((count, keyword) => count + Number(lowerTitle.includes(keyword)), 0);
+      };
+      nextResults = [...nextResults].sort((a, b) => countMatches(b.title) - countMatches(a.title));
+    } else if (sortBy === 'priceHigh') {
+      nextResults = [...nextResults].sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
+    } else if (sortBy === 'priceLow') {
+      nextResults = [...nextResults].sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
+    }
+
+    return nextResults;
+  }, [results, resultFilter, sourceFilter, sortBy, executedQuery]);
+
+  const liveTotalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
+  const liveSafePage = Math.min(currentPage, Math.max(1, liveTotalPages));
+  const visibleLiveResults = useMemo(
+    () => filteredResults.slice((liveSafePage - 1) * ITEMS_PER_PAGE, liveSafePage * ITEMS_PER_PAGE),
+    [filteredResults, liveSafePage]
+  );
 
   // Show loading while checking auth
   if (checkingAuth) {
@@ -778,7 +842,7 @@ function App() {
                   style={{ maxWidth: '200px', fontSize: '0.9rem', padding: '0.5rem' }}
                 >
                   <option value="All">All Websites</option>
-                  {[...new Set(results.map(item => item.source))].sort().map(source => (
+                  {liveSources.map(source => (
                     <option key={source} value={source}>{source}</option>
                   ))}
                 </select>
@@ -808,55 +872,11 @@ function App() {
           }
 
           {
-            (() => {
-              // Parse price string to number for sorting
-              const parsePrice = (priceStr) => {
-                if (!priceStr) return 0;
-                const match = priceStr.replace(/,/g, '').match(/[\d.]+/);
-                return match ? parseFloat(match[0]) : 0;
-              };
-
-              let filteredResults = results.filter(item => {
-                if (resultFilter && !item.title.toLowerCase().includes(resultFilter.toLowerCase())) return false;
-                if (sourceFilter !== 'All' && item.source !== sourceFilter) return false;
-                return true;
-              });
-
-              // Apply sorting
-              if (sortBy === 'name') {
-                filteredResults = [...filteredResults].sort((a, b) =>
-                  (a.title || '').localeCompare(b.title || '', 'ja')
-                );
-              } else if (sortBy === 'relevance') {
-                const keywords = executedQuery.toLowerCase().split(/\s+/).filter(k => k);
-                const countMatches = (title) => {
-                  if (!title) return 0;
-                  const lowerTitle = title.toLowerCase();
-                  return keywords.reduce((acc, k) => acc + (lowerTitle.includes(k) ? 1 : 0), 0);
-                };
-                filteredResults = [...filteredResults].sort((a, b) => countMatches(b.title) - countMatches(a.title));
-              } else if (sortBy === 'priceHigh') {
-                filteredResults = [...filteredResults].sort((a, b) =>
-                  parsePrice(b.price) - parsePrice(a.price)
-                );
-              } else if (sortBy === 'priceLow') {
-                filteredResults = [...filteredResults].sort((a, b) =>
-                  parsePrice(a.price) - parsePrice(b.price)
-                );
-              }
-              // 'time' is default order from server
-
-              const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
-              const safePage = Math.min(currentPage, Math.max(1, totalPages));
-
-              return (
                 <>
                   <div className="results-grid">
-                    {filteredResults
-                      .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
-                      .map((item, index) => (
+                    {visibleLiveResults.map(item => (
                         <ResultCard
-                          key={`${item.source}-${index}`}
+                          key={item.link || item.url}
                           item={item}
                           onBlock={handleBlock}
                           onFavoriteToggle={handleFavoriteToggle}
@@ -879,8 +899,8 @@ function App() {
                         {(() => {
                           const pages = [];
                           const start = Math.max(1, currentPage - 2);
-                          const end = Math.min(totalPages, start + 4);
-                          const adjustedStart = Math.max(1, Math.min(start, totalPages - 4));
+                          const end = Math.min(liveTotalPages, start + 4);
+                          const adjustedStart = Math.max(1, Math.min(start, liveTotalPages - 4));
 
                           for (let i = adjustedStart; i <= end; i++) {
                             pages.push(
@@ -901,26 +921,26 @@ function App() {
                         <input
                           type="number"
                           min="1"
-                          max={totalPages}
+                          max={liveTotalPages}
                           placeholder="#"
                           className="page-input"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               const val = parseInt(e.target.value);
-                              if (val >= 1 && val <= totalPages) {
+                              if (val >= 1 && val <= liveTotalPages) {
                                 setCurrentPage(val);
                                 e.target.value = '';
                               }
                             }
                           }}
                         />
-                        <span className="total-pages">/ {totalPages}</span>
+                        <span className="total-pages">/ {liveTotalPages}</span>
                       </div>
 
                       <button
                         className="page-btn"
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage >= totalPages}
+                        onClick={() => setCurrentPage(p => Math.min(liveTotalPages, p + 1))}
+                        disabled={currentPage >= liveTotalPages}
                       >
                         Next →
                       </button>
@@ -945,8 +965,6 @@ function App() {
                     </div>
                   )}
                 </>
-              );
-            })()
           }
 
           {/* Export Button (shown when no pagination) */}

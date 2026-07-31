@@ -612,6 +612,7 @@ app.get('/api/status', requireAuth, (req, res) => {
     res.json({
         isRunning: Scheduler.isRunning,
         progress: Scheduler.progress,
+        completionVersion: Scheduler.completionVersion,
         nextScheduled,
         minutesUntilNext
     });
@@ -809,6 +810,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         return res.status(409).json({ error: 'Search already running' });
     }
 
+    let searchStarted = false;
     try {
         const allItems = await Watchlist.getAll();
         const item = allItems.find(i => i.id === req.params.id);
@@ -819,6 +821,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
 
         console.log(`[Manual Single] Searching for: ${item.name}`);
         Scheduler.isRunning = true;
+        searchStarted = true;
 
         const terms = item.terms || [item.term];
         const uniqueResultsMap = new Map();
@@ -852,7 +855,10 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         console.error(`[Manual Single] Error:`, err);
         res.status(500).json({ error: err.message });
     } finally {
-        Scheduler.isRunning = false;
+        if (searchStarted) {
+            Scheduler.isRunning = false;
+            Scheduler.completionVersion += 1;
+        }
     }
 });
 

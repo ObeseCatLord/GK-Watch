@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import ResultCard from './ResultCard';
 
+const shallowEqual = (left, right) => {
+    if (left === right) return true;
+    if (!left || !right) return false;
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length && keys.every(key => left[key] === right[key]);
+};
+
 const DEFAULT_ENABLED_SITES = {
     mercari: true,
     yahoo: true,
@@ -67,16 +74,34 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
 
     // Track previous running state to detect completion
     const wasRunningRef = React.useRef(false);
+    const completionVersionRef = React.useRef(0);
 
     // Poll for global search status and auto-refresh on completion
     useEffect(() => {
-        const checkStatus = async () => {
-            try {
-                const res = await authenticatedFetch('/api/status');
-                const data = await res.json();
+        let cancelled = false;
+        let timeoutId = null;
+        let requestInFlight = false;
+        let activeStatusController = null;
 
-                // Detect transition: was running -> now stopped
-                if (wasRunningRef.current && !data.isRunning) {
+        const checkStatus = async () => {
+            if (requestInFlight) return;
+            requestInFlight = true;
+            const statusController = new AbortController();
+            activeStatusController = statusController;
+            const statusTimeoutId = setTimeout(() => statusController.abort(), 5000);
+            let nextDelay = document.hidden ? 60000 : 15000;
+            try {
+                const res = await authenticatedFetch('/api/status', {
+                    signal: statusController.signal
+                });
+                const data = await res.json();
+                const running = Boolean(data.isRunning);
+                const completionVersion = Number(data.completionVersion) || 0;
+                const completionChanged = completionVersion !== completionVersionRef.current;
+                nextDelay = running ? 2000 : (document.hidden ? 60000 : 15000);
+
+                // The completion version catches runs that start and finish between polls.
+                if ((wasRunningRef.current && !running) || completionChanged) {
                     console.log('Search completed, refreshing data...');
                     fetchWatchlist();
                     fetchNewCounts();
@@ -86,18 +111,42 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     }
                 }
 
-                wasRunningRef.current = data.isRunning;
-                setIsGlobalRunning(data.isRunning);
-                setSchedulerProgress(data.progress);
+                wasRunningRef.current = running;
+                completionVersionRef.current = completionVersion;
+                setIsGlobalRunning(previous => previous === running ? previous : running);
+                setSchedulerProgress(previous => shallowEqual(previous, data.progress) ? previous : data.progress);
             } catch (err) {
-                console.error('Error checking status:', err);
+                nextDelay = 2000;
+                if (err?.name !== 'AbortError') {
+                    console.error('Error checking status:', err);
+                }
+            } finally {
+                clearTimeout(statusTimeoutId);
+                requestInFlight = false;
+                if (activeStatusController === statusController) {
+                    activeStatusController = null;
+                }
+                if (!cancelled) timeoutId = setTimeout(checkStatus, nextDelay);
             }
         };
 
-        const interval = setInterval(checkStatus, 2000);
         checkStatus();
-        return () => clearInterval(interval);
-    }, [selectedId]);
+
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                clearTimeout(timeoutId);
+                checkStatus();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+            activeStatusController?.abort();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [selectedId, authenticatedFetch]);
 
     // Multi-term / Merge / Edit State
     const [isMerging, setIsMerging] = useState(false);
@@ -121,8 +170,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     }, [resultFilter, sourceFilter, sortBy]);
 
     useEffect(() => {
-        fetchWatchlist();
-        fetchNewCounts();
         fetchWatchlist();
         fetchNewCounts();
         fetchGlobalSettings();
@@ -269,7 +316,10 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
 
     const runNow = async () => {
         try {
-            await authenticatedFetch('/api/run-now', { method: 'POST' });
+            const res = await authenticatedFetch('/api/run-now', { method: 'POST' });
+            if (!res.ok) throw new Error(`Run failed with status ${res.status}`);
+            wasRunningRef.current = true;
+            setIsGlobalRunning(true);
         } catch (err) {
             console.error('Error starting batch run:', err);
             alert('Failed to start run');
@@ -548,7 +598,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     };
 
     // Wrapper for blocking that updates local state immediately
-    const handleLocalBlock = (item) => {
+    const handleLocalBlock = React.useCallback((item) => {
         // Call parent onBlock for API call
         if (onBlock) {
             onBlock(item);
@@ -557,9 +607,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         setSelectedResults(prev =>
             prev ? prev.filter(r => r.link !== item.link) : null
         );
-    };
+    }, [onBlock]);
 
-    const handleLocalFavoriteToggle = async (item) => {
+    const handleLocalFavoriteToggle = React.useCallback(async (item) => {
         if (!onFavoriteToggle) return;
         const isFavorite = await onFavoriteToggle(item);
         if (typeof isFavorite !== 'boolean') return;
@@ -569,7 +619,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 result.link === item.link ? { ...result, isFavorite } : result
             ) : null
         );
-    };
+    }, [onFavoriteToggle]);
 
     // Export results to HTML file with 5-column grid
     const exportToHtml = (items, filename = 'watchlist_results') => {
@@ -682,6 +732,22 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     }, [selectedResults, resultFilter, sourceFilter, sortBy, watchlist, selectedId]);
 
     const totalPages = Math.ceil(filteredAndSortedResults.length / ITEMS_PER_PAGE);
+    const safePage = Math.min(currentPage, Math.max(1, totalPages));
+    const visibleResults = React.useMemo(
+        () => filteredAndSortedResults.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE),
+        [filteredAndSortedResults, safePage]
+    );
+    const resultSources = React.useMemo(
+        () => [...new Set((selectedResults || []).filter(item => !item.hidden).map(item => item.source).filter(Boolean))].sort(),
+        [selectedResults]
+    );
+    const sortedWatchlist = React.useMemo(() => [...watchlist].sort((a, b) => {
+        const countA = newCounts[a.id] || 0;
+        const countB = newCounts[b.id] || 0;
+        if (countA > 0 && countB === 0) return -1;
+        if (countA === 0 && countB > 0) return 1;
+        return 0;
+    }), [watchlist, newCounts]);
 
     return (
         <div className="watchlist-container">
@@ -839,17 +905,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
 
                     {watchlist.length === 0 && <p>No items in watchlist.</p>}
                     <ul className="watchlist-items">
-                        {(() => {
-                            // Sort logic...
-                            const sortedWatchlist = [...(watchlist || [])].sort((a, b) => {
-                                const countA = newCounts[a.id] || 0;
-                                const countB = newCounts[b.id] || 0;
-                                if (countA > 0 && countB === 0) return -1;
-                                if (countA === 0 && countB > 0) return 1;
-                                return 0;
-                            });
-
-                            return sortedWatchlist.map(item => (
+                        {sortedWatchlist.map(item => (
                                 <li
                                     key={item.id}
                                     className={`watchlist-item ${selectedId === item.id ? 'active' : ''} ${draggedItem?.id === item.id ? 'dragging' : ''} ${newCounts[item.id] > 0 ? 'moving-up' : ''}`}
@@ -914,8 +970,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         </button>
                                     )}
                                 </li>
-                            ));
-                        })()}
+                            ))}
                     </ul>
                 </div>
 
@@ -1133,7 +1188,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     style={{ maxWidth: '200px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem' }}
                                 >
                                     <option value="All">All Websites</option>
-                                    {[...new Set(selectedResults.filter(item => !item.hidden).map(item => item.source))].sort().map(source => (
+                                    {resultSources.map(source => (
                                         <option key={source} value={source}>{source}</option>
                                     ))}
                                 </select>
@@ -1167,13 +1222,10 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         return <p>{resultFilter || sourceFilter !== 'All' ? 'No results match your filter.' : 'No results found in last run (or run hasn\'t happened yet).'}</p>;
                                     }
 
-                                    const safePage = Math.min(currentPage, Math.max(1, totalPages));
-
-                                    return filteredAndSortedResults
-                                        .slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
+                                    return visibleResults
                                         .map((item, idx) => (
                                             <ResultCard
-                                                key={idx}
+                                                key={item.link || item.url || idx}
                                                 item={item}
                                                 onBlock={handleLocalBlock}
                                                 onFavoriteToggle={handleLocalFavoriteToggle}
