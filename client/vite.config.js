@@ -10,14 +10,14 @@ export default defineConfig({
     globals: true
   },
   server: {
-    allowedHosts: true, // Allow any host (removes specific domain)
-    host: true,
+    host: '127.0.0.1',
+    allowedHosts: ['localhost', '127.0.0.1'],
     strictPort: true,
     port: 5173,
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
-        changeOrigin: true,
+        changeOrigin: false,
         secure: false
       }
     }

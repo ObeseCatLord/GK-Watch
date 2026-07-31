@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const queryMatcher = require('../utils/queryMatcher');
+const { resolveBrowserExecutable } = require('../utils/browserExecutable');
 
 // Seller blacklist (Recasters/Bootleggers to avoid)
 const SELLER_BLACKLIST = [
@@ -77,17 +78,6 @@ function loadCookies() {
 }
 
 /**
- * Convert cookies array to cookie header string
- */
-function cookiesToHeader(cookies) {
-    if (!cookies || !Array.isArray(cookies)) return '';
-
-    return cookies
-        .map(cookie => `${cookie.name}=${cookie.value}`)
-        .join('; ');
-}
-
-/**
  * Build the search URL
  */
 function buildSearchUrl(query) {
@@ -96,165 +86,15 @@ function buildSearchUrl(query) {
     return `${TAOBAO_SEARCH_URL}?q=${encodedQuery}&sort=default`;
 }
 
-/**
- * Parse results from HTML content using Cheerio
- */
-function parseResults($) {
-    const results = [];
-
-    // Taobao uses various selectors for product cards
-    // Try multiple possible selectors
-    const productCards = $('.item, .Card--doubleCardWrapper--L2XFE73, .item.J_MouserOnverReq');
-
-    console.log(`[Taobao] Found ${productCards.length} product cards`);
-
-    productCards.each((i, card) => {
-        try {
-            const $card = $(card);
-
-            // Extract title
-            let title = $card.find('.title a, .Card--titleText--WeJJlj7, a[class*="title"]').first().text().trim();
-            if (!title) {
-                // Fallback: try raw-title
-                title = $card.find('.raw-title, .J_ClickStat').first().text().trim();
-            }
-
-            // Extract link
-            let link = $card.find('.pic a, .Card--doubleCardWrapper--L2XFE73 a, .item-link').first().attr('href');
-            if (link && !link.startsWith('http')) {
-                link = link.startsWith('//') ? 'https:' + link : 'https:' + link;
-            }
-
-            // Extract image
-            let image = $card.find('.pic img, .Card--mainPic--rcLNaCv img').first().attr('src');
-            if (!image) {
-                image = $card.find('.pic img, .Card--mainPic--rcLNaCv img').first().attr('data-src');
-            }
-            if (image && !image.startsWith('http')) {
-                image = image.startsWith('//') ? 'https:' + image : 'https:' + image;
-            }
-
-            // Extract price (Chinese format: ¥123 or 123元)
-            let priceText = $card.find('.price strong, .price, .Card--priceInt--ZlsSi_M, span[class*="price"]').first().text().trim();
-            let price = 'N/A';
-
-            if (priceText) {
-                // Extract numeric price
-                const priceMatch = priceText.match(/[\d,]+\.?\d*/);
-                if (priceMatch) {
-                    const priceNum = priceMatch[0].replace(/,/g, '');
-                    price = `${priceNum} RMB`;
-                }
-            }
-
-            // Extract Shop Name
-            let shopName = $card.find('.shop, .shop-name, .ShopInfo--shopName--1_Q13Ww, .ShopInfo--shopName, [class*="shopName"], a[class*="shop"]').first().text().trim();
-            if (!shopName) shopName = 'Unknown';
-
-            // Only add if we have essential data
-            if (title && link) {
-                results.push({
-                    title: title,
-                    link: link,
-                    image: image || 'https://img.alicdn.com/tps/i1/T1OjaVFl4dXXa.JOZB-114-114.png',
-                    price: price,
-                    source: 'Taobao',
-                    shopName: shopName
-                });
-            }
-        } catch (err) {
-            // Skip this card if parsing fails
-            console.log('[Taobao] Error parsing card:', err.message);
-        }
-    });
-
-    // Deduplicate results
-    const uniqueResults = [];
-    const seenIds = new Set();
-
-    results.forEach(item => {
-        try {
-            // Try to extract ID from link
-            let id = null;
-            const urlMatch = item.link.match(/[?&]id=(\d+)/);
-            if (urlMatch) {
-                id = urlMatch[1];
-            } else {
-                // Fallback: use full link without tracking params
-                id = item.link.split('?')[0];
-            }
-
-            if (id && !seenIds.has(id)) {
-                seenIds.add(id);
-                uniqueResults.push(item);
-            } else if (!id) {
-                // If we really can't identify it, let it through (unlikely)
-                uniqueResults.push(item);
-            }
-        } catch (e) {
-            uniqueResults.push(item);
-        }
-    });
-
-    return uniqueResults;
-}
-
-/**
- * Try scraping with Axios (fast method)
- */
-async function searchWithAxios(query, cookies) {
-    try {
-        const searchUrl = buildSearchUrl(query);
-        const cookieHeader = cookiesToHeader(cookies);
-
-        console.log(`[Taobao] Fetching with Axios: ${searchUrl}`);
-
-        const response = await axios.get(searchUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Cookie': cookieHeader,
-                'Referer': 'https://www.taobao.com/',
-                'Accept-Encoding': 'gzip, deflate, br',
-            },
-            timeout: 15000,
-            maxRedirects: 5
-        });
-
-        const $ = cheerio.load(response.data);
-
-        // Check for login redirect or error page
-        const pageTitle = $('title').text();
-        if (pageTitle.includes('登录') || pageTitle.includes('login')) {
-            console.log('[Taobao] Login required - cookies may be invalid or expired');
-            return null;
-        }
-
-        const results = parseResults($);
-
-        if (results.length === 0) {
-            // Check if it's genuinely no results or parsing failed
-            const bodyText = $('body').text();
-            if (bodyText.includes('没有找到') || bodyText.includes('抱歉')) {
-                console.log('[Taobao] No results found for query');
-                return [];
-            }
-            // If body has content but no results, parsing may have failed
-            console.log('[Taobao] Axios parsing may have failed, returning null to try Puppeteer');
-            return null;
-        }
-
-        console.log(`[Taobao] Axios found ${results.length} results`);
-        return results;
-
-    } catch (error) {
-        console.log(`[Taobao] Axios failed: ${error.message}`);
-        return null;
-    }
-}
-
 let browserPromise = null;
+
+function throwIfAborted(signal) {
+    if (!signal?.aborted) return;
+    const error = new Error('Search was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    throw error;
+}
 
 async function getBrowser() {
     if (browserPromise) {
@@ -269,16 +109,11 @@ async function getBrowser() {
         browserPromise = null;
     }
 
-    const isARM = process.arch === 'arm' || process.arch === 'arm64';
-    const executablePath = (process.platform === 'linux' && isARM)
-        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-        : undefined;
-
     browserPromise = puppeteer.launch({
         headless: "new",
-        executablePath,
+        executablePath: resolveBrowserExecutable(),
         pipe: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        args: ['--disable-dev-shm-usage', '--disable-gpu']
     }).catch(err => {
         // If launch fails, clear the promise so next attempt can try again
         browserPromise = null;
@@ -291,14 +126,35 @@ async function getBrowser() {
 /**
  * Scrape with Puppeteer (fallback method for JS-heavy pages)
  */
-async function searchWithPuppeteer(query, cookies) {
+async function searchWithPuppeteer(query, cookies, signal = null) {
     let context = null;
     let page = null;
+    let closePromise = null;
+
+    const closeOwnedResources = () => {
+        if (!page && !context) return Promise.resolve();
+        if (closePromise) return closePromise;
+        closePromise = (async () => {
+            if (page) {
+                try { await page.close(); } catch (e) { }
+            }
+            if (context) {
+                try { await context.close(); } catch (e) { }
+            }
+        })();
+        return closePromise;
+    };
+    const onAbort = () => { void closeOwnedResources(); };
+    signal?.addEventListener('abort', onAbort, { once: true });
 
     try {
+        throwIfAborted(signal);
         const browser = await getBrowser();
+        throwIfAborted(signal);
         context = await browser.createBrowserContext();
+        throwIfAborted(signal);
         page = await context.newPage();
+        throwIfAborted(signal);
 
         const searchUrl = buildSearchUrl(query);
 
@@ -334,9 +190,11 @@ async function searchWithPuppeteer(query, cookies) {
         });
 
         await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        throwIfAborted(signal);
 
         // Wait for JavaScript to render products
         await new Promise(r => setTimeout(r, 5000));
+        throwIfAborted(signal);
 
         // Extract products directly in the browser context
         let results = await page.evaluate(() => {
@@ -438,6 +296,7 @@ async function searchWithPuppeteer(query, cookies) {
         return results;
 
     } catch (error) {
+        throwIfAborted(signal);
         // Suppress "Navigating frame was detached" noise, but log others
         if (error.message.includes('detached')) {
             console.log('[Taobao] Transient error: Navigating frame was detached. triggering retry.');
@@ -447,19 +306,16 @@ async function searchWithPuppeteer(query, cookies) {
         // Explicitly return null on error to signal retry (vs empty array for valid 0 results)
         return null;
     } finally {
-        if (page) {
-            try { await page.close(); } catch (e) { }
-        }
-        if (context) {
-            try { await context.close(); } catch (e) { }
-        }
+        signal?.removeEventListener('abort', onAbort);
+        await closeOwnedResources();
     }
 }
 
 /**
  * Main search function
  */
-async function search(query, strict = true) {
+async function search(query, strict = true, signal = null) {
+    throwIfAborted(signal);
     console.log(`[Taobao] Searching for: ${query}`);
 
     // Load cookies
@@ -476,13 +332,15 @@ async function search(query, strict = true) {
     const maxAttempts = 3;
 
     while (attempts < maxAttempts) {
+        throwIfAborted(signal);
         attempts++;
         if (attempts > 1) {
             console.log(`[Taobao] Retry attempt ${attempts}/${maxAttempts}...`);
             await new Promise(r => setTimeout(r, 2000));
+            throwIfAborted(signal);
         }
 
-        results = await searchWithPuppeteer(query, cookies);
+        results = await searchWithPuppeteer(query, cookies, signal);
 
         // If we got results (or explicit empty array from successful parse), break
         // If null (error), we retry

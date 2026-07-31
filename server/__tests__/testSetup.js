@@ -40,34 +40,34 @@ function getTestDb() {
     testDb.exec(`
         CREATE TABLE IF NOT EXISTS watchlist (
             id TEXT PRIMARY KEY,
-            name TEXT NOT NULL DEFAULT '',
-            terms TEXT NOT NULL,
-            created_at TEXT NOT NULL,
+            name TEXT NOT NULL,
+            terms TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT,
             last_run TEXT,
-            last_result_count INTEGER DEFAULT 0,
+            last_result_count INTEGER,
             active INTEGER DEFAULT 1,
-            email_notify INTEGER DEFAULT 0,
+            email_notify INTEGER DEFAULT 1,
             priority INTEGER DEFAULT 0,
-            sort_order INTEGER DEFAULT 0,
+            strict INTEGER DEFAULT 1,
+            filters TEXT DEFAULT '[]',
             enabled_sites TEXT DEFAULT '{}',
             site_options TEXT DEFAULT '{}',
-            strict INTEGER DEFAULT 1,
-            filters TEXT DEFAULT '[]'
+            sort_order INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             watch_id TEXT NOT NULL,
-            title TEXT NOT NULL,
+            title TEXT,
             link TEXT NOT NULL,
-            image TEXT DEFAULT '',
-            price TEXT DEFAULT '',
-            bid_price TEXT DEFAULT '',
-            bin_price TEXT DEFAULT '',
-            end_time TEXT DEFAULT '',
-            source TEXT DEFAULT '',
+            image TEXT,
+            price TEXT,
+            bid_price TEXT,
+            bin_price TEXT,
+            end_time TEXT,
+            source TEXT,
             first_seen TEXT NOT NULL,
-            last_seen TEXT NOT NULL,
+            last_seen TEXT,
             is_new INTEGER DEFAULT 1,
             new_type TEXT DEFAULT 'new',
             hidden INTEGER DEFAULT 0,
@@ -77,7 +77,7 @@ function getTestDb() {
 
         CREATE TABLE IF NOT EXISTS results_meta (
             watch_id TEXT PRIMARY KEY,
-            updated_at TEXT NOT NULL,
+            updated_at TEXT,
             new_count INTEGER DEFAULT 0,
             FOREIGN KEY (watch_id) REFERENCES watchlist(id) ON DELETE CASCADE
         );
@@ -128,10 +128,17 @@ function getTestDb() {
     // Create indexes
     testDb.exec(`
         CREATE INDEX IF NOT EXISTS idx_results_watch_id ON results(watch_id);
-        CREATE INDEX IF NOT EXISTS idx_results_link ON results(link);
-        CREATE INDEX IF NOT EXISTS idx_results_new ON results(watch_id, is_new);
+        CREATE INDEX IF NOT EXISTS idx_results_link ON results(watch_id, link);
+        CREATE INDEX IF NOT EXISTS idx_results_source ON results(watch_id, source);
+        CREATE INDEX IF NOT EXISTS idx_results_first_seen ON results(first_seen);
+        CREATE INDEX IF NOT EXISTS idx_results_last_seen ON results(last_seen);
+        CREATE INDEX IF NOT EXISTS idx_results_is_new ON results(watch_id, is_new);
+        CREATE INDEX IF NOT EXISTS idx_results_new_type ON results(watch_id, new_type);
+        CREATE INDEX IF NOT EXISTS idx_results_watch_first_seen ON results(watch_id, first_seen DESC);
+        CREATE INDEX IF NOT EXISTS idx_results_watch_last_seen ON results(watch_id, last_seen DESC);
         CREATE INDEX IF NOT EXISTS idx_blocked_url ON blocked_items(url);
         CREATE INDEX IF NOT EXISTS idx_favorite_url ON favorite_items(url);
+        CREATE INDEX IF NOT EXISTS idx_watchlist_sort ON watchlist(sort_order);
     `);
 
     // Replace the database module in require cache BEFORE any model is loaded

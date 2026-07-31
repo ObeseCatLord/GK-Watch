@@ -35,10 +35,10 @@ rem Puppeteer 24 downloads both Chrome and chrome-headless-shell by default.
 rem GK Watcher launches normal Chrome; skipping the separate shell avoids
 rem install failures from stale or partial shell caches on Windows.
 set "PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD=true"
-call npm install
+call npm ci
 if errorlevel 1 (
-    echo [WARN] npm install failed. Retrying once...
-    call npm install
+    echo [WARN] npm ci failed. Retrying once...
+    call npm ci
     if errorlevel 1 (
         echo [ERROR] Failed to install server dependencies.
         echo [ERROR] If the error mentions Puppeteer cache, delete "%USERPROFILE%\.cache\puppeteer" and run update.bat again.
@@ -46,17 +46,27 @@ if errorlevel 1 (
         exit /b 1
     )
 )
+call npm audit --omit=dev --audit-level=high
+if errorlevel 1 exit /b 1
+call npm test -- --runInBand
+if errorlevel 1 exit /b 1
 cd ..
 
 echo.
 echo Updating client dependencies...
 cd client
-call npm install
+call npm ci
 if errorlevel 1 (
     echo [ERROR] Failed to install client dependencies.
     pause
     exit /b 1
 )
+call npm audit --omit=dev --audit-level=high
+if errorlevel 1 exit /b 1
+call npm run lint
+if errorlevel 1 exit /b 1
+call npm test -- --run
+if errorlevel 1 exit /b 1
 
 echo.
 echo Building client...

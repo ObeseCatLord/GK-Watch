@@ -13,13 +13,19 @@ echo Checking prerequisites...
 
 where node >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Node.js not found. Please install Node.js 18+ manually.
+    echo [ERROR] Node.js not found. Please install Node.js 20.18.1 or newer manually.
     pause
     exit /b 1
 )
 
 for /f "tokens=1" %%i in ('node -v') do set NODE_FULL_VER=%%i
 echo [OK] Node.js %NODE_FULL_VER% detected.
+node -e "const [a,b,c]=process.versions.node.split('.').map(Number);const ok=(a===20^&^&(b^>18^|^|(b===18^&^&c^>=1)))^|^|(a^>20^&^&a^<27);process.exit(ok?0:1)"
+if errorlevel 1 (
+    echo [ERROR] Node.js 20.18.1 through 26.x is required.
+    pause
+    exit /b 1
+)
 
 where git >nul 2>nul
 if %ERRORLEVEL% neq 0 (
@@ -31,14 +37,12 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo Installing server dependencies...
 cd server
-rem Puppeteer 24 downloads both Chrome and chrome-headless-shell by default.
-rem GK Watcher launches normal Chrome; skipping the separate shell avoids
-rem install failures from stale or partial shell caches on Windows.
-set "PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD=true"
-call npm install
+rem GK Watcher uses an installed Chrome or Chromium executable.
+set "PUPPETEER_SKIP_DOWNLOAD=true"
+call npm ci
 if errorlevel 1 (
-    echo [WARN] npm install failed. Retrying once...
-    call npm install
+    echo [WARN] npm ci failed. Retrying once...
+    call npm ci
     if errorlevel 1 (
         echo [ERROR] Failed to install server dependencies. Please check your internet connection or proxy settings.
         echo [ERROR] If the error mentions Puppeteer cache, delete "%USERPROFILE%\.cache\puppeteer" and run deploy.bat again.
@@ -46,17 +50,27 @@ if errorlevel 1 (
         exit /b 1
     )
 )
+call npm audit --omit=dev --audit-level=high
+if errorlevel 1 exit /b 1
+call npm test -- --runInBand
+if errorlevel 1 exit /b 1
 cd ..
 
 echo.
 echo Installing client dependencies...
 cd client
-call npm install
+call npm ci
 if errorlevel 1 (
     echo [ERROR] Failed to install client dependencies.
     pause
     exit /b 1
 )
+call npm audit --omit=dev --audit-level=high
+if errorlevel 1 exit /b 1
+call npm run lint
+if errorlevel 1 exit /b 1
+call npm test -- --run
+if errorlevel 1 exit /b 1
 
 echo.
 echo Building client...

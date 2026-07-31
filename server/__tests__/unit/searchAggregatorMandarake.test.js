@@ -85,11 +85,32 @@ describe('search aggregator Mandarake integration', () => {
             'Saber ガレージキット',
             false,
             [],
-            { mode: 'garageKit' }
+            { mode: 'garageKit' },
+            null
         );
         expect(results.map(item => item.title)).toEqual([
             'Fate Saber Resin Statue',
             'Fate Rin Resin Statue'
         ]);
+    });
+
+    test('marks a normal final SSE result as complete', async () => {
+        mockMandarakeSearch.mockResolvedValue([{ title: 'Kit', link: 'https://example.test/kit' }]);
+        const onProgress = jest.fn();
+
+        await searchAggregator.searchAll(
+            'Kit',
+            { mercari: false, yahoo: false, paypay: false, fril: false, surugaya: false, taobao: false, goofish: false, mandarake: true },
+            true,
+            [],
+            onProgress,
+            { mandarake: { mode: 'garageKit' } }
+        );
+
+        expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'result',
+            source: 'Mandarake',
+            partial: false
+        }));
     });
 });

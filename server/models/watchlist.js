@@ -20,6 +20,8 @@ const stmts = {
         WHERE id=@id
     `),
     remove: db.prepare('DELETE FROM watchlist WHERE id = ?'),
+    removeResults: db.prepare('DELETE FROM results WHERE watch_id = ?'),
+    removeResultsMeta: db.prepare('DELETE FROM results_meta WHERE watch_id = ?'),
     updateLastRun: db.prepare('UPDATE watchlist SET last_run = ?, last_result_count = ? WHERE id = ?'),
     updateSortOrder: db.prepare('UPDATE watchlist SET sort_order = ? WHERE id = ?'),
     maxSortOrder: db.prepare('SELECT MAX(sort_order) as maxOrder FROM watchlist'),
@@ -196,7 +198,14 @@ const Watchlist = {
     },
 
     remove: async (id) => {
-        stmts.remove.run(id);
+        const removeTransaction = db.transaction(() => {
+            // Explicitly remove dependent rows for existing databases created
+            // before foreign-key cascades were added to the schema.
+            stmts.removeResults.run(id);
+            stmts.removeResultsMeta.run(id);
+            stmts.remove.run(id);
+        });
+        removeTransaction();
         return { success: true };
     },
 
@@ -237,6 +246,8 @@ const Watchlist = {
         // Merge in a transaction: remove old, insert new
         const mergeTransaction = db.transaction(() => {
             for (const id of ids) {
+                stmts.removeResults.run(id);
+                stmts.removeResultsMeta.run(id);
                 stmts.remove.run(id);
             }
             stmts.insert.run(itemToParams(mergedItem));

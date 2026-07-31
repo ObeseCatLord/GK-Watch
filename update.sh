@@ -2,7 +2,8 @@
 # GK Watcher Update Script
 # Pulls latest code and rebuilds the client
 
-set -e
+set -euo pipefail
+umask 077
 
 echo "🔄 Updating GK Watcher..."
 
@@ -12,21 +13,26 @@ cd "$SCRIPT_DIR"
 
 # Pull latest changes
 echo "📥 Pulling latest changes..."
-git pull
+git pull --ff-only
 
 # Install server dependencies
 echo "📦 Installing server dependencies..."
 cd server
-if ! npm install; then
-    echo "⚠️  npm install failed. Retrying with PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true..."
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install
+if ! npm ci; then
+    echo "⚠️  npm ci failed. Retrying with PUPPETEER_SKIP_DOWNLOAD=true..."
+    PUPPETEER_SKIP_DOWNLOAD=true npm ci
 fi
+npm audit --omit=dev --audit-level=high
+npm test -- --runInBand
 cd ..
 
 # Install client dependencies
 echo "📦 Installing client dependencies..."
 cd client
-npm install
+npm ci
+npm audit --omit=dev --audit-level=high
+npm run lint
+npm test -- --run
 
 # Rebuild client
 echo "🔨 Building client..."

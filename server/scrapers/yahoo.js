@@ -6,6 +6,23 @@ const axiosRetry = require('axios-retry').default;
 const http = require('http');
 const https = require('https');
 const Bottleneck = require('bottleneck');
+const { resolveBrowserExecutable } = require('../utils/browserExecutable');
+const { browserPool } = require('../utils/admissionControl');
+
+function abortError() {
+    const error = new Error('Yahoo search aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    return error;
+}
+
+function isAborted(signal, error) {
+    return signal?.aborted || error?.code === 'ABORT_ERR' || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError';
+}
+
+function throwIfAborted(signal) {
+    if (signal?.aborted) throw abortError();
+}
 
 // --- ROBUST HTTP CLIENT CONFIGURATION ---
 
@@ -47,6 +64,7 @@ axiosRetry(client, {
         return axiosRetry.exponentialDelay(retryCount);
     },
     retryCondition: (error) => {
+        if (error.config?.signal?.aborted) return false;
         // Retry on network errors or 5xx status codes (500, 502, 503, 504)
         return axiosRetry.isNetworkOrIdempotentRequestError(error) ||
             (error.response && error.response.status >= 500 && error.response.status <= 599);
@@ -113,21 +131,40 @@ function generateDeviceId() {
     return 'pc_' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2);
 }
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+    if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+    if (signal.aborted) return Promise.reject(abortError());
+
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(done, ms);
+        const onAbort = () => {
+            clearTimeout(timeout);
+            signal.removeEventListener('abort', onAbort);
+            reject(abortError());
+        };
+        function done() {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
 
 // --- SEARCH FUNCTIONS ---
 
-async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = []) {
+async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = [], signal = null) {
     console.log(`Searching Yahoo Auctions for ${query} (Target: ${targetSource})...`);
+    throwIfAborted(signal);
 
     // Chain 1: Doorzo (Primary - Fast API)
     try {
-        const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters);
+        const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters, signal);
         if (doorzoResults !== null) {
             console.log(`[Yahoo] Doorzo API successful (${doorzoResults.length} items). Skipping Native.`);
             return doorzoResults;
         }
     } catch (doorzoError) {
+        if (isAborted(signal, doorzoError)) throw abortError();
         console.warn(`[Yahoo] Doorzo API failed (${doorzoError.message}), falling back to Native Axios...`);
     }
 
@@ -142,6 +179,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         console.log(`[Yahoo Fallback] Starting Native Axios Scraper for ${query}...`);
 
         while (page < MAX_PAGES) {
+            throwIfAborted(signal);
             try {
                 // Yahoo pagination: b=1 (page 1), b=51 (page 2), b=101 (page 3)
                 const offset = page * itemsPerPage + 1;
@@ -149,7 +187,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 
                 // Use the throttled, resilient client
                 // Note: client base URL is set, so we just pass the path
-                const response = await scheduledGet(url);
+                const response = await scheduledGet(url, { signal });
                 const data = response.data;
 
                 // Check for "Page Not Found" or "Invalid Page"
@@ -244,6 +282,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                 page++;
 
             } catch (err) {
+                if (isAborted(signal, err)) throw abortError();
                 if (page === 0) throw err; // Re-throw to trigger fallback if first page fails
                 console.warn(`[Yahoo Native] [${query}] Error on page ${page + 1} (${err.message}). Returning ${results.length} items found so far.`);
                 break; // Stop pagination but return what we have
@@ -275,12 +314,13 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         return results;
 
     } catch (axiosError) {
+        if (isAborted(signal, axiosError)) throw abortError();
         console.warn(`[Yahoo] Native Axios failed (${axiosError.message}), switching to Neokyo fallback...`);
     }
 
     // Chain 3: Neokyo (Puppeteer)
     try {
-        const neokyoResults = await searchNeokyo(query);
+        const neokyoResults = await browserPool.run(() => searchNeokyo(query, signal), { signal });
         const parsedQuery = parseQuery(query);
         const hasQuoted = hasQuotedTerms(parsedQuery);
 
@@ -289,11 +329,12 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         }
         return neokyoResults;
     } catch (neokyoError) {
+        if (isAborted(signal, neokyoError)) throw abortError();
         console.warn(`Neokyo failed (${neokyoError.message}), attempting Jauce fallback...`);
     }
 
     // Chain 4: Jauce (last resort)
-    const jauceResults = await searchJauce(query);
+    const jauceResults = await searchJauce(query, signal);
     const parsedQuery = parseQuery(query);
     const hasQuoted = hasQuotedTerms(parsedQuery);
 
@@ -304,8 +345,9 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 }
 
 // Doorzo-based Yahoo Scraper (Fallback for Axios)
-async function searchDoorzo(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = []) {
+async function searchDoorzo(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = [], signal = null) {
     console.log(`[Yahoo Fallback] Searching Yahoo via Doorzo for ${query}...`);
+    throwIfAborted(signal);
     const ENDPOINT = 'https://sig.doorzo.com/';
 
     // URL Params for the signature endpoint
@@ -342,6 +384,7 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
         const fullUrl = `${ENDPOINT}?${queryString}`;
 
         do {
+            throwIfAborted(signal);
             const currentBody = { ...bodyBase, page: page };
 
             const res = await axios.post(fullUrl, currentBody, {
@@ -350,7 +393,8 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
                     'Origin': 'https://www.doorzo.com',
                     'Referer': 'https://www.doorzo.com/'
                 },
-                timeout: 30000
+                timeout: 30000,
+                signal
             });
 
             if (res.data && res.data.data && Array.isArray(res.data.data.list)) {
@@ -378,7 +422,7 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
                 page++;
 
                 // Be nice to the API
-                if (page <= MAX_PAGES) await sleep(500);
+                if (page <= MAX_PAGES) await sleep(500, signal);
 
             } else {
                 // End of results or invalid response
@@ -444,20 +488,44 @@ async function searchDoorzo(query, strictEnabled = true, allowInternationalShipp
         return results;
 
     } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
         console.error('Doorzo Yahoo Fallback Error:', err.message);
         return null; // Return null to trigger next fallback
     }
 }
 
-async function searchNeokyo(query) {
+async function searchNeokyo(query, signal = null) {
     console.log(`[Yahoo Fallback] Searching Neokyo (Puppeteer) for ${query}...`);
     let browser;
+    let page;
+    let abortHandler = null;
+
+    const closeSearchResources = async () => {
+        if (page) {
+            try { await page.close(); } catch (e) { }
+            page = null;
+        }
+        if (browser) {
+            try { await browser.close(); } catch (e) { }
+            browser = null;
+        }
+    };
+
+    if (signal) {
+        abortHandler = () => { void closeSearchResources(); };
+        signal.addEventListener('abort', abortHandler, { once: true });
+    }
+
     try {
+        throwIfAborted(signal);
         browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            executablePath: resolveBrowserExecutable(),
+            args: ['--disable-dev-shm-usage']
         });
-        const page = await browser.newPage();
+        throwIfAborted(signal);
+        page = await browser.newPage();
+        throwIfAborted(signal);
 
         await page.setRequestInterception(true);
         page.on('request', (req) => {
@@ -470,6 +538,7 @@ async function searchNeokyo(query) {
 
         // Step 1: Go to homepage (10s timeout for faster fallback)
         await page.goto('https://neokyo.com/en', { waitUntil: 'domcontentloaded', timeout: 10000 });
+        throwIfAborted(signal);
 
         // Step 2: Input Query
         await page.waitForSelector('.main-search-input', { timeout: 3000 });
@@ -530,21 +599,25 @@ async function searchNeokyo(query) {
         return uniqueResults;
 
     } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
         console.error('Neokyo Fallback Error:', err.message);
         return null;
     } finally {
-        if (browser) await browser.close();
+        signal?.removeEventListener('abort', abortHandler);
+        await closeSearchResources();
     }
 }
 
-async function searchJauce(query) {
+async function searchJauce(query, signal = null) {
     console.log(`[Yahoo Fallback] Searching Jauce for ${query}...`);
+    throwIfAborted(signal);
     try {
         const url = `https://www.jauce.com/search/${encodeURIComponent(query)}`;
         const { data } = await axios.get(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
+            },
+            signal
         });
 
         const $ = cheerio.load(data);
@@ -596,6 +669,7 @@ async function searchJauce(query) {
         return results;
 
     } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
         console.error('Jauce Fallback Error:', err.message);
         return [];
     }

@@ -12,6 +12,7 @@ jest.mock('../../scrapers', () => ({
 // Mock database to prevent actual DB connection/writes during test load
 jest.mock('../../models/database', () => ({
     prepare: () => ({ run: () => { }, get: () => { } }),
+    transaction: callback => callback,
     pragma: () => { },
     exec: () => { }
 }));
@@ -132,5 +133,17 @@ describe('Live Search Filters API', () => {
             null,
             { mandarake: { mode: 'garageKit' } }
         );
+    });
+
+    test('passes an AbortSignal to live SSE searches', async () => {
+        const response = await request(app)
+            .get('/api/search?q=test')
+            .set('Accept', 'text/event-stream');
+
+        expect(response.status).toBe(200);
+        const signal = mockSearchAll.mock.calls[0][6];
+        expect(signal).toBeDefined();
+        expect(typeof signal.addEventListener).toBe('function');
+        expect(signal.aborted).toBe(false);
     });
 });

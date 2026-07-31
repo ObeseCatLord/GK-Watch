@@ -6,7 +6,20 @@ function generateDeviceId() {
     return 'pc_' + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2);
 }
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(done, ms);
+    function onAbort() {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        reject(signal.reason);
+    }
+    function done() {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+});
 
 function decodeHexUrl(hex) {
     if (!hex) return null;
@@ -80,7 +93,8 @@ function mapDoorzoItem(item, website) {
     };
 }
 
-async function search(query, targetSite = 'paypay') {
+async function search(query, targetSite = 'paypay', signal = null) {
+    signal?.throwIfAborted();
     // Doorzo requires specific params to filter
     const website = normalizeWebsite(targetSite);
 
@@ -116,7 +130,8 @@ async function search(query, targetSite = 'paypay') {
                     'Origin': 'https://www.doorzo.com',
                     'Referer': 'https://www.doorzo.com/'
                 },
-                timeout: 30000
+                timeout: 30000,
+                signal
             });
 
             if (res.data && res.data.data && Array.isArray(res.data.data.items)) {
@@ -128,7 +143,7 @@ async function search(query, targetSite = 'paypay') {
                 pageCount++;
 
                 // Be polite
-                if (nextToken) await sleep(500);
+                if (nextToken) await sleep(500, signal);
 
             } else {
                 nextToken = null; // Stop if invalid response
@@ -141,6 +156,7 @@ async function search(query, targetSite = 'paypay') {
         return allItems.map(item => mapDoorzoItem(item, website));
 
     } catch (err) {
+        if (signal?.aborted) throw err;
         console.error(`[Doorzo] Error searching for "${query}" on ${website}:`, err.message);
         // If we found some items before error, return them? Or just return what we have?
         // Better to return what we have if possible, but scraper logic expects null on critical failure.

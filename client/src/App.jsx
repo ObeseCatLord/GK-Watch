@@ -1,16 +1,26 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ResultCard from './components/ResultCard';
 import WatchlistManager from './components/WatchlistManager';
 import BlockedManager from './components/BlockedManager';
 import OptionsManager from './components/OptionsManager';
 import Clock from './components/Clock';
+import { buildExportHtml, downloadExportHtml, makeExportFilename } from './utils/exportHelpers';
 
 const MAX_HISTORY = 10;
 const ITEMS_PER_PAGE = 24;
 
-const getAuthHeaders = () => {
-  const token = sessionStorage.getItem('gkwatch_token');
-  return token ? { 'x-auth-token': token } : {};
+const loadSearchHistory = () => {
+  if (typeof localStorage === 'undefined') return [];
+  const historyValue = localStorage.getItem('gkwatch_search_history');
+  if (!historyValue) return [];
+  try {
+    const parsed = JSON.parse(historyValue);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    console.error('Failed to load search history');
+  }
+  localStorage.removeItem('gkwatch_search_history');
+  return [];
 };
 
 const parsePrice = (priceStr) => {
@@ -26,7 +36,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0, current: '' });
   const [error, setError] = useState(null);
-  const [searchHistory, setSearchHistory] = useState([]);
+  const [searchHistory, setSearchHistory] = useState(loadSearchHistory);
   const [executedQuery, setExecutedQuery] = useState('');
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -43,73 +53,93 @@ function App() {
   const [taobaoEnabled, setTaobaoEnabled] = useState(false);
   const [goofishEnabled, setGoofishEnabled] = useState(false);
   const [strictMode, setStrictMode] = useState(true);
+  const inFlightSearchesRef = useRef(new Map());
+  const liveSearchSeenLinksRef = useRef(new Set());
+  const activeLiveSearchRef = useRef(null);
+  const clearAuthSession = useCallback(() => {
+    setIsAuthenticated(false);
+    setLoginRequired(true);
+  }, []);
 
   // Check if login is required on mount
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/auth-status');
-        const data = await res.json();
-        if (data.loginRequired) {
-          // Check if already authenticated in session
-          const token = sessionStorage.getItem('gkwatch_token');
-          if (token) {
-            setIsAuthenticated(true);
-          } else {
-            setLoginRequired(true);
-          }
-        } else {
-          setIsAuthenticated(true);
+        const res = await fetch('/api/auth-status', { credentials: 'same-origin' });
+        if (res.status === 401 || res.status === 403) {
+          clearAuthSession();
+          setCheckingAuth(false);
+          return;
         }
+        const data = await res.json().catch(() => ({}));
+        const requiresAuth = data?.loginRequired === true && data?.authenticated !== true;
+
+        if (requiresAuth) {
+          setIsAuthenticated(false);
+          setLoginRequired(true);
+          setCheckingAuth(false);
+          return;
+        }
+        setIsAuthenticated(true);
+        setLoginRequired(false);
 
         // Check Taobao status
-        const tbRes = await fetch('/api/taobao/status', { headers: getAuthHeaders() });
+        const tbRes = await fetch('/api/taobao/status', { credentials: 'same-origin' });
+        if (tbRes.status === 401 || tbRes.status === 403) {
+          clearAuthSession();
+          setCheckingAuth(false);
+          return;
+        }
         if (tbRes.ok) {
           const tbData = await tbRes.json();
-          setTaobaoEnabled(tbData.hasCookies);
+          setTaobaoEnabled(Boolean(tbData.hasCookies));
         }
 
         // Check Goofish status
-        const gfRes = await fetch('/api/goofish/status', { headers: getAuthHeaders() });
+        const gfRes = await fetch('/api/goofish/status', { credentials: 'same-origin' });
+        if (gfRes.status === 401 || gfRes.status === 403) {
+          clearAuthSession();
+          setCheckingAuth(false);
+          return;
+        }
         if (gfRes.ok) {
           const gfData = await gfRes.json();
-          setGoofishEnabled(gfData.hasCookies);
+          setGoofishEnabled(Boolean(gfData.hasCookies));
         }
-
       } catch (err) {
         console.error('Error checking auth/status:', err);
-        setIsAuthenticated(true); // Allow access if can't check
+        clearAuthSession();
       }
       setCheckingAuth(false);
     };
     checkAuth();
-  }, []);
+  }, [clearAuthSession]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: loginPassword })
       });
       const data = await res.json();
 
-      if (data.success && data.token) {
+      if (res.ok && data?.success) {
         setIsAuthenticated(true);
         setLoginRequired(false);
         setLoginError('');
-        sessionStorage.setItem('gkwatch_token', data.token); // Store token instead of boolean
       } else {
-        setLoginError(data.error || 'Incorrect password');
+        setLoginError(data?.error || 'Incorrect password');
       }
-    } catch (err) {
+    } catch {
       setLoginError('Error logging in');
     }
   };
 
   const authenticatedFetch = useCallback(async (url, options = {}) => {
-    const headers = { ...options.headers, ...getAuthHeaders() };
+    const headers = options.headers;
 
     // Default to 300s (5 min) timeout if not provided
     let signal = options.signal;
@@ -117,40 +147,13 @@ function App() {
       signal = AbortSignal.timeout(300000);
     }
 
-    const res = await fetch(url, { ...options, headers, signal });
-    if (res.status === 401) {
-      setIsAuthenticated(false);
-      setLoginRequired(true);
-      sessionStorage.removeItem('gkwatch_token');
+    const res = await fetch(url, { ...options, headers, signal, credentials: 'same-origin' });
+    if (res.status === 401 || res.status === 403) {
+      clearAuthSession();
       throw new Error('Unauthorized');
     }
     return res;
-  }, []);
-
-  // Reset page when filter changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [sourceFilter, sortBy, resultFilter]);
-
-  // Load search history from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('gkwatch_search_history');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setSearchHistory(parsed);
-        } else {
-          console.error('Search history corrupted, resetting');
-          localStorage.removeItem('gkwatch_search_history');
-          setSearchHistory([]);
-        }
-      } catch (e) {
-        console.error('Failed to load search history');
-        setSearchHistory([]);
-      }
-    }
-  }, []);
+  }, [clearAuthSession]);
 
   // Save search history to localStorage
   const saveToHistory = (term, type = 'normal') => {
@@ -185,11 +188,11 @@ function App() {
       return `${item.title}${price}\n${item.link}\n`;
     }).join('\n');
 
-    try {
-      await navigator.clipboard.writeText(text);
-      alert(`Copied ${items.length} items to clipboard!`);
-    } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
+      try {
+        await navigator.clipboard.writeText(text);
+        alert(`Copied ${items.length} items to clipboard!`);
+      } catch (err) {
+        console.error('Failed to copy to clipboard:', err);
       // Fallback for non-secure contexts (though this app is usually secure)
       const textArea = document.createElement("textarea");
       textArea.value = text;
@@ -199,75 +202,23 @@ function App() {
       try {
         document.execCommand('copy');
         alert(`Copied ${items.length} items to clipboard!`);
-      } catch (err) {
+      } catch {
         alert('Failed to copy to clipboard');
       }
       document.body.removeChild(textArea);
     }
   };
 
-  // Export results to HTML file with 5-column grid
+  // Export results to HTML file with secure templating
   const exportToHtml = (items, filename) => {
-    // Generate HTML content
-    const htmlContent = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>GK Watch Export - ${filename}</title>
-      <style>
-        body { font-family: sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f0f2f5; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
-        .card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
-        .img-container { height: 200px; overflow: hidden; position: relative; }
-        .img-container img { width: 100%; height: 100%; object-fit: cover; }
-        .content { padding: 15px; flex: 1; display: flex; flex-direction: column; }
-        h3 { margin: 0 0 10px; font-size: 1rem; line-height: 1.4; color: #333; }
-        .price { font-weight: bold; font-size: 1.2rem; color: #e53935; margin-bottom: 10px; }
-        .source { font-size: 0.8rem; color: #666; margin-top: auto; display: flex; justify-content: space-between; align-items: center; }
-        a { text-decoration: none; color: inherit; }
-        .blocked { opacity: 0.6; filter: grayscale(100%); }
-        .badge { background: #333; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; }
-      </style>
-    </head>
-    <body>
-      <h1>Search Results: ${filename}</h1>
-      <p>Exported on ${new Date().toLocaleString()} - ${items.length} items</p>
-      <div class="grid">
-        ${items.map(item => `
-          <div class="card">
-            <a href="${item.link}" target="_blank">
-              <div class="img-container">
-                <img src="${item.image}" alt="${item.title.replace(/"/g, '&quot;')}" loading="lazy">
-              </div>
-              <div class="content">
-                <h3>${item.title}</h3>
-                <div class="price">${item.price}</div>
-                <div class="source">
-                  <span>${item.source}</span>
-                  ${item.isNew ? '<span class="badge">NEW</span>' : ''}
-                </div>
-              </div>
-            </a>
-          </div>
-        `).join('')}
-      </div>
-    </body>
-    </html>
-    `;
-
-    // Create download link
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-
-    a.download = `${safeFilename} - ${dateStr} ${timeStr}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const safeName = makeExportFilename(filename || 'search_results');
+    const htmlContent = buildExportHtml({
+      heading: `Search Results: ${filename || 'search_results'}`,
+      items,
+      variant: 'light',
+      subtitle: `Exported on ${new Date().toLocaleString()} - ${items.length} items`
+    });
+    downloadExportHtml({ filename: safeName, html: htmlContent });
   };
 
   const handleBlock = useCallback(async (item) => {
@@ -318,7 +269,7 @@ function App() {
   const [siteErrors, setSiteErrors] = useState([]);
 
   // Helper to separate errors from valid results
-  const processResults = (rawResults) => {
+  const processResults = useCallback((rawResults) => {
     if (!Array.isArray(rawResults)) return [];
 
     // Find errors (any item with an 'error' property)
@@ -342,11 +293,12 @@ function App() {
     }
 
     return validItems;
-  };
+  }, []);
 
-  const fetchStream = async (url) => {
+  const fetchStream = useCallback(async (url, options = {}) => {
     const response = await authenticatedFetch(url, {
-      headers: { 'Accept': 'text/event-stream' }
+      headers: { 'Accept': 'text/event-stream' },
+      ...options
     });
 
     if (!response.ok) throw new Error('Network response was not ok');
@@ -360,15 +312,19 @@ function App() {
     const flushPendingItems = () => {
       if (flushTimer) clearTimeout(flushTimer);
       flushTimer = null;
+      if (options.signal?.aborted) {
+        pendingItems = [];
+        return;
+      }
       if (pendingItems.length === 0) return;
 
       const batch = pendingItems;
       pendingItems = [];
       setResults(prev => {
-        const existingLinks = new Set(prev.map(item => item.link));
+        const seenLinks = liveSearchSeenLinksRef.current;
         const uniqueItems = batch.filter(item => {
-          if (!item.link || existingLinks.has(item.link)) return false;
-          existingLinks.add(item.link);
+          if (!item.link || seenLinks.has(item.link)) return false;
+          seenLinks.add(item.link);
           return true;
         });
         return uniqueItems.length > 0 ? [...prev, ...uniqueItems] : prev;
@@ -431,14 +387,67 @@ function App() {
         }
       }
     } finally {
-      flushPendingItems();
+      if (options.signal?.aborted) {
+        if (flushTimer) clearTimeout(flushTimer);
+        pendingItems = [];
+      } else {
+        flushPendingItems();
+      }
     }
+  }, [authenticatedFetch, processResults]);
+
+  const getSearchRequestKey = useCallback((term, sitesParam) => `${term.toLowerCase()}|${sitesParam}`, []);
+
+  const runSearch = useCallback(async (term, sitesParam, signal) => {
+    const trimmedTerm = String(term || '').trim();
+    if (!trimmedTerm) return;
+    const key = getSearchRequestKey(trimmedTerm, sitesParam);
+
+    if (inFlightSearchesRef.current.has(key)) {
+      return inFlightSearchesRef.current.get(key);
+    }
+
+    const searchPromise = fetchStream(`/api/search?q=${encodeURIComponent(trimmedTerm)}${sitesParam}`, { signal })
+      .catch((err) => {
+        if (err?.name !== 'AbortError') console.error(`Error searching ${trimmedTerm}:`, err);
+      })
+      .finally(() => {
+        if (inFlightSearchesRef.current.get(key) === searchPromise) {
+          inFlightSearchesRef.current.delete(key);
+        }
+      });
+
+    inFlightSearchesRef.current.set(key, searchPromise);
+    return searchPromise;
+  }, [fetchStream, getSearchRequestKey]);
+
+  const runSearchBatch = useCallback(async (requests, signal, maxConcurrent = 2) => {
+    const queue = [...requests];
+    const workerCount = Math.min(maxConcurrent, queue.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (queue.length > 0 && !signal.aborted) {
+        const request = queue.shift();
+        if (request) await runSearch(request.term, request.sitesParam, signal);
+      }
+    }));
+  }, [runSearch]);
+
+  const beginLiveSearch = () => {
+    activeLiveSearchRef.current?.abort();
+    inFlightSearchesRef.current.clear();
+    const controller = new AbortController();
+    activeLiveSearchRef.current = controller;
+    liveSearchSeenLinksRef.current = new Set();
+    return controller;
   };
+
+  useEffect(() => () => activeLiveSearchRef.current?.abort(), []);
 
   const search = async (e, overrideQuery = null) => {
     if (e) e.preventDefault();
     const searchTerm = overrideQuery || query;
     if (!searchTerm.trim()) return;
+    const searchController = beginLiveSearch();
 
     setLoading(true);
     setError(null);
@@ -452,7 +461,6 @@ function App() {
     saveToHistory(searchTerm, 'normal');
     if (overrideQuery) setQuery(overrideQuery);
     setExecutedQuery(searchTerm);
-
     try {
       // Check if query contains | operator for multi-search
       const hasOrOperator = searchTerm.includes('|');
@@ -460,21 +468,20 @@ function App() {
 
       if (hasOrOperator) {
         // Split by | and run parallel searches
-        const terms = searchTerm.split(/\s*\|\s*/).filter(t => t.trim());
-        const promises = terms.map(term =>
-          fetchStream(`/api/search?q=${encodeURIComponent(term.trim())}${sitesParam}`)
-            .catch(err => console.error(`Error searching ${term}:`, err))
-        );
-        await Promise.all(promises);
+        const terms = Array.from(new Set(searchTerm.split(/\s*\|\s*/).map((term) => term.trim()).filter(Boolean)));
+        await runSearchBatch(terms.map(term => ({ term, sitesParam })), searchController.signal);
       } else {
         // Single search
-        await fetchStream(`/api/search?q=${encodeURIComponent(searchTerm)}${sitesParam}`);
+        await runSearch(searchTerm, sitesParam, searchController.signal);
       }
     } catch (err) {
       setError('Failed to fetch results. Please try again.');
       console.error(err);
     } finally {
-      setLoading(false);
+      if (activeLiveSearchRef.current === searchController) {
+        activeLiveSearchRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -482,6 +489,7 @@ function App() {
     if (e) e.preventDefault();
     const queryTerm = overrideQuery || query;
     if (!queryTerm.trim()) return;
+    const searchController = beginLiveSearch();
 
     setLoading(true);
     setError(null);
@@ -510,20 +518,19 @@ function App() {
 
     try {
       // Run searches in parallel
-      const promises = terms.map(term =>
-        fetchStream(`/api/search?q=${encodeURIComponent(term)}${sitesParam}`)
-          .catch(err => console.error(`Error searching ${term}:`, err))
-      );
-      promises.push(
-        fetchStream(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=mandarake&strict=${strictMode}&mandarakeMode=garageKit`)
-          .catch(err => console.error(`Error searching Mandarake GK for ${queryTerm}:`, err))
-      );
-      await Promise.all(promises);
+      const uniqueTerms = Array.from(new Set(terms.map((term) => term.trim()).filter(Boolean)));
+      await runSearchBatch([
+        ...uniqueTerms.map(term => ({ term, sitesParam })),
+        { term: queryTerm, sitesParam: `&sites=mandarake&strict=${strictMode}&mandarakeMode=garageKit` }
+      ], searchController.signal);
     } catch (err) {
       setError('Failed to fetch GK results. Please try again.');
       console.error(err);
     } finally {
-      setLoading(false);
+      if (activeLiveSearchRef.current === searchController) {
+        activeLiveSearchRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -531,6 +538,7 @@ function App() {
     if (e) e.preventDefault();
     const queryTerm = overrideQuery || query;
     if (!queryTerm.trim()) return;
+    const searchController = beginLiveSearch();
 
     setLoading(true);
     setError(null);
@@ -552,16 +560,20 @@ function App() {
 
       if (sites.length === 0) {
         setError('No CN sites enabled or cookies missing.');
+        activeLiveSearchRef.current = null;
         setLoading(false);
         return;
       }
 
-      await fetchStream(`/api/search?q=${encodeURIComponent(queryTerm)}&sites=${sites.join(',')}&strict=${strictMode}`);
+      await runSearch(queryTerm, `&sites=${sites.join(',')}&strict=${strictMode}`, searchController.signal);
     } catch (err) {
       setError('Failed to fetch CN results.');
       console.error(err);
     } finally {
-      setLoading(false);
+      if (activeLiveSearchRef.current === searchController) {
+        activeLiveSearchRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -664,7 +676,7 @@ function App() {
         >
           ⚙️ Options
         </button>
-        <Clock />
+        <Clock authenticatedFetch={authenticatedFetch} />
       </nav>
 
       {view === 'search' && (
@@ -837,7 +849,7 @@ function App() {
                 <span style={{ color: '#555' }}>|</span>
                 <select
                   value={sourceFilter}
-                  onChange={(e) => setSourceFilter(e.target.value)}
+                  onChange={(e) => { setSourceFilter(e.target.value); setCurrentPage(1); }}
                   className="search-input"
                   style={{ maxWidth: '200px', fontSize: '0.9rem', padding: '0.5rem' }}
                 >
@@ -849,7 +861,7 @@ function App() {
                 {sourceFilter !== 'All' && (
                   <button
                     className="clear-filter-btn"
-                    onClick={() => setSourceFilter('All')}
+                    onClick={() => { setSourceFilter('All'); setCurrentPage(1); }}
                   >
                     ✕ Clear
                   </button>
@@ -857,7 +869,7 @@ function App() {
                 <span style={{ color: '#555' }}>|</span>
                 <select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
+                  onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
                   className="search-input"
                   style={{ maxWidth: '180px', fontSize: '0.9rem', padding: '0.5rem' }}
                 >

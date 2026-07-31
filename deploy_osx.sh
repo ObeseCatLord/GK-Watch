@@ -2,7 +2,8 @@
 # GK Watcher Deploy Script (MacOS Version)
 # Checks and installs dependencies via Homebrew before starting the application
 
-set -e
+set -euo pipefail
+umask 077
 
 echo "🚀 GK Watcher Deployment Setup (MacOS)"
 echo "===================================="
@@ -37,7 +38,7 @@ if ! command -v node &> /dev/null; then
     # Check for NVM directory as a hint that NVM might be installed
     if [ -d "$HOME/.nvm" ]; then
         echo "⚠️  It looks like NVM is installed ($HOME/.nvm exists)."
-        echo "   Please run 'nvm install 18' (or newer) and 'nvm use 18' before running this script,"
+        echo "   Please run 'nvm install 20' and 'nvm use 20' before running this script,"
         echo "   or ensure your shell is configured to load NVM."
         exit 1
     else
@@ -47,11 +48,6 @@ if ! command -v node &> /dev/null; then
 else
     echo "✅ Node.js $(node -v) found."
     
-    # Version warning
-    NODE_VERSION=$(node -v | cut -d'.' -f1 | tr -d 'v')
-    if [ "$NODE_VERSION" -lt 18 ]; then
-         echo "⚠️  Warning: Node.js version is $NODE_VERSION. Recommended 18+."
-    fi
 fi
 
 # 4. Check/Install NPM (usually comes with node)
@@ -67,18 +63,35 @@ if ! command -v node &> /dev/null || ! command -v npm &> /dev/null; then
     exit 1
 fi
 
+if ! node -e "const [a,b,c]=process.versions.node.split('.').map(Number);const ok=(a===20&&(b>18||(b===18&&c>=1)))||(a>20&&a<27);process.exit(ok?0:1)"; then
+    echo "❌ Node.js 20.18.1 through 26.x is required. Found $(node -v)."
+    exit 1
+fi
+
+if [ ! -x "${PUPPETEER_EXECUTABLE_PATH:-}" ] \
+    && [ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ] \
+    && [ ! -x "/Applications/Chromium.app/Contents/MacOS/Chromium" ]; then
+    echo "⚙️  Chrome not found. Installing via Homebrew..."
+    brew install --cask google-chrome
+fi
+
 # Install server dependencies
 echo ""
 echo "📦 Installing server dependencies..."
 cd server
-npm install
+npm ci
+npm audit --omit=dev --audit-level=high
+npm test -- --runInBand
 cd ..
 
 # Install client dependencies
 echo ""
 echo "📦 Installing client dependencies..."
 cd client
-npm install
+npm ci
+npm audit --omit=dev --audit-level=high
+npm run lint
+npm test -- --run
 
 # Build client
 echo ""

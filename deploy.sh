@@ -2,7 +2,8 @@
 # GK Watcher Deploy Script (Multi-Distro)
 # Checks and installs dependencies before starting the application
 
-set -e
+set -euo pipefail
+umask 077
 
 echo "🚀 GK Watcher Deployment Setup"
 echo "================================"
@@ -55,14 +56,6 @@ if ! command -v node &> /dev/null; then
     echo "⚙️  Node.js not found. Installing..."
     install_dependency nodejs node
     
-    # Check version
-    if command -v node &> /dev/null; then
-        NODE_VERSION=$(node -v | cut -d'.' -f1 | tr -d 'v')
-        if [ "$NODE_VERSION" -lt 18 ]; then
-             echo "⚠️  Installed Node.js version is too old ($NODE_VERSION). Require 18+."
-             echo "   Attempting to upgrade via n/nvm is tricky here. Please upgrade Node.js manually."
-        fi
-    fi
 else
     echo "✅ Node.js $(node -v) found"
 fi
@@ -73,9 +66,20 @@ if ! command -v npm &> /dev/null; then
     install_dependency npm
 fi
 
+# 4. Browser scrapers use the host browser so installs do not depend on large,
+# failure-prone Puppeteer downloads.
+if ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1 && ! command -v google-chrome >/dev/null 2>&1; then
+    install_dependency chromium chromium
+fi
+
 # Final Check
 if ! command -v node &> /dev/null || ! command -v npm &> /dev/null; then
     echo "❌ Failed to install Node.js/npm. Please install manually."
+    exit 1
+fi
+
+if ! node -e "const [a,b,c]=process.versions.node.split('.').map(Number);const ok=(a===20&&(b>18||(b===18&&c>=1)))||(a>20&&a<27);process.exit(ok?0:1)"; then
+    echo "❌ Node.js 20.18.1 through 26.x is required. Found $(node -v)."
     exit 1
 fi
 
@@ -83,17 +87,22 @@ fi
 echo ""
 echo "📦 Installing server dependencies..."
 cd server
-if ! npm install; then
-    echo "⚠️  npm install failed. Retrying with PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true..."
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install
+if ! npm ci; then
+    echo "⚠️  npm ci failed. Retrying with PUPPETEER_SKIP_DOWNLOAD=true..."
+    PUPPETEER_SKIP_DOWNLOAD=true npm ci
 fi
+npm audit --omit=dev --audit-level=high
+npm test -- --runInBand
 cd ..
 
 # Install client dependencies
 echo ""
 echo "📦 Installing client dependencies..."
 cd client
-npm install
+npm ci
+npm audit --omit=dev --audit-level=high
+npm run lint
+npm test -- --run
 
 # Build client
 echo ""
@@ -104,7 +113,7 @@ cd ..
 # Create data directory
 echo ""
 echo "📁 Setting up data directory..."
-mkdir -p server/data
+install -d -m 700 server/data
 
 echo ""
 echo "================================"

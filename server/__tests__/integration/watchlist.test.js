@@ -7,9 +7,10 @@
 const { getTestDb, closeTestDb, clearTestDb } = require('../testSetup');
 
 let Watchlist;
+let db;
 
 beforeAll(() => {
-    getTestDb();
+    db = getTestDb();
     Watchlist = require('../../models/watchlist');
 });
 
@@ -130,6 +131,21 @@ describe('Watchlist', () => {
             const list = await Watchlist.getAll();
             expect(list.find(i => i.id === item.id)).toBeUndefined();
         });
+
+        test('removes dependent results and metadata transactionally', async () => {
+            const item = await Watchlist.add({ term: 'remove-with-results' });
+            db.prepare(`INSERT INTO results
+                (watch_id, title, link, first_seen, last_seen, is_new, hidden)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`)
+                .run(item.id, 'Result', 'https://example.test/remove', new Date().toISOString(), new Date().toISOString(), 1, 0);
+            db.prepare('INSERT INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, ?)')
+                .run(item.id, new Date().toISOString(), 1);
+
+            await Watchlist.remove(item.id);
+
+            expect(db.prepare('SELECT COUNT(*) AS count FROM results WHERE watch_id = ?').get(item.id).count).toBe(0);
+            expect(db.prepare('SELECT COUNT(*) AS count FROM results_meta WHERE watch_id = ?').get(item.id).count).toBe(0);
+        });
     });
 
     describe('toggleActive', () => {
@@ -191,6 +207,24 @@ describe('Watchlist', () => {
             const remaining = await Watchlist.getAll();
             expect(remaining).toHaveLength(1);
             expect(remaining[0].name).toBe('Merged Watch');
+        });
+
+        test('cleans results and metadata belonging to merged watches', async () => {
+            const item1 = await Watchlist.add({ term: 'merge-cleanup-one' });
+            await new Promise(r => setTimeout(r, 5));
+            const item2 = await Watchlist.add({ term: 'merge-cleanup-two' });
+            const timestamp = new Date().toISOString();
+            const insertResult = db.prepare(`INSERT INTO results
+                (watch_id, title, link, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)`);
+            insertResult.run(item1.id, 'First', 'https://example.test/first', timestamp, timestamp);
+            insertResult.run(item2.id, 'Second', 'https://example.test/second', timestamp, timestamp);
+            db.prepare('INSERT INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, ?)').run(item1.id, timestamp, 1);
+            db.prepare('INSERT INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, ?)').run(item2.id, timestamp, 1);
+
+            await Watchlist.merge([item1.id, item2.id], 'Merged cleanup');
+
+            expect(db.prepare('SELECT COUNT(*) AS count FROM results').get().count).toBe(0);
+            expect(db.prepare('SELECT COUNT(*) AS count FROM results_meta').get().count).toBe(0);
         });
     });
 

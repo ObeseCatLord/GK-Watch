@@ -2,7 +2,8 @@
 # GK Watcher Update Script (MacOS Version)
 # Pulls latest code and rebuilds the client
 
-set -e
+set -euo pipefail
+umask 077
 
 echo "🔄 Updating GK Watcher (MacOS)..."
 
@@ -12,19 +13,24 @@ cd "$SCRIPT_DIR"
 
 # Pull latest changes
 echo "📥 Pulling latest changes..."
-git pull
+git pull --ff-only
 
 # Rebuild client
 echo "🔨 Building client..."
 cd client
-npm install
+npm ci
+npm audit --omit=dev --audit-level=high
+npm run lint
+npm test -- --run
 npm run build
 cd ..
 
 # Install server dependencies
 echo "📦 Installing server dependencies..."
 cd server
-npm install
+npm ci
+npm audit --omit=dev --audit-level=high
+npm test -- --runInBand
 cd ..
 
 echo "✅ Update complete!"

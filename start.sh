@@ -1,5 +1,8 @@
 #!/bin/bash
 
+set -euo pipefail
+umask 077
+
 # GK Watcher Launch Script
 # This script starts both the backend server and frontend dev server (or production mode)
 
@@ -10,12 +13,17 @@ echo "🚀 Starting GK Watcher..."
 # TMPDIR not needed as Snap is fixed
 unset TMPDIR
 
-# Kill any existing processes on ports 3000 and 5173
-echo "Cleaning up any existing processes..."
-fuser -k 3000/tcp 2>/dev/null
-fuser -k 5173/tcp 2>/dev/null
-fuser -k 5174/tcp 2>/dev/null
-sleep 3
+BACKEND_PID=""
+FRONTEND_PID=""
+
+cleanup() {
+    echo ""
+    echo "Shutting down..."
+    [ -z "$FRONTEND_PID" ] || kill "$FRONTEND_PID" 2>/dev/null || true
+    [ -z "$BACKEND_PID" ] || kill "$BACKEND_PID" 2>/dev/null || true
+}
+
+trap cleanup EXIT SIGINT SIGTERM
 
 # Check for production build
 if [ -f "client/dist/index.html" ]; then
@@ -23,7 +31,7 @@ if [ -f "client/dist/index.html" ]; then
     echo ""
     echo "Starting server (backend serves frontend)..."
     cd server
-    node server.js &
+    NODE_ENV=production node server.js &
     BACKEND_PID=$!
     cd ..
 
@@ -32,18 +40,7 @@ if [ -f "client/dist/index.html" ]; then
     echo ""
     echo "Press Ctrl+C to stop the server"
 
-    # Handle cleanup on exit
-    cleanup() {
-        echo ""
-        echo "Shutting down..."
-        kill $BACKEND_PID 2>/dev/null
-        fuser -k 3000/tcp 2>/dev/null
-        exit 0
-    }
-
-    trap cleanup SIGINT SIGTERM
-
-    wait
+    wait "$BACKEND_PID"
 else
     echo "ℹ️  Client build NOT found. Starting in DEV mode..."
     echo ""
@@ -72,18 +69,5 @@ else
     echo ""
     echo "Press Ctrl+C to stop both servers"
 
-    # Handle cleanup on exit
-    cleanup() {
-        echo ""
-        echo "Shutting down..."
-        kill $BACKEND_PID 2>/dev/null
-        kill $FRONTEND_PID 2>/dev/null
-        fuser -k 3000/tcp 2>/dev/null
-        fuser -k 5173/tcp 2>/dev/null
-        exit 0
-    }
-
-    trap cleanup SIGINT SIGTERM
-
-    wait
+    wait -n "$BACKEND_PID" "$FRONTEND_PID"
 fi

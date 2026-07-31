@@ -1,4 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+
+const normalizeScheduleInterval = (interval) => Number(interval) === 30 ? 30 : 60;
+const normalizeSlots = (slots) => [...new Set((slots || [])
+    .map(slot => Number(slot))
+    .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 24 * 60 && slot % 30 === 0))]
+    .sort((a, b) => a - b);
+const normalizeHalfHourSlots = (slots) => normalizeSlots(slots).filter(slot => slot % 60 === 30);
+const getLocalTimeZoneName = () => {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date());
+        return parts.find(part => part.type === 'timeZoneName')?.value || 'Local';
+    } catch (error) {
+        console.error('Error getting timezone:', error);
+        return 'Local';
+    }
+};
 
 const OptionsManager = ({ authenticatedFetch }) => {
     const [settings, setSettings] = useState({
@@ -15,14 +31,12 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [saved, setSaved] = useState(false);
     const [testStatus, setTestStatus] = useState('');
     const [ntfyTestStatus, setNtfyTestStatus] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [showLoginPassword, setShowLoginPassword] = useState(false);
     const [enabledSlots, setEnabledSlots] = useState([]);
     const [disabledHalfHourSlots, setDisabledHalfHourSlots] = useState([]);
     const [scheduleInterval, setScheduleInterval] = useState(60);
     const saveTimeoutRef = React.useRef(null);
 
-    const [timeZoneName, setTimeZoneName] = useState('Local');
+    const [timeZoneName] = useState(getLocalTimeZoneName);
 
     // Password State
     const [newPassword, setNewPassword] = useState('');
@@ -35,7 +49,6 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [smtpPassSaved, setSmtpPassSaved] = useState(false);
 
     // Cookie Upload State
-    const [showCookieModal, setShowCookieModal] = useState(false);
     const [cookieSite, setCookieSite] = useState(null); // 'taobao', 'goofish', or 'mandarake'
     const [cookieContent, setCookieContent] = useState('');
     const [cookieError, setCookieError] = useState('');
@@ -45,24 +58,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [cleanupStatus, setCleanupStatus] = useState('');
     const [cleanupMessage, setCleanupMessage] = useState('');
 
-    useEffect(() => {
-        try {
-            const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
-                .formatToParts(new Date());
-            const tz = parts.find(p => p.type === 'timeZoneName');
-            if (tz) setTimeZoneName(tz.value);
-        } catch (e) {
-            console.error('Error getting timezone:', e);
-        }
-
-        fetchSettings();
-        fetchSchedule();
-    }, []);
-
-
-
-
-    const fetchSettings = async () => {
+    const fetchSettings = useCallback(async () => {
         try {
             const res = await authenticatedFetch('/api/settings');
             const data = await res.json();
@@ -70,9 +66,9 @@ const OptionsManager = ({ authenticatedFetch }) => {
         } catch (err) {
             console.error('Error fetching settings:', err);
         }
-    };
+    }, [authenticatedFetch]);
 
-    const fetchSchedule = async () => {
+    const fetchSchedule = useCallback(async () => {
         try {
             const res = await authenticatedFetch('/api/schedule');
             const data = await res.json();
@@ -90,20 +86,15 @@ const OptionsManager = ({ authenticatedFetch }) => {
         } catch (err) {
             console.error('Error fetching schedule:', err);
         }
-    };
+    }, [authenticatedFetch]);
 
-    const normalizeScheduleInterval = (interval) => Number(interval) === 30 ? 30 : 60;
-
-    const normalizeSlots = (slots) => {
-        return [...new Set((slots || [])
-            .map(slot => Number(slot))
-            .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 24 * 60 && slot % 30 === 0))]
-            .sort((a, b) => a - b);
-    };
-
-    const normalizeHalfHourSlots = (slots) => {
-        return normalizeSlots(slots).filter(slot => slot % 60 === 30);
-    };
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetchSettings();
+            fetchSchedule();
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [fetchSettings, fetchSchedule]);
 
     const applyHalfHourDefaults = (slots, disabledSlots) => {
         const disabledSet = new Set(normalizeHalfHourSlots(disabledSlots));
@@ -184,8 +175,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
             setPasswordError('Password cannot be empty');
             return;
         }
-        if (newPassword.length < 5) {
-            setPasswordError('Password must be at least 5 characters');
+        if (newPassword.length < 12) {
+            setPasswordError('Password must be at least 12 characters');
             return;
         }
 
@@ -248,29 +239,6 @@ const OptionsManager = ({ authenticatedFetch }) => {
         }, 500);
     };
 
-    const saveSettings = async () => {
-        try {
-            // When manually saving, we need to ensure we send the current state,
-            // and handle potential missing password data.
-            const settingsToSave = { ...settings };
-            // If smtpPass or loginPassword are empty, it means the user didn't change them,
-            // so we should not send an empty string to overwrite existing passwords.
-            // The backend should handle this by ignoring empty password fields if they were not explicitly changed.
-            // For now, we'll just send the current state. The backend logic will need to be robust.
-
-            await authenticatedFetch('/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settingsToSave)
-            });
-            setSaved(true);
-            setTimeout(() => setSaved(false), 3000);
-        } catch (err) {
-            console.error('Error saving settings:', err);
-            alert('Failed to save settings');
-        }
-    };
-
     const handleCookieSave = async () => {
         if (!cookieContent.trim()) {
             setCookieError('Please paste cookie JSON content');
@@ -280,7 +248,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
         try {
             // Basic validation
             JSON.parse(cookieContent);
-        } catch (e) {
+        } catch {
             setCookieError('Invalid JSON format. Please copy directly from EditThisCookie.');
             return;
         }
@@ -443,7 +411,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
             try {
                 importData = JSON.parse(text);
                 isJson = true;
-            } catch (e) {
+            } catch {
                 // Not JSON, fall back to text lines
                 isJson = false;
             }
@@ -590,14 +558,28 @@ const OptionsManager = ({ authenticatedFetch }) => {
     };
 
     const runManualCleanup = async () => {
-        if (!window.confirm('Run system cleanup now? This will delete temporary files and expired database entries.')) {
-            return;
-        }
-
         setCleanupStatus('cleaning');
         setCleanupMessage('');
         try {
-            const res = await authenticatedFetch('/api/cleanup', { method: 'POST' });
+            const previewRes = await authenticatedFetch('/api/cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
+            const preview = await previewRes.json();
+            if (!previewRes.ok) throw new Error(preview.error || 'Cleanup preview failed');
+            const expiredCount = preview.stats?.results?.wouldRemove || 0;
+            const tempCount = preview.stats?.puppeteer?.filesRemoved || 0;
+            if (!window.confirm(`Delete ${expiredCount} expired result(s) and ${tempCount} temporary item(s)?`)) {
+                setCleanupStatus('');
+                return;
+            }
+
+            const res = await authenticatedFetch('/api/cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: true })
+            });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Cleanup failed');
 

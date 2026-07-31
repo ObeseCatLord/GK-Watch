@@ -9,6 +9,65 @@ const axios = require('axios');
 const { webcrypto, randomUUID } = require('node:crypto');
 const { subtle } = webcrypto;
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery, getSearchTerms } = require('../utils/queryMatcher');
+const { resolveBrowserExecutable } = require('../utils/browserExecutable');
+const { browserPool } = require('../utils/admissionControl');
+
+function abortError() {
+    const error = new Error('Mercari search aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    return error;
+}
+
+function isAborted(signal, error) {
+    return signal?.aborted || error?.code === 'ABORT_ERR' || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError';
+}
+
+function throwIfAborted(signal) {
+    if (signal?.aborted) throw abortError();
+}
+
+function delay(ms, signal) {
+    if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+    if (signal.aborted) return Promise.reject(abortError());
+
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(done, ms);
+        const onAbort = () => {
+            clearTimeout(timeout);
+            signal.removeEventListener('abort', onAbort);
+            reject(abortError());
+        };
+        function done() {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+function withAbort(promise, signal) {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(abortError());
+
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            signal.removeEventListener('abort', onAbort);
+            reject(abortError());
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        Promise.resolve(promise).then(
+            value => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
+            },
+            error => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+            }
+        );
+    });
+}
 
 // --- DPoP Utils ---
 function encodeBase64Url(buffer) {
@@ -84,8 +143,9 @@ function flattenQuery(node, acc = { include: [], exclude: [] }) {
 }
 
 // --- Direct Axios Search ---
-async function searchAxios(query, strictEnabled, filters, onProgress = null) {
+async function searchAxios(query, strictEnabled, filters, onProgress = null, signal = null) {
     console.log(`[Mercari Axios] Searching for: "${query}"`);
+    throwIfAborted(signal);
 
     // Generate Ephemeral Keys
     const keyPair = await subtle.generateKey(
@@ -108,6 +168,7 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
     const excludeKeyword = negativeTermsList.join(' ');
 
     for (let page = 0; page < MAX_PAGES; page++) {
+        throwIfAborted(signal);
         const searchPayload = {
             "pageSize": 120,
             "searchSessionId": "axios_session_" + Date.now(),
@@ -130,8 +191,10 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
             const MAX_RETRIES = 3;
 
             while (true) {
+                throwIfAborted(signal);
                 // Generate Token per request (good practice, though RFC allows reuse within time window)
                 const dpopToken = await generateDPoP(targetUrl, method, keyPair);
+                throwIfAborted(signal);
 
                 try {
                     response = await axios.post(targetUrl, searchPayload, {
@@ -143,15 +206,17 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
                             "Referer": "https://jp.mercari.com/",
                             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                         },
-                        timeout: 10000
+                        timeout: 10000,
+                        signal
                     });
                     break; // Success
                 } catch (err) {
+                    if (isAborted(signal, err)) throw abortError();
                     if (err.response && err.response.status === 429 && retries < MAX_RETRIES) {
                         retries++;
-                        const delay = 2000 * retries;
-                        console.log(`[Mercari Axios] Rate limited (429) on page ${page + 1}. Retrying in ${delay}ms...`);
-                        await new Promise(r => setTimeout(r, delay));
+                        const retryDelay = 2000 * retries;
+                        console.log(`[Mercari Axios] Rate limited (429) on page ${page + 1}. Retrying in ${retryDelay}ms...`);
+                        await delay(retryDelay, signal);
                         // Retry loop will regenerate DPoP
                     } else {
                         throw err; // Propagate other errors
@@ -213,9 +278,10 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null) {
             // Safety break if token didn't change (prevent loop)
             if (page > 0 && !allResults._nextPageToken) break;
 
-            await new Promise(r => setTimeout(r, 100)); // Reduced polite delay
+            await delay(100, signal); // Reduced polite delay
 
         } catch (err) {
+            if (isAborted(signal, err)) throw abortError();
             console.error(`[Mercari Axios] Error on page ${page + 1}: ${err.message}`);
             if (allResults.length === 0) return null; // If first page fails, return null to trigger fallback
             break; // Otherwise return what we have
@@ -255,16 +321,11 @@ async function getBrowser() {
         browserPromise = null;
     }
 
-    const isARM = process.arch === 'arm' || process.arch === 'arm64';
-    const executablePath = (process.platform === 'linux' && isARM)
-        ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-        : undefined;
-
     browserPromise = puppeteer.launch({
         headless: true,
-        executablePath,
+        executablePath: resolveBrowserExecutable(),
         pipe: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        args: ['--disable-dev-shm-usage', '--disable-gpu']
     }).catch(err => {
         browserPromise = null;
         throw err;
@@ -280,7 +341,7 @@ function reset() {
     console.log('Mercari Scraper state reset.');
 }
 
-async function performSearch(query, strictEnabled, filters) {
+async function performSearch(query, strictEnabled, filters, signal = null) {
     // Optimization: Mercari doesn't support negative search terms in the URL query.
     // Also, Mercari's search engine interprets quotes differently, so we search for UNQUOTED terms
     // and rely on our server-side strict filtering (lines 241+) to enforce quotes if present.
@@ -290,16 +351,32 @@ async function performSearch(query, strictEnabled, filters) {
     let context = null;
     let page = null;
     let timeoutHandle = null;
+    let abortHandler = null;
+
+    const closeSearchResources = async () => {
+        if (page) {
+            try { await page.close(); } catch (e) { }
+            page = null;
+        }
+        if (context) {
+            try { await context.close(); } catch (e) { }
+            context = null;
+        }
+    };
 
     // Search Logic Promise
     const runSearch = async () => {
+        throwIfAborted(signal);
         console.log(`Searching Mercari for ${effectiveQuery}...`);
 
         const MAX_PAGES = 30; // Increased to 30 for deep scraping fallback
 
         const browser = await getBrowser();
+        throwIfAborted(signal);
         context = await browser.createBrowserContext();
+        throwIfAborted(signal);
         page = await context.newPage();
+        throwIfAborted(signal);
 
         // Optimize: Block images and fonts
         await page.setRequestInterception(true);
@@ -323,7 +400,9 @@ async function performSearch(query, strictEnabled, filters) {
         let currentUrl = `https://jp.mercari.com/search?keyword=${encodeURIComponent(effectiveQuery)}&status=on_sale`;
 
         for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
+            throwIfAborted(signal);
             await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            throwIfAborted(signal);
 
             // Race check: Wait for either items OR no-results text
             try {
@@ -487,8 +566,17 @@ async function performSearch(query, strictEnabled, filters) {
         }, 240000);
     });
 
+    const abortPromise = signal && new Promise((resolve, reject) => {
+        abortHandler = () => {
+            void closeSearchResources();
+            reject(abortError());
+        };
+        signal.addEventListener('abort', abortHandler, { once: true });
+    });
+
     try {
-        const result = await Promise.race([runSearch(), timeoutPromise]);
+        throwIfAborted(signal);
+        const result = await Promise.race([runSearch(), timeoutPromise, abortPromise].filter(Boolean));
 
         if (result === 'TIMEOUT') {
             throw new Error('TIMEOUT'); // Throw so wrapper catches it
@@ -498,12 +586,8 @@ async function performSearch(query, strictEnabled, filters) {
         return result;
 
     } finally {
-        if (page) {
-            try { await page.close(); } catch (e) { }
-        }
-        if (context) {
-            try { await context.close(); } catch (e) { }
-        }
+        signal?.removeEventListener('abort', abortHandler);
+        await closeSearchResources();
         if (timeoutHandle) clearTimeout(timeoutHandle);
     }
 }
@@ -536,7 +620,7 @@ function convertToMercariLink(neokyoLink) {
 /**
  * Search via Neokyo (Secondary Fallback)
  */
-async function searchNeokyo(query, strictEnabled, filters) {
+async function searchNeokyo(query, strictEnabled, filters, signal = null) {
     // Mercari doesn't support negative filters natively via API usually, but Neokyo might pass it through?
     // User requested using '-' for filtered terms.
     let effectiveQuery = query;
@@ -547,6 +631,7 @@ async function searchNeokyo(query, strictEnabled, filters) {
     }
 
     console.log(`[Mercari Fallback] Searching Neokyo for ${effectiveQuery}...`);
+    throwIfAborted(signal);
     const allResults = [];
     let totalPages = 1;
 
@@ -561,7 +646,8 @@ async function searchNeokyo(query, strictEnabled, filters) {
                 'Accept': 'text/html,application/xhtml+xml',
                 'Accept-Language': 'en-US,en;q=0.5'
             },
-            timeout: 15000
+            timeout: 15000,
+            signal
         });
 
         const $ = cheerio.load(response.data);
@@ -634,7 +720,8 @@ async function searchNeokyo(query, strictEnabled, filters) {
 
         // Fetch remaining pages
         for (let page = 2; page <= totalPages; page++) {
-            await new Promise(r => setTimeout(r, DELAY_BETWEEN_PAGES));
+            await delay(DELAY_BETWEEN_PAGES, signal);
+            throwIfAborted(signal);
             const pageUrl = buildNeokyoUrl(effectiveQuery, page);
 
             try {
@@ -642,13 +729,15 @@ async function searchNeokyo(query, strictEnabled, filters) {
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     },
-                    timeout: 15000
+                    timeout: 15000,
+                    signal
                 });
                 const $p = cheerio.load(pRes.data);
                 const pResults = parsePageResults($p);
                 if (pResults.length === 0) break;
                 allResults.push(...pResults);
             } catch (err) {
+                if (isAborted(signal, err)) throw abortError();
                 console.error(`[Mercari Fallback] Error fetching page ${page}:`, err.message);
             }
         }
@@ -677,15 +766,18 @@ async function searchNeokyo(query, strictEnabled, filters) {
         return filtered;
 
     } catch (error) {
+        if (isAborted(signal, error)) throw abortError();
         console.error(`[Mercari Fallback] Error: ${error.message}`);
         return null;
     }
 }
 
-async function searchDoorzo(query, strictEnabled = true, filters = []) {
+async function searchDoorzo(query, strictEnabled = true, filters = [], signal = null) {
     console.log(`[Mercari Doorzo] Searching Doorzo for ${query}...`);
+    throwIfAborted(signal);
 
-    const results = await doorzo.search(query, 'mercari');
+    const results = await withAbort(doorzo.search(query, 'mercari', signal), signal);
+    throwIfAborted(signal);
     if (results === null) return null;
 
     let filtered = Array.isArray(results) ? results : [];
@@ -711,7 +803,9 @@ async function searchDoorzo(query, strictEnabled = true, filters = []) {
     return filtered;
 }
 
-async function search(query, strictEnabled = true, filters = [], onProgress = null) {
+async function search(query, strictEnabled = true, filters = [], onProgress = null, signal = null) {
+
+    throwIfAborted(signal);
 
     if (isDisabled) {
         console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
@@ -720,49 +814,53 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
 
     // Priority 1: Direct Axios (Fastest, DPoP Auth)
     try {
-        const axiosResults = await searchAxios(query, strictEnabled, filters, onProgress);
+        const axiosResults = await searchAxios(query, strictEnabled, filters, onProgress, signal);
         if (axiosResults !== null) {
             console.log(`[Mercari] Axios search successful (${axiosResults.length} items).`);
             return axiosResults;
         }
         console.warn('[Mercari] Axios failed (returned null), falling back to Doorzo...');
     } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
         console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to Doorzo...`);
     }
 
     // Priority 2: Doorzo (Fast/Axios + native Mercari IDs)
     try {
-        const doorzoResults = await searchDoorzo(query, strictEnabled, filters);
+        const doorzoResults = await searchDoorzo(query, strictEnabled, filters, signal);
         if (doorzoResults !== null) {
             console.log(`[Mercari] Doorzo search successful (${doorzoResults.length} items).`);
             return doorzoResults;
         }
         console.warn('[Mercari] Doorzo failed (returned null), falling back to Neokyo...');
     } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
         console.warn(`[Mercari] Doorzo error: ${err.message}, falling back to Neokyo...`);
     }
 
     // Priority 3: Neokyo (Fast/Axios)
     try {
         console.log('[Mercari] Attempting Fallback: Neokyo...');
-        const neokyoResults = await searchNeokyo(query, strictEnabled, filters);
+        const neokyoResults = await searchNeokyo(query, strictEnabled, filters, signal);
         if (neokyoResults !== null) {
             console.log(`[Mercari] Neokyo search successful (${neokyoResults.length} items).`);
             return neokyoResults;
         }
     } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
         console.warn(`[Mercari] Neokyo error: ${err.message}.`);
     }
 
     // Priority 4: DEJapan (Fast/Axios + Full Titles)
     try {
-        const dejapanResults = await dejapan.search(query, strictEnabled, filters);
+        const dejapanResults = await withAbort(dejapan.search(query, strictEnabled, filters, signal), signal);
         if (dejapanResults !== null) {
             console.log(`[Mercari] DEJapan search successful (${dejapanResults.length} items).`);
             return dejapanResults;
         }
         console.warn('[Mercari] DEJapan failed (returned null), falling back to native scraper...');
     } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
         console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to native scraper...`);
     }
 
@@ -772,14 +870,15 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
     const MAX_RETRIES = 1;
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
         try {
-            return await performSearch(query, strictEnabled, filters);
+            return await browserPool.run(() => performSearch(query, strictEnabled, filters, signal), { signal });
         } catch (error) {
+            if (isAborted(signal, error)) throw abortError();
             console.error(`[Mercari] Native Attempt ${attempt}/${MAX_RETRIES + 1} failed: ${error.message}`);
             if (error.message === 'TIMEOUT' && attempt === MAX_RETRIES + 1) {
                 consecutiveTimeouts++;
                 if (consecutiveTimeouts >= 5) isDisabled = true;
             }
-            if (attempt <= MAX_RETRIES) await new Promise(resolve => setTimeout(resolve, 5000));
+            if (attempt <= MAX_RETRIES) await delay(5000, signal);
         }
     }
 

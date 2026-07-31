@@ -4,6 +4,14 @@ const queryMatcher = require('../utils/queryMatcher');
 const dejapan = require('./dejapan');
 const doorzo = require('./doorzo');
 
+function throwIfAborted(signal) {
+    if (!signal?.aborted) return;
+    const error = new Error('Search was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    throw error;
+}
+
 /**
  * Suruga-ya scraper using Neokyo as a proxy
  * Neokyo provides access to Suruga-ya listings without Cloudflare blocking
@@ -143,7 +151,8 @@ function parseResults($) {
  * Fetch the full title from a Neokyo product detail page
  * Used to verify truncated titles before filtering
  */
-async function fetchFullTitle(neokyoLink) {
+async function fetchFullTitle(neokyoLink, signal = null) {
+    throwIfAborted(signal);
     try {
         const response = await axios.get(neokyoLink, {
             headers: {
@@ -151,7 +160,8 @@ async function fetchFullTitle(neokyoLink) {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
             },
-            timeout: 10000
+            timeout: 10000,
+            signal
         });
 
         const $ = cheerio.load(response.data);
@@ -167,6 +177,7 @@ async function fetchFullTitle(neokyoLink) {
         return fullTitle || null;
 
     } catch (error) {
+        throwIfAborted(signal);
         const isRateLimit = error.response && (error.response.status === 403 || error.response.status === 429);
         console.log(`[Suruga-ya] Failed to fetch full title from ${neokyoLink}: ${error.message} ${isRateLimit ? '(Rate Limit/Block)' : ''}`);
 
@@ -223,7 +234,8 @@ function getTotalPages($) {
 /**
  * Fetch a single page with Axios
  */
-async function fetchPageWithAxios(url) {
+async function fetchPageWithAxios(url, signal = null) {
+    throwIfAborted(signal);
     try {
         const response = await axios.get(url, {
             headers: {
@@ -231,7 +243,8 @@ async function fetchPageWithAxios(url) {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
             },
-            timeout: 15000
+            timeout: 15000,
+            signal
         });
 
         const $ = cheerio.load(response.data);
@@ -240,12 +253,14 @@ async function fetchPageWithAxios(url) {
 
         return { results, totalPages, $ };
     } catch (error) {
+        throwIfAborted(signal);
         console.log(`Suruga-ya (Axios) page fetch failed: ${error.message}`);
         return { error: true, status: error.response?.status, message: error.message };
     }
 }
 
-async function fetchNeokyoPriceByProductId(productId) {
+async function fetchNeokyoPriceByProductId(productId, signal = null) {
+    throwIfAborted(signal);
     const searchUrl = buildSearchUrl(productId, 1);
 
     try {
@@ -255,7 +270,8 @@ async function fetchNeokyoPriceByProductId(productId) {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
             },
-            timeout: 10000
+            timeout: 10000,
+            signal
         });
 
         const $ = cheerio.load(response.data);
@@ -263,12 +279,14 @@ async function fetchNeokyoPriceByProductId(productId) {
         const match = results.find(item => getSurugayaProductId(item.link) === productId && item.price !== 'N/A');
         return match ? match.price : 'N/A';
     } catch (error) {
+        throwIfAborted(signal);
         console.log(`[Suruga-ya] Failed to hydrate price for ${productId} from Neokyo: ${error.message}`);
         return 'N/A';
     }
 }
 
-async function hydrateMissingSurugayaPrices(results) {
+async function hydrateMissingSurugayaPrices(results, signal = null) {
+    throwIfAborted(signal);
     if (!Array.isArray(results) || results.length === 0) {
         return results;
     }
@@ -287,13 +305,14 @@ async function hydrateMissingSurugayaPrices(results) {
 
     async function getCachedPrice(productId) {
         if (!priceCache.has(productId)) {
-            priceCache.set(productId, fetchNeokyoPriceByProductId(productId));
+            priceCache.set(productId, fetchNeokyoPriceByProductId(productId, signal));
         }
         return priceCache.get(productId);
     }
 
     async function worker() {
         while (nextIndex < targets.length) {
+            throwIfAborted(signal);
             const target = targets[nextIndex++];
             const price = await getCachedPrice(target.productId);
             if (price && price !== 'N/A') {
@@ -316,14 +335,15 @@ async function hydrateMissingSurugayaPrices(results) {
 /**
  * Try to scrape all pages with Axios
  */
-async function searchWithAxios(query) {
+async function searchWithAxios(query, signal = null) {
+    throwIfAborted(signal);
     const allResults = [];
 
     // Fetch first page to get total pages
     const firstPageUrl = buildSearchUrl(query, 1);
     console.log(`Suruga-ya: Fetching page 1...`);
 
-    const firstPageData = await fetchPageWithAxios(firstPageUrl);
+    const firstPageData = await fetchPageWithAxios(firstPageUrl, signal);
 
     if (!firstPageData || firstPageData.error) {
         // Check for specific "no results" message to confirm successful (empty) scrape
@@ -359,6 +379,7 @@ async function searchWithAxios(query) {
     // Fetch remaining pages
     for (let page = 2; page <= totalPages; page++) {
         await new Promise(r => setTimeout(r, DELAY_BETWEEN_PAGES));
+        throwIfAborted(signal);
 
         const searchUrl = buildSearchUrl(query, page);
 
@@ -366,7 +387,7 @@ async function searchWithAxios(query) {
             console.log(`Suruga-ya: Fetching page ${page}/${totalPages}...`);
         }
 
-        const pageData = await fetchPageWithAxios(searchUrl);
+        const pageData = await fetchPageWithAxios(searchUrl, signal);
 
         if (!pageData || pageData.error) {
             if (pageData && (pageData.status === 429 || pageData.status === 403)) {
@@ -394,14 +415,16 @@ async function searchWithAxios(query) {
 /**
  * Main search function - tries Doorzo (API) -> Neokyo (Axios) -> Puppeteer/Dejapan
  */
-async function search(query, strict = true, filters = []) {
+async function search(query, strict = true, filters = [], signal = null) {
+    throwIfAborted(signal);
     // Priority 0: Doorzo (API) - Fastest & Most Results
     // Note: Doorzo is loose/fuzzy, so we MUST apply client-side filtering.
     try {
         console.log(`[Suruga-ya] Searching Doorzo (API) for ${query}...`);
 
         // Use raw query for Doorzo, filtering later
-        let results = await doorzo.search(query, 'surugaya');
+        let results = await doorzo.search(query, 'surugaya', signal);
+        throwIfAborted(signal);
 
         if (results !== null) {
             console.log(`[Suruga-ya] Doorzo scraper successful. Found ${results.length} items.`);
@@ -431,11 +454,12 @@ async function search(query, strict = true, filters = []) {
                 console.log(`[Suruga-ya] Strict filtering (Doorzo) removed ${preStrictCount - results.length} items.`);
             }
 
-            return await hydrateMissingSurugayaPrices(results);
+            return await hydrateMissingSurugayaPrices(results, signal);
         } else {
             console.log('[Suruga-ya] Doorzo failed (returned null). Falling back to Neokyo...');
         }
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[Suruga-ya] Doorzo scraper error: ${err.message}`);
         // Fall through
     }
@@ -456,7 +480,7 @@ async function search(query, strict = true, filters = []) {
 
         console.log(`Searching Suruga-ya (Neokyo) for ${effectiveQuery}...`);
 
-        let results = await searchWithAxios(effectiveQuery);
+        let results = await searchWithAxios(effectiveQuery, signal);
 
         // Filter results if strict mode is on or if query contains quoted terms
         const parsedQuery = queryMatcher.parseQuery(query);
@@ -485,7 +509,7 @@ async function search(query, strict = true, filters = []) {
                         continue;
                     }
 
-                    const fullTitle = await fetchFullTitle(item.neokyoLink);
+                    const fullTitle = await fetchFullTitle(item.neokyoLink, signal);
 
                     if (fullTitle === 'RATE_LIMIT') {
                         rateLimitHit = true;
@@ -516,25 +540,29 @@ async function search(query, strict = true, filters = []) {
                 const { neokyoLink, ...rest } = item;
                 return rest;
             });
-            results = await hydrateMissingSurugayaPrices(results);
+            results = await hydrateMissingSurugayaPrices(results, signal);
             console.log(`[Suruga-ya] Neokyo search successful (${results.length} items).`);
             return results;
         }
         console.log('[Suruga-ya] Neokyo failed (returned null), falling back to DEJapan...');
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[Suruga-ya] Neokyo error: ${err.message}. Falling back to DEJapan...`);
     }
 
     // Priority 2: DEJapan (Surugaya via DEJapan)
     try {
         console.log('[Suruga-ya] Attempting Fallback: DEJapan...');
-        const dejapanResults = await dejapan.searchSurugaya(query, strict, filters);
+        throwIfAborted(signal);
+        const dejapanResults = await dejapan.searchSurugaya(query, strict, filters, signal);
+        throwIfAborted(signal);
         if (dejapanResults !== null) {
-            const results = await hydrateMissingSurugayaPrices(dejapanResults);
+            const results = await hydrateMissingSurugayaPrices(dejapanResults, signal);
             console.log(`[Suruga-ya] DEJapan search successful (${results.length} items).`);
             return results;
         }
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[Suruga-ya] DEJapan error: ${err.message}. All methods failed.`);
     }
 

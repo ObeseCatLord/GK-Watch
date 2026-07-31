@@ -22,19 +22,37 @@ const LEGACY_FILES = {
     results: path.join(DATA_DIR, 'results.json')
 };
 
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+function enforceMode(filePath, mode, label) {
+    try {
+        if (fs.existsSync(filePath)) fs.chmodSync(filePath, mode);
+    } catch (err) {
+        // Permission enforcement is best effort on filesystems that do not
+        // support POSIX modes; never expose file contents in diagnostics.
+        console.warn(`[Database] Could not enforce ${label} permissions: ${err.message}`);
+    }
 }
+
+// Ensure data directory exists and is private even when it predates this build.
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+}
+enforceMode(DATA_DIR, 0o700, 'data directory');
 
 // Create and configure the database connection
 const db = new Database(DB_PATH);
+enforceMode(DB_PATH, 0o600, 'database');
 
 // Performance optimizations
 db.pragma('journal_mode = WAL');      // Write-Ahead Logging for concurrent reads
 db.pragma('synchronous = NORMAL');     // Faster writes, still safe with WAL
 db.pragma('foreign_keys = ON');        // Enforce foreign key constraints
 db.pragma('busy_timeout = 5000');      // Wait up to 5s if DB is locked
+
+function enforceDatabaseFilePermissions() {
+    enforceMode(DB_PATH, 0o600, 'database');
+    enforceMode(`${DB_PATH}-wal`, 0o600, 'database WAL');
+    enforceMode(`${DB_PATH}-shm`, 0o600, 'database SHM');
+}
 
 /**
  * Initialize all tables
@@ -74,13 +92,15 @@ function initSchema() {
             is_new INTEGER DEFAULT 1,
             new_type TEXT DEFAULT 'new',
             hidden INTEGER DEFAULT 0,
-            UNIQUE(watch_id, link)
+            UNIQUE(watch_id, link),
+            FOREIGN KEY (watch_id) REFERENCES watchlist(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS results_meta (
             watch_id TEXT PRIMARY KEY,
             updated_at TEXT,
-            new_count INTEGER DEFAULT 0
+            new_count INTEGER DEFAULT 0,
+            FOREIGN KEY (watch_id) REFERENCES watchlist(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS blocked_items (
@@ -126,6 +146,10 @@ function initSchema() {
         );
     `);
 
+    // Older databases were created before the foreign keys above existed. Keep
+    // their data consistent without rebuilding a live table during startup.
+    cleanupOrphanedWatchData();
+
     addColumnIfMissing('results', 'new_type', "TEXT DEFAULT 'new'");
     addColumnIfMissing('watchlist', 'site_options', "TEXT DEFAULT '{}'");
 
@@ -134,10 +158,13 @@ function initSchema() {
         CREATE INDEX IF NOT EXISTS idx_results_watch_id ON results(watch_id);
         CREATE INDEX IF NOT EXISTS idx_results_link ON results(watch_id, link);
         CREATE INDEX IF NOT EXISTS idx_results_source ON results(watch_id, source);
+        CREATE INDEX IF NOT EXISTS idx_results_watch_source_nocase ON results(watch_id, source COLLATE NOCASE);
         CREATE INDEX IF NOT EXISTS idx_results_first_seen ON results(first_seen);
         CREATE INDEX IF NOT EXISTS idx_results_last_seen ON results(last_seen);
         CREATE INDEX IF NOT EXISTS idx_results_is_new ON results(watch_id, is_new);
         CREATE INDEX IF NOT EXISTS idx_results_new_type ON results(watch_id, new_type);
+        CREATE INDEX IF NOT EXISTS idx_results_watch_first_seen ON results(watch_id, first_seen DESC);
+        CREATE INDEX IF NOT EXISTS idx_results_watch_last_seen ON results(watch_id, last_seen DESC);
         CREATE INDEX IF NOT EXISTS idx_blocked_url ON blocked_items(url);
         CREATE INDEX IF NOT EXISTS idx_favorite_url ON favorite_items(url);
         CREATE INDEX IF NOT EXISTS idx_watchlist_sort ON watchlist(sort_order);
@@ -149,6 +176,14 @@ function addColumnIfMissing(table, column, definition) {
     if (!columns.some(info => info.name === column)) {
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
+}
+
+function cleanupOrphanedWatchData() {
+    return db.transaction(() => {
+        const results = db.prepare('DELETE FROM results WHERE NOT EXISTS (SELECT 1 FROM watchlist WHERE watchlist.id = results.watch_id)').run().changes;
+        const metadata = db.prepare('DELETE FROM results_meta WHERE NOT EXISTS (SELECT 1 FROM watchlist WHERE watchlist.id = results_meta.watch_id)').run().changes;
+        return { results, metadata };
+    })();
 }
 
 /**
@@ -302,9 +337,14 @@ function migrateFromJson() {
                 const insertMeta = db.prepare(`
                     INSERT OR REPLACE INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, ?)
                 `);
+                const watchExists = db.prepare('SELECT 1 FROM watchlist WHERE id = ?');
 
                 let totalItems = 0;
                 for (const [watchId, watchData] of Object.entries(data)) {
+                    // New databases enforce the same relationship as tests.
+                    // Ignore legacy result buckets that no longer have a watch.
+                    if (!watchExists.get(watchId)) continue;
+
                     // Insert metadata
                     insertMeta.run(watchId, watchData.updatedAt || null, watchData.newCount || 0);
 
@@ -363,7 +403,10 @@ initSchema();
 // Auto-migrate if legacy JSON files exist
 if (needsMigration()) {
     migrateFromJson();
+    cleanupOrphanedWatchData();
 }
+
+enforceDatabaseFilePermissions();
 
 // Graceful shutdown
 process.on('exit', () => {

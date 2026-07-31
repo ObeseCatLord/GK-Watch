@@ -21,7 +21,9 @@ describe('WatchlistManager Crash Regression', () => {
     });
 
     afterEach(() => {
+        vi.clearAllTimers();
         vi.useRealTimers();
+        Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     });
 
     it('handles ECONNREFUSED/network error gracefully without crashing', async () => {
@@ -134,7 +136,9 @@ describe('WatchlistManager Crash Regression', () => {
             />
         );
 
-        await act(async () => {});
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(0);
+        });
         const initialWatchlistCalls = mockFetch.mock.calls.filter(([url]) => url === '/api/watchlist').length;
 
         await act(async () => {
@@ -191,6 +195,119 @@ describe('WatchlistManager Crash Regression', () => {
         expect(statusCalls).toBe(2);
     });
 
+    it('refreshes when completionVersion changes while scheduler remains idle', async () => {
+        vi.useFakeTimers();
+        let statusCalls = 0;
+        const mockFetch = vi.fn((url) => {
+            if (url === '/api/status') {
+                statusCalls += 1;
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        isRunning: false,
+                        completionVersion: statusCalls - 1
+                    })
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(url === '/api/watchlist' ? [] : {})
+            });
+        });
+
+        render(
+            <WatchlistManager
+                authenticatedFetch={mockFetch}
+                onBlock={vi.fn()}
+                taobaoEnabled={false}
+                goofishEnabled={false}
+                handleExportClipboard={vi.fn()}
+            />
+        );
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(0);
+        });
+        const initialWatchlistCalls = mockFetch.mock.calls.filter(([url]) => url === '/api/watchlist').length;
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(15000);
+        });
+
+        expect(statusCalls).toBe(2);
+        expect(mockFetch.mock.calls.filter(([url]) => url === '/api/watchlist')).toHaveLength(initialWatchlistCalls + 1);
+        expect(mockFetch.mock.calls.filter(([url]) => url === '/api/watchlist/newcounts')).toHaveLength(2);
+    });
+
+    it('sleeps 60s while hidden and resumes immediately on visibilitychange', async () => {
+        vi.useFakeTimers();
+        let docHidden = true;
+        const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
+        Object.defineProperty(document, 'hidden', {
+            configurable: true,
+            get: () => docHidden
+        });
+
+        let statusCalls = 0;
+        const mockFetch = vi.fn((url) => {
+            if (url === '/api/status') {
+                statusCalls += 1;
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        isRunning: false,
+                        completionVersion: 0
+                    })
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(url === '/api/watchlist' ? [] : {})
+            });
+        });
+
+        render(
+            <WatchlistManager
+                authenticatedFetch={mockFetch}
+                onBlock={vi.fn()}
+                taobaoEnabled={false}
+                goofishEnabled={false}
+                handleExportClipboard={vi.fn()}
+            />
+        );
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(statusCalls).toBe(1);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(15000);
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(44000);
+        });
+        expect(statusCalls).toBe(1);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(1000);
+        });
+        expect(statusCalls).toBe(2);
+
+        await act(async () => {
+            docHidden = false;
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+
+        if (originalDescriptor) {
+            Object.defineProperty(document, 'hidden', originalDescriptor);
+        } else {
+            Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+        }
+
+        expect(statusCalls).toBe(3);
+    });
+
     it('aborts an active status request when unmounted', async () => {
         vi.useFakeTimers();
         let statusCalls = 0;
@@ -229,4 +346,69 @@ describe('WatchlistManager Crash Regression', () => {
         expect(statusAborted).toBe(true);
         expect(statusCalls).toBe(1);
     });
+
+    it('uses server-side results pagination contract when available', async () => {
+        const mockFetch = vi.fn((url) => {
+            if (url === '/api/watchlist') {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 'watch-1', term: 'gundam', name: 'Gundam' }])
+                });
+            }
+            if (url === '/api/settings') {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({})
+                });
+            }
+            if (url === '/api/watchlist/newcounts') {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({})
+                });
+            }
+            if (url === '/api/status') {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ isRunning: false, completionVersion: 0 })
+                });
+            }
+            if (url.startsWith('/api/results/watch-1')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        items: [
+                            { title: 'Kit A', link: 'https://example.com/a', source: 'mercari', price: '100' }
+                        ],
+                        total: 42,
+                        page: 1,
+                        pageSize: 24,
+                        totalPages: 2
+                    })
+                });
+            }
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+        });
+
+        render(
+            <WatchlistManager
+                authenticatedFetch={mockFetch}
+                onBlock={vi.fn()}
+                taobaoEnabled={false}
+                goofishEnabled={false}
+                handleExportClipboard={vi.fn()}
+            />
+        );
+
+        expect(await screen.findByText('Gundam')).toBeInTheDocument();
+        screen.getByText('Gundam').click();
+
+        await waitFor(() => {
+            const resultsRequest = mockFetch.mock.calls.find(([calledUrl]) => calledUrl.startsWith('/api/results/watch-1'));
+            expect(resultsRequest?.[0]).toBe('/api/results/watch-1?page=1&pageSize=24&sort=firstSeen&order=desc');
+            expect(screen.getByText('(42 results)')).toBeInTheDocument();
+            expect(screen.getByText('/ 2')).toBeInTheDocument();
+        });
+    });
+
 });

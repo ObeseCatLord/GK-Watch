@@ -1,71 +1,56 @@
 #!/bin/bash
 
-# GK Watcher Launch Script (MacOS Version)
-# This script starts both the backend server and frontend dev server
+set -euo pipefail
+umask 077
+
+# GK Watcher Launch Script (macOS Version)
 
 cd "$(dirname "$0")"
 
 echo "🚀 Starting GK Watcher (MacOS)..."
 
-# unset TMPDIR
 unset TMPDIR
 
-# Kill any existing processes on ports 3000 and 5173
-echo "Cleaning up any existing processes..."
-# MacOS/BSD compatible way to find and kill processes on ports
-# lsof -t -i :PORT returns only PIDs
-for PORT in 3000 5173 5174; do
-    PIDS=$(lsof -t -i :$PORT 2>/dev/null)
-    if [ -n "$PIDS" ]; then
-        echo "   Killing process on port $PORT (PIDs: $PIDS)..."
-        kill $PIDS
-    fi
-done
+BACKEND_PID=""
+FRONTEND_PID=""
 
-sleep 3
-
-# Start the backend server
-echo "Starting backend server..."
-cd server
-node server.js &
-BACKEND_PID=$!
-cd ..
-
-# Wait a moment for backend to start
-sleep 2
-
-# Start the frontend dev server
-echo "Starting frontend..."
-cd client
-npm run dev &
-FRONTEND_PID=$!
-cd ..
-
-echo ""
-echo "✅ GK Watcher is running!"
-echo "   Backend:  http://localhost:3000"
-echo "   Frontend: http://localhost:5173"
-echo ""
-echo "Press Ctrl+C to stop both servers"
-
-# Handle cleanup on exit
 cleanup() {
     echo ""
     echo "Shutting down..."
-    kill $BACKEND_PID 2>/dev/null
-    kill $FRONTEND_PID 2>/dev/null
-    
-    # Ensure port processes are dead
-    for PORT in 3000 5173; do
-        PIDS=$(lsof -t -i :$PORT 2>/dev/null)
-        if [ -n "$PIDS" ]; then
-            kill $PIDS
-        fi
-    done
-    exit 0
+    [ -z "$FRONTEND_PID" ] || kill "$FRONTEND_PID" 2>/dev/null || true
+    [ -z "$BACKEND_PID" ] || kill "$BACKEND_PID" 2>/dev/null || true
 }
 
-trap cleanup SIGINT SIGTERM
+trap cleanup EXIT SIGINT SIGTERM
 
-# Wait for either process to exit
-wait
+if [ -f "client/dist/index.html" ]; then
+    echo "Client build found. Starting in production mode..."
+    cd server
+    NODE_ENV=production node server.js &
+    BACKEND_PID=$!
+    cd ..
+
+    sleep 2
+    echo "GK Watcher is running at http://localhost:3000"
+    echo "Press Ctrl+C to stop the server"
+    wait "$BACKEND_PID"
+else
+    echo "Client build not found. Starting in development mode..."
+    cd server
+    node server.js &
+    BACKEND_PID=$!
+    cd ..
+
+    sleep 2
+    cd client
+    npm run dev &
+    FRONTEND_PID=$!
+    cd ..
+
+    echo "Backend:  http://localhost:3000"
+    echo "Frontend: http://localhost:5173"
+    echo "Press Ctrl+C to stop both servers"
+    while kill -0 "$BACKEND_PID" 2>/dev/null && kill -0 "$FRONTEND_PID" 2>/dev/null; do
+        sleep 1
+    done
+fi

@@ -12,6 +12,38 @@ let payPayFailed = false;
 
 const Settings = require('../models/settings');
 const queryMatcher = require('../utils/queryMatcher');
+const { searchPool, httpPool, browserPool } = require('../utils/admissionControl');
+
+const BROWSER_SCRAPERS = new Set(['Taobao', 'Goofish']);
+
+function abortError() {
+    const error = new Error('Search was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    return error;
+}
+
+function throwIfAborted(signal) {
+    if (signal?.aborted) throw abortError();
+}
+
+function waitForAllSettled(tasks, signal) {
+    const settled = Promise.allSettled(tasks);
+    if (!signal) return settled;
+    if (signal.aborted) return Promise.reject(abortError());
+
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            signal.removeEventListener('abort', onAbort);
+            reject(abortError());
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        settled.then(results => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(results);
+        });
+    });
+}
 
 // Helper to extract quoted terms: 'foo "bar baz" qux' -> ['bar baz']
 function extractQuotedTerms(query) {
@@ -24,8 +56,9 @@ function extractQuotedTerms(query) {
     return matches;
 }
 
-async function searchAll(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}) {
+async function runSearch(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}, signal = null) {
     console.log(`Starting search for: ${query}`);
+    throwIfAborted(signal);
     const settings = Settings.get();
 
     const quotedTerms = extractQuotedTerms(query);
@@ -82,10 +115,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
         if (settings.enabledSites.mandarake === false) enabled.mandarake = false;
     }
 
-    // Run all scrapers in parallel
-    // using Promise.allSettled so one failure doesn't stop others
-    // Run all scrapers in parallel
-    // using Promise.allSettled so one failure doesn't stop others
+    // Scrapers remain logically parallel, while shared pools bound process-wide work.
     const scraperTasks = [];
 
     // Total number of enabled scrapers for progress tracking
@@ -104,22 +134,24 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
         const start = Date.now();
         console.log(`[Scraper] ${name} started`);
 
-        if (onProgress) {
+        if (onProgress && !signal?.aborted) {
             onProgress({ type: 'start', source: name, totalScrapers });
         }
 
         // Create a direct progress callback for the scraper to use if it supports streaming
         const scraperProgress = onProgress ? (data) => {
             // data is { items: [], partial: true }
-            if (data && data.items && data.items.length > 0) {
+            if (!signal?.aborted && data && data.items && data.items.length > 0) {
                 const itemsWithSource = data.items.map(i => ({ ...i, source: name }));
                 onProgress({ type: 'result', source: name, items: itemsWithSource, duration: Date.now() - start, partial: true });
             }
         } : null;
 
         try {
+            throwIfAborted(signal);
             // Execute the promise function, passing the progress callback
             const result = await promiseFn(scraperProgress);
+            throwIfAborted(signal);
             const duration = Date.now() - start;
             console.log(`[Scraper] ${name} finished in ${duration}ms`);
 
@@ -129,17 +161,8 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
                 items = result.map(i => ({ ...i, source: name }));
             }
 
-            // Only emit the final result if we haven't been streaming?
-            // Actually, we should probably just emit the final "partial: false" or handled by caller.
-            // But to be safe and ensure completeness, we can emit the full list as non-partial (or empty if streamed)
-            // But wait, if we stream, we don't want to duplicate.
-            // The `server.js` deduplicates on client side? Yes client side dedups by link.
-            // So emitting again is fine but wasteful.
-            // For now, let's keep the existing logic for the "Final Flush":
-
-            if (onProgress) {
-                // Reuse valid chunking logic for the *final* result set, just in case streaming wasn't used or items remain
-                // If streaming was used, the client will deduplicate.
+            if (onProgress && !signal?.aborted) {
+                // Always finish with a non-partial event so clients can mark this source complete.
                 const CHUNK_SIZE = 50;
                 if (items.length > CHUNK_SIZE) {
                     for (let i = 0; i < items.length; i += CHUNK_SIZE) {
@@ -148,7 +171,7 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
                     }
                     onProgress({ type: 'result', source: name, items: [], duration, partial: false });
                 } else {
-                    onProgress({ type: 'result', source: name, items, duration });
+                    onProgress({ type: 'result', source: name, items, duration, partial: false });
                 }
             }
 
@@ -157,49 +180,60 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
             const duration = Date.now() - start;
             console.log(`[Scraper] ${name} failed after ${duration}ms`);
 
-            if (onProgress) {
+            if (onProgress && !signal?.aborted) {
                 onProgress({ type: 'error', source: name, error: err.message, duration });
             }
             throw err;
         }
     };
 
+    const scheduleScraper = (name, promiseFn) => {
+        const pool = BROWSER_SCRAPERS.has(name) ? browserPool : httpPool;
+        return pool.run(() => loggedPromise(name, promiseFn, onProgress), { signal }).catch(error => {
+            if (error?.code === 'ADMISSION_LIMIT' && onProgress && !signal?.aborted) {
+                onProgress({ type: 'error', source: name, error: error.message, duration: 0 });
+            }
+            throw error;
+        });
+    };
+
     if (enabled.mercari !== false) {
         // Pass function wrapper to allow injecting onProgress
-        scraperTasks.push({ name: 'Mercari', promise: loggedPromise('Mercari', (cb) => mercari.search(query, strict.mercari ?? true, filters, cb), onProgress) });
+        scraperTasks.push({ name: 'Mercari', promise: scheduleScraper('Mercari', (cb) => mercari.search(query, strict.mercari ?? true, filters, cb, signal)) });
     }
 
     if (enabled.yahoo !== false) {
-        scraperTasks.push({ name: 'Yahoo', promise: loggedPromise('Yahoo', (cb) => yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters), onProgress) });
+        scraperTasks.push({ name: 'Yahoo', promise: scheduleScraper('Yahoo', () => yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters, signal)) });
     }
 
     if (enabled.paypay !== false) {
-        scraperTasks.push({ name: 'PayPay Flea Market', promise: loggedPromise('PayPay Flea Market', (cb) => paypay.search(query, strict.paypay ?? true, filters), onProgress) });
+        scraperTasks.push({ name: 'PayPay Flea Market', promise: scheduleScraper('PayPay Flea Market', () => paypay.search(query, strict.paypay ?? true, filters, signal)) });
     }
 
     if (enabled.fril !== false) {
-        scraperTasks.push({ name: 'Fril', promise: loggedPromise('Fril', (cb) => fril.search(query, strict.fril ?? true, filters), onProgress) });
+        scraperTasks.push({ name: 'Fril', promise: scheduleScraper('Fril', () => fril.search(query, strict.fril ?? true, filters, signal)) });
     }
 
     if (enabled.surugaya !== false) {
         // Pass filters to Suruga-ya for negative searching
-        scraperTasks.push({ name: 'Suruga-ya', promise: loggedPromise('Suruga-ya', (cb) => surugaya.search(query, strict.surugaya ?? true, filters), onProgress) });
+        scraperTasks.push({ name: 'Suruga-ya', promise: scheduleScraper('Suruga-ya', () => surugaya.search(query, strict.surugaya ?? true, filters, signal)) });
     }
 
     if (enabled.taobao !== false) {
-        scraperTasks.push({ name: 'Taobao', promise: loggedPromise('Taobao', (cb) => taobao.search(query, strict.taobao ?? true), onProgress) });
+        scraperTasks.push({ name: 'Taobao', promise: scheduleScraper('Taobao', () => taobao.search(query, strict.taobao ?? true, signal)) });
     }
 
     if (enabled.goofish !== false) {
         // Goofish strict filtering same as others? defaulting to true for now
-        scraperTasks.push({ name: 'Goofish', promise: loggedPromise('Goofish', (cb) => goofish.search(query, strict.goofish ?? true), onProgress) });
+        scraperTasks.push({ name: 'Goofish', promise: scheduleScraper('Goofish', () => goofish.search(query, strict.goofish ?? true, signal)) });
     }
 
     if (enabled.mandarake !== false) {
-        scraperTasks.push({ name: 'Mandarake', promise: loggedPromise('Mandarake', (cb) => mandarake.search(query, false, filters, siteOptions.mandarake || {}), onProgress) });
+        scraperTasks.push({ name: 'Mandarake', promise: scheduleScraper('Mandarake', () => mandarake.search(query, false, filters, siteOptions.mandarake || {}, signal)) });
     }
 
-    const results = await Promise.allSettled(scraperTasks.map(t => t.promise));
+    const results = await waitForAllSettled(scraperTasks.map(t => t.promise), signal);
+    throwIfAborted(signal);
     let flatResults = [];
 
     results.forEach((res, index) => {
@@ -291,6 +325,10 @@ async function searchAll(query, enabledOverride = null, strictOverride = null, f
     });
 }
 
+function searchAll(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}, signal = null) {
+    return searchPool.run(() => runSearch(query, enabledOverride, strictOverride, filters, onProgress, siteOptions, signal), { signal });
+}
+
 function reset() {
     if (mercari.reset) mercari.reset();
     payPayFailed = false;
@@ -300,4 +338,12 @@ function isPayPayFailed() {
     return payPayFailed;
 }
 
-module.exports = { searchAll, reset, isPayPayFailed };
+function getAdmissionStats() {
+    return {
+        searches: searchPool.stats(),
+        httpScrapers: httpPool.stats(),
+        browserScrapers: browserPool.stats()
+    };
+}
+
+module.exports = { searchAll, reset, isPayPayFailed, getAdmissionStats };

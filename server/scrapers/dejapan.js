@@ -6,6 +6,24 @@ const BASE_URL = 'https://www.dejapan.com/en/shopping/mercari/list/search';
 const MAX_PAGES = 150;
 const DELAY_BETWEEN_PAGES = 500;
 
+function delay(ms, signal) {
+    if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+    if (signal.aborted) return Promise.reject(signal.reason);
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(done, ms);
+        function onAbort() {
+            clearTimeout(timer);
+            signal.removeEventListener('abort', onAbort);
+            reject(signal.reason);
+        }
+        function done() {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
 /**
  * Convert DEJapan link to Mercari canonical link
  * DEJapan format: https://www.dejapan.com/.../m123456789 (Canonical)
@@ -141,7 +159,8 @@ function parseDejapanItems($, selectorStr, linkFilter, source) {
     return results;
 }
 
-async function searchGeneric(query, strictEnabled, filters, source, baseUrl, linkFilter) {
+async function searchGeneric(query, strictEnabled, filters, source, baseUrl, linkFilter, signal = null) {
+    signal?.throwIfAborted();
     let allResults = [];
     const parsedQuery = parseQuery(query);
     const hasQuoted = hasQuotedTerms(parsedQuery);
@@ -150,7 +169,7 @@ async function searchGeneric(query, strictEnabled, filters, source, baseUrl, lin
         // Construct URL
         const url = `${baseUrl}?query=${encodeURIComponent(query)}&page=${page}`;
         if (page > 1) {
-            await new Promise(r => setTimeout(r, DELAY_BETWEEN_PAGES));
+            await delay(DELAY_BETWEEN_PAGES, signal);
         }
 
         try {
@@ -161,7 +180,8 @@ async function searchGeneric(query, strictEnabled, filters, source, baseUrl, lin
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.5'
                 },
-                timeout: 15000
+                timeout: 15000,
+                signal
             });
 
             const $ = cheerio.load(data);
@@ -195,6 +215,7 @@ async function searchGeneric(query, strictEnabled, filters, source, baseUrl, lin
             allResults.push(...pageResults);
 
         } catch (error) {
+            if (signal?.aborted) throw error;
             console.error(`[DEJapan] Error on page ${page}: ${error.message}`);
             // If error is 403 or similar, it's a hard block
             if (error.response && [403, 429, 503].includes(error.response.status)) {
@@ -227,21 +248,21 @@ async function searchGeneric(query, strictEnabled, filters, source, baseUrl, lin
     return finalResults;
 }
 
-async function search(query, strictEnabled = true, filters = []) {
+async function search(query, strictEnabled = true, filters = [], signal = null) {
     console.log(`[DEJapan] Searching Mercari for: ${query}`);
-    return await searchGeneric(query, strictEnabled, filters, 'Mercari', BASE_URL, '/shopping/mercari/item/');
+    return await searchGeneric(query, strictEnabled, filters, 'Mercari', BASE_URL, '/shopping/mercari/item/', signal);
 }
 
-async function searchSurugaya(query, strictEnabled = false, filters = []) {
+async function searchSurugaya(query, strictEnabled = false, filters = [], signal = null) {
     console.log(`[DEJapan] Searching Suruga-ya for: ${query}`);
     const SURUGA_URL = 'https://www.dejapan.com/en/shopping/surugaya/list/search';
-    return await searchGeneric(query, strictEnabled, filters, 'Suruga-ya', SURUGA_URL, '/shopping/surugaya/item/');
+    return await searchGeneric(query, strictEnabled, filters, 'Suruga-ya', SURUGA_URL, '/shopping/surugaya/item/', signal);
 }
 
-async function searchRakuma(query, strictEnabled = true, filters = []) {
+async function searchRakuma(query, strictEnabled = true, filters = [], signal = null) {
     console.log(`[DEJapan] Searching Rakuma for: ${query}`);
     const RAKUMA_URL = 'https://www.dejapan.com/en/shopping/rakuma/list/search';
-    return await searchGeneric(query, strictEnabled, filters, 'Rakuma', RAKUMA_URL, '/shopping/rakuma/item/');
+    return await searchGeneric(query, strictEnabled, filters, 'Rakuma', RAKUMA_URL, '/shopping/rakuma/item/', signal);
 }
 
 module.exports = { search, searchSurugaya, searchRakuma };

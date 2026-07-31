@@ -4,6 +4,14 @@ const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../uti
 const yahoo = require('./yahoo');
 const doorzo = require('./doorzo');
 
+function throwIfAborted(signal) {
+    if (!signal?.aborted) return;
+    const error = new Error('Search was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    throw error;
+}
+
 // Global Circuit Breaker for Legacy Scraper
 let legacyBlocked = false;
 let legacyBlockedUntil = 0;
@@ -95,7 +103,8 @@ function parseNextSearchResults($) {
 }
 
 // Legacy scraper (Direct PayPay site scraping) - Unreliable due to bot protection
-async function searchLegacy(query, strictEnabled = true) {
+async function searchLegacy(query, strictEnabled = true, signal = null) {
+    throwIfAborted(signal);
     if (legacyBlocked) {
         if (Date.now() < legacyBlockedUntil) {
             console.log('[PayPay Legacy] Circuit breaker active. Skipping direct scrape.');
@@ -115,7 +124,8 @@ async function searchLegacy(query, strictEnabled = true) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept-Language': 'ja-JP'
             },
-            timeout: 10000
+            timeout: 10000,
+            signal
         });
 
         const $ = cheerio.load(res.data);
@@ -181,6 +191,7 @@ async function searchLegacy(query, strictEnabled = true) {
         return activeResults;
 
     } catch (error) {
+        throwIfAborted(signal);
         if (error.response && (error.response.status === 403 || error.response.status === 500 || error.response.status === 429)) {
             console.warn(`[PayPay Legacy] Access blocked (Status ${error.response.status}). Likely bot detection. Activating circuit breaker for 15 mins.`);
             legacyBlocked = true;
@@ -205,7 +216,8 @@ function buildNeokyoUrl(query, page = 1) {
     return `${baseUrl}&page=${page}&google_translate=&category[level_1]=&category[level_2]=&category[level_3]=&category[level_4]=&category[level_5]=&category[level_6]=&category[level_7]=`;
 }
 
-async function searchNeokyo(query) {
+async function searchNeokyo(query, signal = null) {
+    throwIfAborted(signal);
     console.log(`[PayPay Fallback] Searching Neokyo for ${query}...`);
     const allResults = [];
     let page = 1;
@@ -215,6 +227,7 @@ async function searchNeokyo(query) {
 
     while (hasMore && page <= MAX_PAGES) {
         if (page > 1) await new Promise(r => setTimeout(r, DELAY_BETWEEN_PAGES));
+        throwIfAborted(signal);
 
         const url = buildNeokyoUrl(query, page);
         console.log(`[PayPay Fallback] Fetching Neokyo page ${page}`);
@@ -225,7 +238,8 @@ async function searchNeokyo(query) {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept-Language': 'en-US,en;q=0.5',
                 },
-                timeout: 45000 // Increased to 45s per user request
+                timeout: 45000, // Increased to 45s per user request
+                signal
             });
 
             const $ = cheerio.load(res.data);
@@ -289,6 +303,7 @@ async function searchNeokyo(query) {
             }
 
         } catch (err) {
+            throwIfAborted(signal);
             console.error(`[PayPay Fallback] Error fetching page ${page}:`, err.message);
             hasMore = false;
             // If the very first page fails, we should consider the whole scrape failed
@@ -306,7 +321,8 @@ async function searchNeokyo(query) {
  * Fetch the full title from a Neokyo product detail page
  * Used to verify truncated titles before filtering
  */
-async function fetchFullTitle(neokyoLink) {
+async function fetchFullTitle(neokyoLink, signal = null) {
+    throwIfAborted(signal);
     try {
         const response = await axios.get(neokyoLink, {
             headers: {
@@ -314,7 +330,8 @@ async function fetchFullTitle(neokyoLink) {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
             },
-            timeout: 20000
+            timeout: 20000,
+            signal
         });
 
         const $ = cheerio.load(response.data);
@@ -329,6 +346,7 @@ async function fetchFullTitle(neokyoLink) {
         }
         return { title: fullTitle || null, isError: false };
     } catch (error) {
+        throwIfAborted(signal);
         console.log(`[PayPay Fallback] Failed to fetch full title from ${neokyoLink}: ${error.message}`);
         // Flag error if it's a network/status error (likely block), not just a parsing error
         const isBlockingError = error.response && (error.response.status === 403 || error.response.status === 429 || error.response.status === 503);
@@ -337,12 +355,13 @@ async function fetchFullTitle(neokyoLink) {
 }
 
 // Main Search Function - Legacy (Direct) -> Neokyo -> Yahoo Integration
-async function search(query, strictEnabled = true, filters = []) {
+async function search(query, strictEnabled = true, filters = [], signal = null) {
+    throwIfAborted(signal);
     let results = [];
 
     // 1. Try Legacy scraper first (Direct PayPay)
     try {
-        results = await searchLegacy(query, strictEnabled);
+        results = await searchLegacy(query, strictEnabled, signal);
 
         // If results is an array (even empty), it means the scrape was successful but found nothing (or items were filtered)
         // In this case, we do NOT want to fall back to Neokyo.
@@ -365,13 +384,15 @@ async function search(query, strictEnabled = true, filters = []) {
 
         console.log("[PayPay] Legacy scraper failed (returned null). Falling back to Neokyo...");
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[PayPay] Legacy scraper error: ${err.message}`);
     }
 
     // 2. Try Doorzo Fallback (API-based, Fast)
     try {
         console.log(`[PayPay Fallback] Searching Doorzo (API) for ${query}...`);
-        results = await doorzo.search(query);
+        results = await doorzo.search(query, 'paypay', signal);
+        throwIfAborted(signal);
 
         // If results IS NOT NULL, the search succeeded (even if 0 items).
         // Only fall back to Neokyo if Doorzo EXPLICITLY fails (returns null).
@@ -395,13 +416,14 @@ async function search(query, strictEnabled = true, filters = []) {
             console.log('[PayPay] Doorzo failed (returned null). Falling back to Neokyo...');
         }
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[PayPay] Doorzo scraper error: ${err.message}`);
         // Fall through to Neokyo
     }
 
     // 3. Try Neokyo Fallback
     try {
-        results = await searchNeokyo(query);
+        results = await searchNeokyo(query, signal);
 
         if (results === null) {
             throw new Error('Neokyo scrape failed');
@@ -438,7 +460,7 @@ async function search(query, strictEnabled = true, filters = []) {
 
                     // Check if title looks truncated (ends with ...) or is just generic mismatch
                     // Actually always check if we have neokyoLink because Neokyo titles are often shortened
-                    const { title: fullTitle, isError, isBlocking } = await fetchFullTitle(item.neokyoLink);
+                    const { title: fullTitle, isError, isBlocking } = await fetchFullTitle(item.neokyoLink, signal);
 
                     if (isBlocking) {
                         verificationFailures++;
@@ -477,6 +499,7 @@ async function search(query, strictEnabled = true, filters = []) {
         }
 
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[PayPay] Neokyo fallback error: ${err.message}`);
     }
 

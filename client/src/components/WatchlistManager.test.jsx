@@ -10,7 +10,6 @@ vi.mock('./ResultCard', () => ({
 
 describe('WatchlistManager', () => {
     const mockAuthenticatedFetch = vi.fn();
-    const mockOnBlock = vi.fn();
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -87,6 +86,71 @@ describe('WatchlistManager', () => {
             expect(mockAuthenticatedFetch).toHaveBeenCalledWith('/api/run-now', expect.objectContaining({
                 method: 'POST'
             }));
+        });
+    });
+
+    it('loads malformed paginated results response using client-side pagination', async () => {
+        const malformedItems = Array.from({ length: 25 }, (_, index) => ({
+            title: `Fallback ${index + 1}`,
+            link: `https://example.com/fallback-${index + 1}`,
+            source: 'mercari',
+            price: `${index + 1}`
+        }));
+
+        mockAuthenticatedFetch.mockImplementation((url) => {
+            if (url === '/api/watchlist') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => [{ id: 'watch-2', term: 'fallback', name: 'Fallback Set' }]
+                });
+            }
+            if (url === '/api/settings') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({})
+                });
+            }
+            if (url === '/api/watchlist/newcounts') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({})
+                });
+            }
+            if (url === '/api/status') {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({ isRunning: false, completionVersion: 0 })
+                });
+            }
+            if (url.startsWith('/api/results/watch-2')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: async () => ({
+                        items: malformedItems,
+                        total: 'bad-total',
+                        page: 'bad-page',
+                        pageSize: 'bad-page-size',
+                        totalPages: 'bad-pages'
+                    })
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                json: async () => ({})
+            });
+        });
+
+        render(<WatchlistManager authenticatedFetch={mockAuthenticatedFetch} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Fallback Set')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Fallback Set'));
+
+        await waitFor(() => {
+            expect(screen.getByText('(25 results)')).toBeInTheDocument();
+            expect(screen.getByText('/ 2')).toBeInTheDocument();
         });
     });
 });

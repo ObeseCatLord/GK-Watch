@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
+const { resolveBrowserExecutable } = require('../utils/browserExecutable');
 
 const GOOFISH_SEARCH_URL = 'https://www.goofish.com/search';
 const COOKIES_FILE = path.join(__dirname, '../data/goofish_cookies.json');
@@ -10,6 +11,14 @@ const USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) Apple
 
 let cachedCookies = null;
 let lastCookieFileMtime = 0;
+
+function throwIfAborted(signal) {
+    if (!signal?.aborted) return;
+    const error = new Error('Search was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    throw error;
+}
 
 function loadCookies() {
     try {
@@ -50,14 +59,26 @@ function buildSearchUrl(query) {
     return `${GOOFISH_SEARCH_URL}?q=${encodedQuery}`;
 }
 
-async function searchWithPuppeteer(query) {
+async function searchWithPuppeteer(query, signal = null) {
+    // Browser/page state must remain invocation-local: scheduler batches can search
+    // multiple Goofish terms at the same time.
+    let browser = null;
     let userDataDir = null;
+    let browserClosePromise = null;
+    let scrollInterval = null;
+    const closeOwnedBrowser = () => {
+        if (!browser) return Promise.resolve();
+        if (!browserClosePromise) {
+            browserClosePromise = browser
+                ? browser.close().catch(() => undefined)
+                : Promise.resolve();
+        }
+        return browserClosePromise;
+    };
+    const onAbort = () => { void closeOwnedBrowser(); };
+    signal?.addEventListener('abort', onAbort, { once: true });
     try {
-        const isARM = process.arch === 'arm' || process.arch === 'arm64';
-        const executablePath = (process.platform === 'linux' && isARM)
-            ? (process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser')
-            : undefined;
-
+        throwIfAborted(signal);
         const searchUrl = buildSearchUrl(query);
         const downloadsDir = path.join(os.homedir(), 'Downloads', 'gk-profiles');
         if (!fs.existsSync(downloadsDir)) {
@@ -71,19 +92,20 @@ async function searchWithPuppeteer(query) {
 
         browser = await puppeteer.launch({
             headless: true,
-            executablePath,
+            executablePath: resolveBrowserExecutable(),
             userDataDir,
             pipe: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+            args: ['--disable-dev-shm-usage', '--disable-gpu']
         });
+        throwIfAborted(signal);
 
         const page = await browser.newPage();
+        throwIfAborted(signal);
 
         // 1. Try to load cookies first
         let cookies = loadCookies();
         if (!cookies) {
             console.log('[Goofish] No cookies found. Returning error.');
-            if (browser) await browser.close();
             return [{ error: 'Cookie Error', source: 'Goofish' }];
         }
 
@@ -257,18 +279,21 @@ async function searchWithPuppeteer(query) {
         });
 
         await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        throwIfAborted(signal);
 
         console.log('[Goofish] Waiting for API capture...');
         let retries = 0;
-        const scrollInterval = setInterval(() => {
+        scrollInterval = setInterval(() => {
             page.evaluate(() => window.scrollBy(0, 500)).catch(() => { });
         }, 1000);
 
         while (!apiResults && retries < 30) {
             await new Promise(r => setTimeout(r, 500));
+            throwIfAborted(signal);
             retries++;
         }
         clearInterval(scrollInterval);
+        scrollInterval = null;
 
         if (apiResults) {
             console.log(`[Goofish] Successfully extracted ${apiResults.length} items from API.`);
@@ -279,12 +304,13 @@ async function searchWithPuppeteer(query) {
         return [];
 
     } catch (error) {
+        throwIfAborted(signal);
         console.error('[Goofish] Scrape error:', error.message);
         return null;
     } finally {
-        if (browser) {
-            try { await browser.close(); } catch (e) { }
-        }
+        signal?.removeEventListener('abort', onAbort);
+        if (scrollInterval) clearInterval(scrollInterval);
+        await closeOwnedBrowser();
         // Cleanup userDataDir
         if (userDataDir && fs.existsSync(userDataDir)) {
             try {
@@ -296,7 +322,8 @@ async function searchWithPuppeteer(query) {
     }
 }
 
-async function search(query, strict = true) {
+async function search(query, strict = true, signal = null) {
+    throwIfAborted(signal);
     console.log(`[Goofish] Searching for: ${query}`);
 
     let attempts = 0;
@@ -304,14 +331,16 @@ async function search(query, strict = true) {
     let results = [];
 
     while (attempts < maxAttempts) {
+        throwIfAborted(signal);
         attempts++;
         if (attempts > 1) {
             console.log(`[Goofish] Retry attempt ${attempts - 1}/${maxAttempts - 1}...`);
             // Add a small delay between retries to avoid hammering
             await new Promise(resolve => setTimeout(resolve, 2000));
+            throwIfAborted(signal);
         }
 
-        results = await searchWithPuppeteer(query);
+        results = await searchWithPuppeteer(query, signal);
 
         // Check if the result indicates a block/captcha
         const isBlocked = results && results.length === 1 && results[0].error === 'Goofish Blocked (CAPTCHA)';

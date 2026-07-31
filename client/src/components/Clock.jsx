@@ -14,7 +14,17 @@ const LOCAL_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
     hour12: false
 });
 
-const Clock = () => {
+const getLocalTimeZoneName = () => {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date());
+        return parts.find(part => part.type === 'timeZoneName')?.value || 'Local';
+    } catch (error) {
+        console.error('Error getting timezone:', error);
+        return 'Local';
+    }
+};
+
+const Clock = ({ authenticatedFetch }) => {
     const [time, setTime] = useState(new Date());
     const [countdown, setCountdown] = useState(null);
     const [isRunning, setIsRunning] = useState(false);
@@ -31,9 +41,9 @@ const Clock = () => {
     useEffect(() => {
         const fetchStatus = async () => {
             try {
-                const token = sessionStorage.getItem('gkwatch_token');
-                const headers = token ? { 'x-auth-token': token } : {};
-                const res = await fetch('/api/status', { headers });
+                const res = authenticatedFetch
+                    ? await authenticatedFetch('/api/status')
+                    : await fetch('/api/status', { credentials: 'same-origin' });
                 if (!res.ok) throw new Error(res.statusText);
                 const data = await res.json();
                 setIsRunning(previous => previous === data.isRunning ? previous : data.isRunning);
@@ -46,7 +56,7 @@ const Clock = () => {
         fetchStatus();
         const interval = setInterval(fetchStatus, 30000); // Update every 30 seconds
         return () => clearInterval(interval);
-    }, []);
+    }, [authenticatedFetch]);
 
     // Format countdown as HH:MM:SS
     const formatCountdown = (minutes) => {
@@ -64,19 +74,7 @@ const Clock = () => {
     // Format for Local Time
     const localTime = LOCAL_TIME_FORMATTER.format(time);
 
-    const [timeZoneName, setTimeZoneName] = useState('Local');
-
-    useEffect(() => {
-        try {
-            // Extract short timezone name (e.g., CST, EST, JST)
-            const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
-                .formatToParts(new Date());
-            const tz = parts.find(p => p.type === 'timeZoneName');
-            if (tz) setTimeZoneName(tz.value);
-        } catch (e) {
-            console.error('Error getting timezone:', e);
-        }
-    }, []);
+    const [timeZoneName] = useState(getLocalTimeZoneName);
 
     return (
         <div className="clock-display">

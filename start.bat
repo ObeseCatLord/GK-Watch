@@ -16,7 +16,7 @@ if exist "client\dist\index.html" (
     echo [INFO] Client build found. Starting in PRODUCTION mode...
     echo.
     echo Starting server ^(backend serves frontend^)...
-    start "GK Watcher" cmd /c "cd server && node server.js"
+    start "GK Watcher" cmd /c "cd server && set NODE_ENV=production&& node server.js"
 
     timeout /t 3 /nobreak > nul
     echo.

@@ -44,14 +44,14 @@ beforeAll(() => {
     app.use(express.json());
 
     // --- Session management (matching server.js PR #39 changes) ---
-    const SESSION_TIMEOUT = 24 * 60 * 60 * 1000;
+    const SESSION_TIMEOUT = 12 * 60 * 60 * 1000;
+    const digestSessionToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
     const sessionStmts = {
         insert: db.prepare('INSERT INTO sessions (token, expires_at) VALUES (?, ?)'),
         get: db.prepare('SELECT * FROM sessions WHERE token = ?'),
         delete: db.prepare('DELETE FROM sessions WHERE token = ?'),
         cleanup: db.prepare('DELETE FROM sessions WHERE expires_at < ?'),
-        extend: db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?'),
     };
 
     const requireAuth = (req, res, next) => {
@@ -60,13 +60,13 @@ beforeAll(() => {
             return res.status(401).json({ error: 'No token, authorization denied' });
         }
 
-        const session = sessionStmts.get.get(token);
+        const session = sessionStmts.get.get(digestSessionToken(token));
         if (!session) {
             return res.status(401).json({ error: 'Token is invalid or expired' });
         }
 
         if (Date.now() > session.expires_at) {
-            sessionStmts.delete.run(token);
+            sessionStmts.delete.run(digestSessionToken(token));
             return res.status(401).json({ error: 'Session expired. Please login again.' });
         }
 
@@ -74,29 +74,21 @@ beforeAll(() => {
     };
 
     // Login
-    app.post('/api/login', (req, res) => {
+    app.post('/api/login', async (req, res) => {
         const settings = Settings.get();
-        if (!settings.loginEnabled || !settings.loginPassword) {
-            return res.json({ success: true, token: null });
+        if (!settings.loginEnabled) {
+            return res.json({ success: true });
         }
 
         const { password } = req.body;
         if (!password) {
-            return res.status(401).json({ error: 'Password is required' });
+            return res.status(400).json({ error: 'Password is required' });
         }
 
-        const storedPassword = settings.loginPassword;
-        const inputPassword = password;
-
-        let isMatch = true;
-        for (let i = 0; i < Math.max(storedPassword.length, inputPassword.length); i++) {
-            if (storedPassword[i] !== inputPassword[i]) isMatch = false;
-        }
-
-        if (isMatch && storedPassword.length === inputPassword.length) {
+        if (await Settings.verifyLoginPassword(password)) {
             const token = crypto.randomBytes(32).toString('hex');
             const expiresAt = Date.now() + SESSION_TIMEOUT;
-            sessionStmts.insert.run(token, expiresAt);
+            sessionStmts.insert.run(digestSessionToken(token), expiresAt);
             return res.json({ success: true, token });
         } else {
             return res.status(401).json({ error: 'Invalid password' });
@@ -107,7 +99,7 @@ beforeAll(() => {
     app.post('/api/logout', (req, res) => {
         const token = req.header('x-auth-token');
         if (token) {
-            sessionStmts.delete.run(token);
+            sessionStmts.delete.run(digestSessionToken(token));
         }
         res.json({ success: true });
     });
@@ -116,7 +108,8 @@ beforeAll(() => {
     app.get('/api/auth-status', (req, res) => {
         const settings = Settings.get();
         res.json({
-            loginRequired: settings.loginEnabled && !!settings.loginPassword
+            loginRequired: settings.loginEnabled,
+            authenticated: !settings.loginEnabled
         });
     });
 
@@ -154,18 +147,18 @@ describe('API Routes', () => {
     });
 
     describe('POST /api/login', () => {
-        test('returns token: null when login is not enabled', async () => {
+        test('returns success without a bearer token when login is not enabled', async () => {
             const res = await request.post('/api/login').send({ password: 'anything' });
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
-            expect(res.body.token).toBeNull();
+            expect(res.body).not.toHaveProperty('token');
         });
 
         test('returns token on correct password when login is enabled', async () => {
             const Settings = require('../../models/settings');
-            await Settings.update({ loginEnabled: true, loginPassword: 'testpass123' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'test-password-123' });
 
-            const res = await request.post('/api/login').send({ password: 'testpass123' });
+            const res = await request.post('/api/login').send({ password: 'test-password-123' });
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
             expect(res.body.token).toBeDefined();
@@ -175,7 +168,7 @@ describe('API Routes', () => {
 
         test('rejects wrong password', async () => {
             const Settings = require('../../models/settings');
-            await Settings.update({ loginEnabled: true, loginPassword: 'testpass123' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'test-password-123' });
 
             const res = await request.post('/api/login').send({ password: 'wrongpass' });
             expect(res.status).toBe(401);
@@ -184,10 +177,10 @@ describe('API Routes', () => {
 
         test('rejects missing password', async () => {
             const Settings = require('../../models/settings');
-            await Settings.update({ loginEnabled: true, loginPassword: 'testpass123' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'test-password-123' });
 
             const res = await request.post('/api/login').send({});
-            expect(res.status).toBe(401);
+            expect(res.status).toBe(400);
         });
     });
 
@@ -206,10 +199,10 @@ describe('API Routes', () => {
 
         test('allows requests with valid token', async () => {
             const Settings = require('../../models/settings');
-            await Settings.update({ loginEnabled: true, loginPassword: 'testpass123' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'test-password-123' });
 
             // Login to get a token
-            const loginRes = await request.post('/api/login').send({ password: 'testpass123' });
+            const loginRes = await request.post('/api/login').send({ password: 'test-password-123' });
             const token = loginRes.body.token;
 
             const res = await request.get('/api/protected').set('x-auth-token', token);
@@ -220,12 +213,12 @@ describe('API Routes', () => {
         test('rejects expired session token', async () => {
             const Settings = require('../../models/settings');
             const db = require('../../models/database');
-            await Settings.update({ loginEnabled: true, loginPassword: 'testpass123' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'test-password-123' });
 
             // Insert a session that's already expired
-            const expiredToken = 'expired-token-123';
+            const expiredToken = 'a'.repeat(64);
             db.prepare('INSERT INTO sessions (token, expires_at) VALUES (?, ?)').run(
-                expiredToken, Date.now() - 1000
+                require('crypto').createHash('sha256').update(expiredToken).digest('hex'), Date.now() - 1000
             );
 
             const res = await request.get('/api/protected').set('x-auth-token', expiredToken);
@@ -237,10 +230,10 @@ describe('API Routes', () => {
     describe('POST /api/logout', () => {
         test('successfully logs out and invalidates token', async () => {
             const Settings = require('../../models/settings');
-            await Settings.update({ loginEnabled: true, loginPassword: 'testpass123' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'test-password-123' });
 
             // Login
-            const loginRes = await request.post('/api/login').send({ password: 'testpass123' });
+            const loginRes = await request.post('/api/login').send({ password: 'test-password-123' });
             const token = loginRes.body.token;
 
             // Verify token works
@@ -268,16 +261,16 @@ describe('API Routes', () => {
         test('sessions are stored in SQLite, not in-memory', async () => {
             const Settings = require('../../models/settings');
             const db = require('../../models/database');
-            await Settings.update({ loginEnabled: true, loginPassword: 'testpass123' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'test-password-123' });
 
             // Login
-            const loginRes = await request.post('/api/login').send({ password: 'testpass123' });
+            const loginRes = await request.post('/api/login').send({ password: 'test-password-123' });
             const token = loginRes.body.token;
 
             // Check session exists in DB
-            const session = db.prepare('SELECT * FROM sessions WHERE token = ?').get(token);
+            const session = db.prepare('SELECT * FROM sessions WHERE token = ?').get(require('crypto').createHash('sha256').update(token).digest('hex'));
             expect(session).toBeDefined();
-            expect(session.token).toBe(token);
+            expect(session.token).not.toBe(token);
             expect(session.expires_at).toBeGreaterThan(Date.now());
         });
     });

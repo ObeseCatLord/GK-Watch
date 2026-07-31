@@ -20,7 +20,7 @@ describe('App Regression Test', () => {
         console.error = vi.fn();
 
         // Mock fetch globally
-        global.fetch = vi.fn(() => Promise.resolve({
+        globalThis.fetch = vi.fn(() => Promise.resolve({
             ok: true,
             json: () => Promise.resolve({})
         }));
@@ -60,5 +60,58 @@ describe('App Regression Test', () => {
         expect(screen.queryByText(/map is not a function/)).not.toBeInTheDocument();
 
         getItemSpy.mockRestore();
+    });
+
+    it('aborts the previous live stream when a new search starts', async () => {
+        const searchSignals = [];
+        vi.stubGlobal('localStorage', {
+            getItem: vi.fn(() => null),
+            setItem: vi.fn(),
+            removeItem: vi.fn()
+        });
+        globalThis.fetch.mockImplementation((url, options = {}) => {
+            if (url === '/api/auth-status') {
+                return Promise.resolve({ ok: true, json: async () => ({ loginRequired: false, authenticated: true }) });
+            }
+            if (String(url).startsWith('/api/search')) {
+                searchSignals.push(options.signal);
+                if (searchSignals.length > 1) {
+                    return Promise.resolve({
+                        ok: true,
+                        body: { getReader: () => ({ read: async () => ({ done: true }) }) }
+                    });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    body: {
+                        getReader: () => ({
+                            read: () => new Promise((resolve, reject) => {
+                                options.signal.addEventListener('abort', () => {
+                                    reject(new DOMException('Aborted', 'AbortError'));
+                                }, { once: true });
+                            })
+                        })
+                    }
+                });
+            }
+            return Promise.resolve({ ok: true, json: async () => ({}) });
+        });
+
+        render(<App />);
+        await waitFor(() => expect(screen.queryByText('Loading...')).not.toBeInTheDocument());
+        fireEvent.click(screen.getByText('Live Search'));
+
+        const input = await screen.findByPlaceholderText(/Search for resin crack/);
+        fireEvent.change(input, { target: { value: 'first search' } });
+        fireEvent.submit(input.closest('form'));
+        await waitFor(() => expect(searchSignals).toHaveLength(1));
+
+        fireEvent.change(input, { target: { value: 'second search' } });
+        fireEvent.submit(input.closest('form'));
+
+        await waitFor(() => expect(searchSignals).toHaveLength(2));
+        expect(searchSignals[0].aborted).toBe(true);
+        expect(searchSignals[1].aborted).toBe(false);
+        vi.unstubAllGlobals();
     });
 });

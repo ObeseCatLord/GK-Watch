@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import ResultCard from './ResultCard';
+import {
+    buildExportHtml,
+    downloadExportHtml,
+    hasServerPaginationResponse,
+    makeExportFilename
+} from '../utils/exportHelpers';
 
 const shallowEqual = (left, right) => {
     if (left === right) return true;
@@ -41,15 +47,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const [selectedTerm, setSelectedTerm] = useState('');
     const [selectedId, setSelectedId] = useState(null);
 
-    const [isRunning, setIsRunning] = useState(false);
-    const [runProgress, setRunProgress] = useState({ current: 0, total: 0, term: '' });
     const [newCounts, setNewCounts] = useState({});
     const [currentPage, setCurrentPage] = useState(1);
     const [resultFilter, setResultFilter] = useState('');
     const [emailSettings, setEmailSettings] = useState({});
     const [prioritySettings, setPrioritySettings] = useState({});
     const [activeSettings, setActiveSettings] = useState({});
-    const [singleSearching, setSingleSearching] = useState(false);
     const [draggedItem, setDraggedItem] = useState(null);
     const [isGlobalRunning, setIsGlobalRunning] = useState(false);
 
@@ -59,7 +62,17 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const [currentQueueItem, setCurrentQueueItem] = useState(null);  // Currently processing item
     const isProcessingRef = React.useRef(false);
     const [sourceFilter, setSourceFilter] = useState('All');
+    const [availableSources, setAvailableSources] = useState([]);
     const [sortBy, setSortBy] = useState('time'); // 'time', 'favorite', 'name', 'priceHigh', 'priceLow'
+    const [selectedResultsMeta, setSelectedResultsMeta] = useState({
+        total: 0,
+        page: 1,
+        pageSize: 24,
+        totalPages: 1,
+        useServerPagination: false
+    });
+    const markResultsAsSeenRef = React.useRef(null);
+    const lastResultsRequest = React.useRef('');
     const [schedulerProgress, setSchedulerProgress] = useState(null);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 767);
@@ -75,6 +88,180 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     // Track previous running state to detect completion
     const wasRunningRef = React.useRef(false);
     const completionVersionRef = React.useRef(0);
+
+    // Poll for global search status and auto-refresh on completion
+
+    // Multi-term / Merge / Edit State
+    const [isMerging, setIsMerging] = useState(false);
+    const [checkedItems, setCheckedItems] = useState(new Set());
+    const [editingItem, setEditingItem] = useState(null);
+    const [editName, setEditName] = useState('');
+    const [editTerms, setEditTerms] = useState('');
+    const [editFilters, setEditFilters] = useState('');
+    const [editEnabledSites, setEditEnabledSites] = useState({});
+    const [editSiteOptions, setEditSiteOptions] = useState(DEFAULT_SITE_OPTIONS);
+    const [editStrict, setEditStrict] = useState(true);
+    const [newStrict, setNewStrict] = useState(true);
+    const [globalSettings, setGlobalSettings] = useState({}); // Renamed to avoid collision with 'activeSettings' maybe? No, 'settings' is fine but distinct from local settings maps.
+
+
+    const ITEMS_PER_PAGE = 24;
+
+    const fetchGlobalSettings = React.useCallback(async () => {
+        try {
+            const res = await authenticatedFetch('/api/settings');
+            const data = await res.json();
+            setGlobalSettings(data || {});
+        } catch (err) {
+            console.error('Error fetching global settings:', err);
+        }
+    }, [authenticatedFetch]);
+
+    const fetchWatchlist = React.useCallback(async () => {
+        try {
+            const res = await authenticatedFetch('/api/watchlist');
+
+            if (res.status === 429) {
+                console.warn('Rate limit exceeded. Retaining existing watchlist.');
+                // Optionally trigger a toast notification here
+                return;
+            }
+
+            if (!res.ok) {
+                console.error(`Failed to fetch watchlist: ${res.status}`);
+                return;
+            }
+
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                setWatchlist(data);
+                // Build email/priority settings map
+                const emailMap = {};
+                const priorityMap = {};
+                const activeMap = {};
+                data.forEach(item => {
+                    emailMap[item.id] = item.emailNotify !== false;
+                    priorityMap[item.id] = item.priority === true;
+                    activeMap[item.id] = item.active !== false;
+                });
+                setEmailSettings(emailMap);
+                setPrioritySettings(priorityMap);
+                setActiveSettings(activeMap);
+            } else {
+                console.error('Watchlist data is not an array:', data);
+                // Do not clear watchlist if data is invalid/undefined to be safe?
+                // Actually if it returns explicit non-array structure it might be an error object, so safer to keep old data.
+            }
+        } catch (err) {
+            console.error('Error fetching watchlist:', err);
+            // Do NOT setWatchlist([]) here.
+        }
+    }, [authenticatedFetch]);
+
+    const fetchNewCounts = React.useCallback(async () => {
+        try {
+            const res = await authenticatedFetch('/api/watchlist/newcounts');
+            const data = await res.json();
+            setNewCounts(data || {});
+        } catch (err) {
+            console.error('Error fetching new counts:', err);
+        }
+    }, [authenticatedFetch]);
+
+    const getSortParams = React.useCallback((sort = 'time') => {
+        if (sort === 'name') return { sort: 'title', order: 'asc' };
+        if (sort === 'favorite') return { sort: 'favorite', order: 'desc' };
+        if (sort === 'priceHigh') return { sort: 'price', order: 'desc' };
+        if (sort === 'priceLow') return { sort: 'price', order: 'asc' };
+        return { sort: 'firstSeen', order: 'desc' };
+    }, []);
+
+    const fetchWatchResults = React.useCallback(async (id, page = 1) => {
+        const markSeen = async () => {
+            if (markResultsAsSeenRef.current !== id || newCounts[id] <= 0) {
+                return;
+            }
+
+            await authenticatedFetch(`/api/results/${id}/seen`, { method: 'POST' });
+            setNewCounts(prev => ({ ...prev, [id]: 0 }));
+            markResultsAsSeenRef.current = null;
+        };
+
+        try {
+            const params = new URLSearchParams();
+            params.set('page', String(page || 1));
+            params.set('pageSize', String(ITEMS_PER_PAGE));
+            const { sort, order } = getSortParams(sortBy);
+            params.set('sort', sort);
+            params.set('order', order);
+
+            const normalizedFilter = resultFilter.trim();
+            if (normalizedFilter) {
+                params.set('filter', normalizedFilter);
+            }
+
+            if (sourceFilter !== 'All') {
+                params.set('source', sourceFilter);
+            }
+
+            const res = await authenticatedFetch(`/api/results/${id}?${params.toString()}`);
+            const data = await res.json();
+            if (hasServerPaginationResponse(data)) {
+                const serverMeta = {
+                    total: Number(data.total) || 0,
+                    page: Number(data.page) || 1,
+                    pageSize: Number(data.pageSize) || ITEMS_PER_PAGE,
+                    totalPages: Number(data.totalPages) || 1,
+                    useServerPagination: true
+                };
+                setSelectedResultsMeta(serverMeta);
+                setSelectedResults(Array.isArray(data.items) ? data.items : []);
+                setAvailableSources(Array.isArray(data.sources) ? data.sources : []);
+                setCurrentPage(serverMeta.page || page);
+                await markSeen();
+                return;
+            }
+
+            const fallbackItems = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+            setSelectedResultsMeta({
+                total: fallbackItems.length,
+                page: Math.max(1, page),
+                pageSize: ITEMS_PER_PAGE,
+                totalPages: Math.max(1, Math.ceil(fallbackItems.length / ITEMS_PER_PAGE)),
+                useServerPagination: false
+            });
+            setSelectedResults(fallbackItems);
+            setAvailableSources([...new Set(fallbackItems.map(item => item.source).filter(Boolean))].sort());
+            setCurrentPage(Math.max(1, page));
+
+            await markSeen();
+        } catch (err) {
+            console.error('Error fetching stored results', err);
+        }
+    }, [authenticatedFetch, getSortParams, markResultsAsSeenRef, newCounts, resultFilter, sourceFilter, sortBy]);
+
+    const viewResults = React.useCallback(async (id, term) => {
+        setSelectedId(id);
+        setSelectedTerm(term);
+        setResultFilter('');
+        setSourceFilter('All');
+        setSelectedResults(null);
+        setAvailableSources([]);
+        setCurrentPage(1);
+        setSelectedResultsMeta(prev => ({ ...prev, useServerPagination: false }));
+        markResultsAsSeenRef.current = id;
+        lastResultsRequest.current = `${id}|1|${sortBy}| |All`;
+        await fetchWatchResults(id, 1);
+    }, [fetchWatchResults, sortBy]);
+
+    const refreshSelectedResults = React.useCallback(async () => {
+        if (!selectedId) return;
+        await fetchWatchResults(selectedId, selectedResultsMeta.page || 1);
+    }, [fetchWatchResults, selectedId, selectedResultsMeta.page]);
+    const refreshSelectedResultsRef = React.useRef(refreshSelectedResults);
+    useEffect(() => {
+        refreshSelectedResultsRef.current = refreshSelectedResults;
+    }, [refreshSelectedResults]);
 
     // Poll for global search status and auto-refresh on completion
     useEffect(() => {
@@ -105,9 +292,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     console.log('Search completed, refreshing data...');
                     fetchWatchlist();
                     fetchNewCounts();
-                    // Also refresh currently viewed results if any
                     if (selectedId) {
-                        refreshSelectedResults();
+                        refreshSelectedResultsRef.current();
                     }
                 }
 
@@ -146,95 +332,27 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             activeStatusController?.abort();
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [selectedId, authenticatedFetch]);
-
-    // Multi-term / Merge / Edit State
-    const [isMerging, setIsMerging] = useState(false);
-    const [checkedItems, setCheckedItems] = useState(new Set());
-    const [editingItem, setEditingItem] = useState(null);
-    const [editName, setEditName] = useState('');
-    const [editTerms, setEditTerms] = useState('');
-    const [editFilters, setEditFilters] = useState('');
-    const [editEnabledSites, setEditEnabledSites] = useState({});
-    const [editSiteOptions, setEditSiteOptions] = useState(DEFAULT_SITE_OPTIONS);
-    const [editStrict, setEditStrict] = useState(true);
-    const [newStrict, setNewStrict] = useState(true);
-    const [globalSettings, setGlobalSettings] = useState({}); // Renamed to avoid collision with 'activeSettings' maybe? No, 'settings' is fine but distinct from local settings maps.
-
-
-    const ITEMS_PER_PAGE = 24;
-
-    // Reset to page 1 when filters change
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [resultFilter, sourceFilter, sortBy]);
+    }, [authenticatedFetch, fetchWatchlist, fetchNewCounts, selectedId]);
 
     useEffect(() => {
-        fetchWatchlist();
-        fetchNewCounts();
-        fetchGlobalSettings();
-    }, []);
+        if (!selectedId) return;
+        if (!selectedResultsMeta.useServerPagination) return;
 
-    const fetchGlobalSettings = async () => {
-        try {
-            const res = await authenticatedFetch('/api/settings');
-            const data = await res.json();
-            setGlobalSettings(data || {});
-        } catch (err) {
-            console.error('Error fetching global settings:', err);
-        }
-    };
+        const requestKey = `${selectedId}|${currentPage}|${sortBy}|${resultFilter}|${sourceFilter}`;
+        if (lastResultsRequest.current === requestKey) return;
+        lastResultsRequest.current = requestKey;
 
-    const fetchWatchlist = async () => {
-        try {
-            const res = await authenticatedFetch('/api/watchlist');
+        fetchWatchResults(selectedId, currentPage);
+    }, [currentPage, resultFilter, selectedId, selectedResultsMeta.useServerPagination, sourceFilter, sortBy, fetchWatchResults]);
 
-            if (res.status === 429) {
-                console.warn('Rate limit exceeded. Retaining existing watchlist.');
-                // Optionally trigger a toast notification here
-                return;
-            }
-
-            if (!res.ok) {
-                console.error(`Failed to fetch watchlist: ${res.status}`);
-                return;
-            }
-
-            const data = await res.json();
-            if (Array.isArray(data)) {
-                setWatchlist(data);
-                // Build email/priority settings map
-                const emailMap = {};
-                const priorityMap = {};
-                const activeMap = {};
-                data.forEach(item => {
-                    emailMap[item.id] = item.emailNotify !== false;
-                    priorityMap[item.id] = item.priority === true;
-                    activeMap[item.id] = item.active !== false;
-                });
-                setEmailSettings(emailMap);
-                setPrioritySettings(priorityMap);
-                setActiveSettings(activeMap);
-            } else {
-                console.error('Watchlist data is not an array:', data);
-                // Do not clear watchlist if data is invalid/undefined to be safe? 
-                // Actually if it returns explicit non-array structure it might be an error object, so safer to keep old data.
-            }
-        } catch (err) {
-            console.error('Error fetching watchlist:', err);
-            // Do NOT setWatchlist([]) here.
-        }
-    };
-
-    const fetchNewCounts = async () => {
-        try {
-            const res = await authenticatedFetch('/api/watchlist/newcounts');
-            const data = await res.json();
-            setNewCounts(data || {});
-        } catch (err) {
-            console.error('Error fetching new counts:', err);
-        }
-    };
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetchWatchlist();
+            fetchNewCounts();
+            fetchGlobalSettings();
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [fetchGlobalSettings, fetchNewCounts, fetchWatchlist]);
 
     // Process search queue sequentially
     // Queue items: { id, name, type: 'single' | 'runAll', items?: [] }
@@ -292,7 +410,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         };
 
         processQueue();
-    }, [searchQueue, selectedId, selectedTerm]);
+    }, [selectedId, searchQueue, selectedTerm, authenticatedFetch, fetchWatchlist, fetchNewCounts, viewResults]);
 
     // Add item to search queue
     const addToSearchQueue = (id, name, type = 'single', items = null) => {
@@ -331,7 +449,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         if (!newTerm.trim()) return;
 
         try {
-            const res = await authenticatedFetch('/api/watchlist', {
+            await authenticatedFetch('/api/watchlist', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -341,7 +459,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     siteOptions: { mandarake: { mode: 'garageKit' } }
                 })
             });
-            const data = await res.json();
             setNewTerm('');
             fetchWatchlist();
         } catch (err) {
@@ -559,44 +676,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         }
     };
 
-    const viewResults = async (id, term) => {
-        setSelectedId(id);
-        setSelectedTerm(term);
-        // Reset local filters when opening new item
-        setResultFilter(''); // Default to showing All items
-        setSourceFilter('All');
-        setSelectedResults(null); // Clear previous
-        setCurrentPage(1); // Reset pagination
-        try {
-            const res = await authenticatedFetch(`/api/results/${id}`);
-            const data = await res.json();
-            setSelectedResults(data.items || []);
-
-            // Mark as seen if there are new items
-            if (newCounts[id] && newCounts[id] > 0) {
-                await authenticatedFetch(`/api/results/${id}/seen`, {
-                    method: 'POST'
-                });
-                // Update local newCounts
-                setNewCounts(prev => ({ ...prev, [id]: 0 }));
-            }
-        } catch (err) {
-            console.error("Error fetching stored results", err);
-        }
-    };
-
-    // Silent refresh of currently selected results (no "seen" marking)
-    const refreshSelectedResults = async () => {
-        if (!selectedId) return;
-        try {
-            const res = await authenticatedFetch(`/api/results/${selectedId}`);
-            const data = await res.json();
-            setSelectedResults(data.items || []);
-        } catch (err) {
-            console.error("Error refreshing results", err);
-        }
-    };
-
     // Wrapper for blocking that updates local state immediately
     const handleLocalBlock = React.useCallback((item) => {
         // Call parent onBlock for API call
@@ -621,69 +700,15 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         );
     }, [onFavoriteToggle]);
 
-    // Export results to HTML file with 5-column grid
     const exportToHtml = (items, filename = 'watchlist_results') => {
-        const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${filename} - GK Watch Export</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a1a; color: #eee; padding: 20px; }
-    h1 { text-align: center; margin-bottom: 20px; color: #fff; }
-    .info { text-align: center; margin-bottom: 20px; color: #888; }
-    .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
-    .card { background: #2a2a2a; border-radius: 8px; overflow: hidden; transition: transform 0.2s; border: 1px solid #333; }
-    .card:hover { transform: translateY(-3px); border-color: #555; }
-    .card a { text-decoration: none; color: inherit; display: block; }
-    .card img { width: 100%; height: 280px; object-fit: cover; background: #333; }
-    .card-body { padding: 10px; }
-    .card-title { font-size: 0.85rem; font-weight: 500; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; height: 2.6em; }
-    .card-price { font-size: 0.9rem; font-weight: bold; color: #fff; }
-    .card-source { font-size: 0.7rem; color: #888; margin-top: 3px; }
-    @media (max-width: 1200px) { .grid { grid-template-columns: repeat(4, 1fr); } }
-    @media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-    @media (max-width: 600px) { .grid { grid-template-columns: repeat(2, 1fr); } }
-  </style>
-</head>
-<body>
-  <h1>🔍 ${filename}</h1>
-  <p class="info">${items.length} items exported on ${new Date().toLocaleString()}</p>
-  <div class="grid">
-    ${items.map(item => `
-    <div class="card">
-      <a href="${item.link}" target="_blank" rel="noopener">
-        <img src="${item.image || 'https://via.placeholder.com/200x280?text=No+Image'}" alt="${(item.title || '').replace(/"/g, '&quot;')}" loading="lazy" onerror="this.src='https://via.placeholder.com/200x280?text=No+Image'">
-        <div class="card-body">
-          <div class="card-title">${item.title || 'Unknown'}</div>
-          <div class="card-price">${item.price || 'N/A'}</div>
-          <div class="card-source">${item.source || ''}</div>
-        </div>
-      </a>
-    </div>`).join('')}
-  </div>
-</body>
-</html>`;
-
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        // Sanitize filename but preserve spaces and harmless punctuation
-        const safeFilename = filename.replace(/[/\\?%*:|"<>]/g, '_');
-
-        // Add date/time to filename
-        const now = new Date();
-        const dateStr = now.toISOString().split('T')[0];
-        const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-').slice(0, 5); // HH-MM
-
-        a.download = `${safeFilename} - ${dateStr} ${timeStr}.html`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const safeName = makeExportFilename(filename);
+        const html = buildExportHtml({
+            heading: `🔍 ${filename}`,
+            items,
+            variant: 'watchlist',
+            subtitle: `${items.length} items exported on ${new Date().toLocaleString()}`
+        });
+        downloadExportHtml({ filename: safeName, html });
     };
 
     // Calculate filtered and sorted results for display
@@ -696,17 +721,24 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             return match ? parseFloat(match[0]) : 0;
         };
 
-        let results = selectedResults.filter(item => {
-            if (item.hidden) return false;
+        const visibleResults = selectedResults.filter(item => {
+            return !item.hidden;
+        });
+
+        if (selectedResultsMeta.useServerPagination) {
+            return visibleResults;
+        }
+
+        const filteredResults = visibleResults.filter(item => {
             const matchesTitle = !resultFilter || item.title.toLowerCase().includes(resultFilter.toLowerCase());
             const matchesSource = sourceFilter === 'All' || item.source === sourceFilter;
             return matchesTitle && matchesSource;
         });
 
         if (sortBy === 'favorite') {
-            results.sort((a, b) => Number(!!b.isFavorite) - Number(!!a.isFavorite));
+            filteredResults.sort((a, b) => Number(!!b.isFavorite) - Number(!!a.isFavorite));
         } else if (sortBy === 'name') {
-            results.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
+            filteredResults.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
         } else if (sortBy === 'relevance') {
             const item = watchlist.find(i => i.id === selectedId);
             const terms = item ? (item.terms || [item.term]) : [];
@@ -721,26 +753,34 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 });
                 return count;
             };
-            results.sort((a, b) => countMatches(b.title) - countMatches(a.title));
+            filteredResults.sort((a, b) => countMatches(b.title) - countMatches(a.title));
         } else if (sortBy === 'priceHigh') {
-            results.sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
+            filteredResults.sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
         } else if (sortBy === 'priceLow') {
-            results.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
+            filteredResults.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
         }
 
-        return results;
-    }, [selectedResults, resultFilter, sourceFilter, sortBy, watchlist, selectedId]);
+        return filteredResults;
+    }, [selectedResults, resultFilter, sourceFilter, sortBy, watchlist, selectedId, selectedResultsMeta.useServerPagination]);
 
-    const totalPages = Math.ceil(filteredAndSortedResults.length / ITEMS_PER_PAGE);
+    const totalPages = selectedResultsMeta.useServerPagination
+        ? Math.max(1, selectedResultsMeta.totalPages || 1)
+        : Math.max(1, Math.ceil(filteredAndSortedResults.length / ITEMS_PER_PAGE));
     const safePage = Math.min(currentPage, Math.max(1, totalPages));
+    const resultCount = selectedResultsMeta.useServerPagination
+        ? selectedResultsMeta.total
+        : (selectedResults ? selectedResults.filter(item => !item.hidden).length : 0);
     const visibleResults = React.useMemo(
-        () => filteredAndSortedResults.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE),
-        [filteredAndSortedResults, safePage]
+        () => (
+            selectedResultsMeta.useServerPagination
+                ? filteredAndSortedResults
+                : filteredAndSortedResults.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
+        ),
+        [filteredAndSortedResults, selectedResultsMeta.useServerPagination, safePage]
     );
-    const resultSources = React.useMemo(
-        () => [...new Set((selectedResults || []).filter(item => !item.hidden).map(item => item.source).filter(Boolean))].sort(),
-        [selectedResults]
-    );
+    const resultSources = selectedResultsMeta.useServerPagination
+        ? availableSources
+        : [...new Set((selectedResults || []).filter(item => !item.hidden).map(item => item.source).filter(Boolean))].sort();
     const sortedWatchlist = React.useMemo(() => [...watchlist].sort((a, b) => {
         const countA = newCounts[a.id] || 0;
         const countB = newCounts[b.id] || 0;
@@ -793,12 +833,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     </label>
                     <button type="submit" className="add-btn">Add</button>
                     <button type="button" className="add-btn gk-btn" onClick={addGKEntries}>Add GK</button>
-                    <button
-                        type="button"
-                        className="add-btn taobao-btn"
-                        onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Watch Disabled: Cookies missing for both sites') : addCNWatch()}
-                        disabled={(!taobaoEnabled && !goofishEnabled) || !newTerm.trim()}
-                        title={(!taobaoEnabled && !goofishEnabled) ? "CN Watch Disabled (Cookies Missing)" : "Add CN Watch (Taobao/Goofish)"}
+                        <button
+                            type="button"
+                            className="add-btn taobao-btn"
+                            onClick={() => (!taobaoEnabled && !goofishEnabled) ? alert('CN Watch Disabled: Cookies missing for both sites') : addCNWatch()}
+                            disabled={(!taobaoEnabled && !goofishEnabled) || !newTerm.trim()}
+                            title={(!taobaoEnabled && !goofishEnabled) ? "CN Watch Disabled (Cookies Missing)" : "Add CN Watch (Taobao/Goofish)"}
                         style={{
                             backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
                             marginLeft: '5px',
@@ -1081,7 +1121,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 <div className="watchlist-results">
                     {selectedTerm && (
                         <>
-                            <h3>Stored Results for "{selectedTerm}" <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '10px' }}>({selectedResults ? selectedResults.filter(r => !r.hidden).length : 0} results)</span></h3>
+                            <h3>Stored Results for "{selectedTerm}" <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '10px' }}>({resultCount} results)</span></h3>
                             <div className="results-actions">
 
                                 <button
@@ -1183,7 +1223,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
 
                                 <select
                                     value={sourceFilter}
-                                    onChange={(e) => setSourceFilter(e.target.value)}
+                                    onChange={(e) => { setSourceFilter(e.target.value); setCurrentPage(1); }}
                                     className="search-input" // Reusing search-input style for consistency
                                     style={{ maxWidth: '200px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem' }}
                                 >
@@ -1196,7 +1236,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                 {(resultFilter || sourceFilter !== 'All') && (
                                     <button
                                         className="clear-filter-btn"
-                                        onClick={() => { setResultFilter(''); setSourceFilter('All'); }}
+                                        onClick={() => { setResultFilter(''); setSourceFilter('All'); setCurrentPage(1); }}
                                         style={{ marginLeft: '10px' }}
                                     >
                                         ✕ Clear
@@ -1204,13 +1244,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                 )}
                                 <select
                                     value={sortBy}
-                                    onChange={(e) => setSortBy(e.target.value)}
+                                    onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
                                     className="search-input"
                                     style={{ maxWidth: '180px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem', marginLeft: '10px' }}
                                 >
                                     <option value="time">Sort: Time Scraped</option>
                                     <option value="favorite">Sort: Favorited</option>
-                                    <option value="relevance">Sort: Relevance</option>
                                     <option value="name">Sort: Name</option>
                                     <option value="priceHigh">Sort: Price High→Low</option>
                                     <option value="priceLow">Sort: Price Low→High</option>
@@ -1236,7 +1275,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                             </div>
 
                             {/* Pagination */}
-                            {filteredAndSortedResults.length > ITEMS_PER_PAGE && (
+                            {totalPages > 1 && (
                                 <div className="pagination">
                                     <button
                                         className="page-btn"
@@ -1299,7 +1338,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
                                         <button
                                             className="page-btn"
-                                            onClick={() => handleExportClipboard(filteredAndSortedResults)}
+                                            onClick={() => handleExportClipboard(visibleResults)}
                                             style={{ backgroundColor: '#333', border: '1px solid #555' }}
                                             title="Copy Name - Link to Clipboard"
                                         >
@@ -1308,7 +1347,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         <button
                                             className="page-btn"
                                             onClick={() => exportToHtml(
-                                                filteredAndSortedResults,
+                                                visibleResults,
                                                 selectedTerm || 'watchlist_results'
                                             )}
                                             style={{ backgroundColor: '#333', border: '1px solid #555' }}
@@ -1316,29 +1355,29 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                             📥 Export HTML
                                         </button>
                                     </div>
-                                </div>
+                            </div>
                             )}
 
                             {/* Export Button (shown when no pagination) */}
-                            {filteredAndSortedResults.length > 0 && totalPages <= 1 && (
+                            {visibleResults.length > 0 && totalPages <= 1 && (
                                 <div style={{ textAlign: 'right', marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
                                     <button
                                         className="page-btn"
-                                        onClick={() => handleExportClipboard(filteredAndSortedResults)}
+                                        onClick={() => handleExportClipboard(visibleResults)}
                                         style={{ backgroundColor: '#333', border: '1px solid #555' }}
                                         title="Copy Name - Link to Clipboard"
                                     >
-                                        📋 Copy ({filteredAndSortedResults.length})
+                                        📋 Copy ({visibleResults.length})
                                     </button>
                                     <button
                                         className="page-btn"
                                         onClick={() => exportToHtml(
-                                            filteredAndSortedResults,
+                                            visibleResults,
                                             selectedTerm || 'watchlist_results'
                                         )}
                                         style={{ backgroundColor: '#333', border: '1px solid #555' }}
                                     >
-                                        📥 Export HTML ({filteredAndSortedResults.length})
+                                        📥 Export HTML ({visibleResults.length})
                                     </button>
                                 </div>
                             )}

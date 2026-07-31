@@ -4,6 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const queryMatcher = require('../utils/queryMatcher');
 
+function throwIfAborted(signal) {
+    if (!signal?.aborted) return;
+    const error = new Error('Search was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    throw error;
+}
+
 const MANDARAKE_BASE_URL = 'https://order.mandarake.co.jp';
 const MANDARAKE_SEARCH_URL = `${MANDARAKE_BASE_URL}/order/listPage/list`;
 const COOKIES_FILE = path.join(__dirname, '../data/mandarake_cookies.json');
@@ -283,13 +291,14 @@ function isGarageKitCategory(categoryPath) {
     return /ガレージキット|garage\s*kit/i.test(normalized);
 }
 
-async function mapWithConcurrency(items, concurrency, mapper) {
+async function mapWithConcurrency(items, concurrency, mapper, signal = null) {
     const results = new Array(items.length);
     let nextIndex = 0;
     const workerCount = Math.min(Math.max(concurrency, 1), items.length);
 
     await Promise.all(Array.from({ length: workerCount }, async () => {
         while (nextIndex < items.length) {
+            throwIfAborted(signal);
             const index = nextIndex++;
             results[index] = await mapper(items[index], index);
         }
@@ -298,11 +307,13 @@ async function mapWithConcurrency(items, concurrency, mapper) {
     return results;
 }
 
-async function fetchSearchHtml(searchUrl, cookies) {
+async function fetchSearchHtml(searchUrl, cookies, signal = null) {
+    throwIfAborted(signal);
     const cookieHeader = cookiesToHeader(cookies);
 
     const response = await axios.get(searchUrl, {
         timeout: 30000,
+        signal,
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -316,11 +327,13 @@ async function fetchSearchHtml(searchUrl, cookies) {
     return response.data;
 }
 
-async function fetchDetailHtml(detailUrl, cookies) {
+async function fetchDetailHtml(detailUrl, cookies, signal = null) {
+    throwIfAborted(signal);
     const cookieHeader = cookiesToHeader(cookies);
 
     const response = await axios.get(detailUrl, {
         timeout: 30000,
+        signal,
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -334,10 +347,13 @@ async function fetchDetailHtml(detailUrl, cookies) {
     return response.data;
 }
 
-async function filterGarageKitResults(results, cookies, options = {}) {
+async function filterGarageKitResults(results, cookies, options = {}, signal = null) {
+    throwIfAborted(signal);
     if (!Array.isArray(results) || results.length === 0) return [];
 
-    const detailFetcher = options.fetchDetailHtml || fetchDetailHtml;
+    const detailFetcher = options.fetchDetailHtml
+        ? (url, item) => options.fetchDetailHtml(url, cookies, item, signal)
+        : (url) => fetchDetailHtml(url, cookies, signal);
     const concurrency = options.concurrency || DETAIL_CATEGORY_CONCURRENCY;
     let rejected = 0;
     let failed = 0;
@@ -350,7 +366,7 @@ async function filterGarageKitResults(results, cookies, options = {}) {
         }
 
         try {
-            const detailHtml = await detailFetcher(buildDetailUrl(itemCode), cookies, item);
+            const detailHtml = await detailFetcher(buildDetailUrl(itemCode), item);
             const categoryPath = parseDetailCategory(detailHtml);
 
             if (isGarageKitCategory(categoryPath)) {
@@ -360,11 +376,12 @@ async function filterGarageKitResults(results, cookies, options = {}) {
             rejected++;
             return null;
         } catch (error) {
+            throwIfAborted(signal);
             failed++;
             console.warn(`[Mandarake] Failed to verify detail category for itemCode=${itemCode}: ${error.message}`);
             return null;
         }
-    });
+    }, signal);
 
     const filtered = verified.filter(Boolean);
     if (rejected > 0 || failed > 0) {
@@ -374,7 +391,8 @@ async function filterGarageKitResults(results, cookies, options = {}) {
     return filtered;
 }
 
-async function search(query, strict = true, filters = [], options = {}) {
+async function search(query, strict = true, filters = [], options = {}, signal = null) {
+    throwIfAborted(signal);
     const effectiveQuery = getEffectiveQuery(query, options);
     const mode = normalizeMode(options);
     console.log(`[Mandarake] Searching for: ${effectiveQuery || '(all)'} (${mode})`);
@@ -387,7 +405,7 @@ async function search(query, strict = true, filters = [], options = {}) {
 
     try {
         const searchUrl = buildSearchUrl(query, options);
-        const html = await fetchSearchHtml(searchUrl, cookies);
+        const html = await fetchSearchHtml(searchUrl, cookies, signal);
 
         if (String(html).includes('body class="login"')) {
             return [{ error: 'Login Required', source: 'Mandarake' }];
@@ -397,12 +415,13 @@ async function search(query, strict = true, filters = [], options = {}) {
         let filtered = applyFilters(parsed, effectiveQuery, false, filters);
 
         if (mode === 'garageKit') {
-            filtered = await filterGarageKitResults(filtered, cookies);
+            filtered = await filterGarageKitResults(filtered, cookies, {}, signal);
         }
 
         console.log(`[Mandarake] Found ${parsed.length} item(s), ${filtered.length} after filtering.`);
         return filtered;
     } catch (error) {
+        throwIfAborted(signal);
         console.error('[Mandarake] Search failed:', error.message);
         return [{ error: error.message || 'Search failed', source: 'Mandarake' }];
     }

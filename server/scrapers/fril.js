@@ -3,7 +3,16 @@ const cheerio = require('cheerio');
 const dejapan = require('./dejapan');
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 
-async function searchDirect(query, strictEnabled = true, filters = []) {
+function throwIfAborted(signal) {
+    if (!signal?.aborted) return;
+    const error = new Error('Search was aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    throw error;
+}
+
+async function searchDirect(query, strictEnabled = true, filters = [], signal = null) {
+    throwIfAborted(signal);
     console.log(`Searching Fril for ${query}...`);
     const searchUrl = `https://fril.jp/s?query=${encodeURIComponent(query)}`;
 
@@ -13,7 +22,8 @@ async function searchDirect(query, strictEnabled = true, filters = []) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept-Language': 'ja-JP'
             },
-            timeout: 10000
+            timeout: 10000,
+            signal
         });
 
         const $ = cheerio.load(res.data);
@@ -93,6 +103,7 @@ async function searchDirect(query, strictEnabled = true, filters = []) {
         return results;
 
     } catch (error) {
+        throwIfAborted(signal);
         console.error('Fril Scraper Error:', error.message);
         if (error.response && error.response.status === 404) {
             return []; // No results found often returns 404 on some sites, though Fril usually just empty list
@@ -102,11 +113,13 @@ async function searchDirect(query, strictEnabled = true, filters = []) {
 }
 
 // Wrapper for main search to handle fallback
-async function searchWithFallback(query, strictEnabled = true, filters = []) {
+async function searchWithFallback(query, strictEnabled = true, filters = [], signal = null) {
+    throwIfAborted(signal);
     let results = null;
     try {
-        results = await searchDirect(query, strictEnabled, filters);
+        results = await searchDirect(query, strictEnabled, filters, signal);
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[Fril] Direct search critical error: ${err.message}`);
         results = null;
     }
@@ -117,12 +130,15 @@ async function searchWithFallback(query, strictEnabled = true, filters = []) {
 
     console.log('[Fril] Direct search failed (returned null). Attempting Fallback: DEJapan...');
     try {
-        const dejapanResults = await dejapan.searchRakuma(query, strictEnabled, filters);
+        throwIfAborted(signal);
+        const dejapanResults = await dejapan.searchRakuma(query, strictEnabled, filters, signal);
+        throwIfAborted(signal);
         if (dejapanResults !== null) {
             console.log(`[Fril] DEJapan search successful (${dejapanResults.length} items).`);
             return dejapanResults;
         }
     } catch (err) {
+        throwIfAborted(signal);
         console.warn(`[Fril] DEJapan fallback error: ${err.message}`);
     }
 

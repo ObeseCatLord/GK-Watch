@@ -1,34 +1,55 @@
+// Files created by this process (keys, cookies, sessions/logs) default to owner-only.
+process.umask(0o077);
+
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const helmet = require('helmet');
+let compression = null;
+try { compression = require('compression'); } catch (_) { console.warn('[Server] compression is not installed; response compression is disabled until it is added.'); }
 const searchAggregator = require('./scrapers');
 const Settings = require('./models/settings');
 const db = require('./models/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const DATA_DIR = path.join(__dirname, 'data');
+const COOKIE_FILES = ['taobao_cookies.json', 'goofish_cookies.json', 'mandarake_cookies.json'];
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+fs.chmodSync(DATA_DIR, 0o700);
+for (const cookieFile of COOKIE_FILES) {
+    const cookiePath = path.join(DATA_DIR, cookieFile);
+    if (fs.existsSync(cookiePath)) fs.chmodSync(cookiePath, 0o600);
+}
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Only trust a directly connected loopback reverse proxy. The first untrusted
+// address from X-Forwarded-For remains the client key used by rate limiting.
+app.set('trust proxy', (address, index) => index === 0 && (address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'));
 
 // Security headers
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // For Vite/React
+            scriptSrc: isProduction ? ["'self'"] : ["'self'", "'unsafe-eval'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", "data:", "https:"], // Allow images from any HTTPS source
-            connectSrc: ["'self'", "ws:", "wss:"], // For HMR WebSocket
+            connectSrc: isProduction ? ["'self'"] : ["'self'", "ws:", "wss:"],
             frameSrc: ["'none'"],
             objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
             upgradeInsecureRequests: [],
         },
     },
     crossOriginEmbedderPolicy: false
 }));
 
-app.use(cors());
+if (compression) {
+    app.use(compression({ filter: (req, res) => req.headers.accept !== 'text/event-stream' && compression.filter(req, res) }));
+}
 app.use(express.json());
 
 
@@ -49,6 +70,7 @@ const loginLimiter = rateLimit({
     max: 10, // Limit each IP to 10 login attempts per window
     standardHeaders: true,
     legacyHeaders: false,
+    skipSuccessfulRequests: true,
     message: { error: 'Too many login attempts, please try again after 5 minutes.' }
 });
 
@@ -59,7 +81,8 @@ app.use('/api/login', loginLimiter);
 const crypto = require('crypto');
 const NtfyService = require('./utils/ntfyService');
 
-const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_TIMEOUT = 12 * 60 * 60 * 1000;
+const SESSION_COOKIE = 'gkwatch_session';
 
 // Session Management Statements
 const sessionStmts = {
@@ -67,8 +90,56 @@ const sessionStmts = {
     get: db.prepare('SELECT * FROM sessions WHERE token = ?'),
     delete: db.prepare('DELETE FROM sessions WHERE token = ?'),
     cleanup: db.prepare('DELETE FROM sessions WHERE expires_at < ?'),
-    extend: db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?')
+    deleteAll: db.prepare('DELETE FROM sessions')
 };
+
+const digestSessionToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+const isSessionToken = (token) => typeof token === 'string' && /^[a-f0-9]{64}$/i.test(token);
+
+// Existing rows contain raw bearer tokens. Invalidate them exactly once so a
+// database read cannot yield a usable session after this upgrade.
+db.transaction(() => {
+    const marker = db.prepare("SELECT value FROM settings WHERE key = '__session_digest_v1'").get();
+    if (!marker) {
+        sessionStmts.deleteAll.run();
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('__session_digest_v1', 'true')").run();
+    }
+})();
+
+function cookieToken(req) {
+    const header = req.headers.cookie;
+    if (!header) return null;
+    for (const part of header.split(';')) {
+        const separator = part.indexOf('=');
+        if (separator < 0) continue;
+        if (part.slice(0, separator).trim() !== SESSION_COOKIE) continue;
+        try { return decodeURIComponent(part.slice(separator + 1).trim()); } catch (_) { return null; }
+    }
+    return null;
+}
+
+function sessionForToken(token) {
+    if (!isSessionToken(token)) return null;
+    const tokenDigest = digestSessionToken(token);
+    const session = sessionStmts.get.get(tokenDigest);
+    if (!session) return null;
+    if (Date.now() > session.expires_at) {
+        sessionStmts.delete.run(tokenDigest);
+        return null;
+    }
+    return session;
+}
+
+function sameOriginRequest(req) {
+    const origin = req.get('origin');
+    if (!origin) return false;
+    try {
+        const parsed = new URL(origin);
+        return parsed.protocol === `${req.protocol}:` && parsed.host === req.get('host');
+    } catch (_) {
+        return false;
+    }
+}
 
 // Periodically clean up expired sessions
 // Periodically clean up expired sessions
@@ -92,32 +163,25 @@ const requireAuth = (req, res, next) => {
     const settings = Settings.get();
 
     // If login is disabled OR no password is set, bypass auth
-    if (!settings.loginEnabled || !settings.loginPassword) {
+    if (!settings.loginEnabled) {
         return next();
     }
 
-    const token = req.header('x-auth-token');
+    if (!settings.loginPassword) {
+        return res.status(503).json({ error: 'Authentication configuration is unavailable' });
+    }
 
-    if (!token) {
+    const cookie = cookieToken(req);
+    const token = cookie || req.header('x-auth-token');
+
+    if (!isSessionToken(token)) {
         return res.status(401).json({ error: 'No token, authorization denied' });
     }
+    const session = sessionForToken(token);
+    if (!session) return res.status(401).json({ error: 'Token is invalid or expired' });
 
-    const session = sessionStmts.get.get(token);
-    if (!session) {
-        return res.status(401).json({ error: 'Token is invalid or expired' });
-    }
-
-    // Check session expiry
-    if (Date.now() > session.expires_at) {
-        sessionStmts.delete.run(token);
-        return res.status(401).json({ error: 'Session expired. Please login again.' });
-    }
-
-    // Refresh session timestamp on activity (extend by timeout)
-    // Only extend if it's older than 1 hour to reduce DB writes?
-    // For now, let's extend if remaining time is < 23 hours (i.e. 1 hour passed)
-    if (session.expires_at - Date.now() < SESSION_TIMEOUT - (60 * 60 * 1000)) {
-        sessionStmts.extend.run(Date.now() + SESSION_TIMEOUT, token);
+    if (cookie && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sameOriginRequest(req)) {
+        return res.status(403).json({ error: 'Cross-origin request denied' });
     }
 
     return next();
@@ -125,7 +189,7 @@ const requireAuth = (req, res, next) => {
 
 
 // Login Routes
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { password } = req.body;
     const settings = Settings.get();
 
@@ -134,29 +198,23 @@ app.post('/api/login', (req, res) => {
         return res.json({ success: true, token: 'disabled-mode' });
     }
 
-    if (!password) {
+    if (typeof password !== 'string' || !password) {
         return res.status(400).json({ error: 'Password required' });
     }
 
-    // Timing-safe password comparison
-    const storedPassword = settings.loginPassword || '';
-    const inputPassword = password || '';
-
-    // Pad to same length for timing-safe comparison
-    const maxLen = Math.max(storedPassword.length, inputPassword.length);
-    const paddedStored = storedPassword.padEnd(maxLen, '\0');
-    const paddedInput = inputPassword.padEnd(maxLen, '\0');
-
-    const isMatch = crypto.timingSafeEqual(
-        Buffer.from(paddedStored, 'utf8'),
-        Buffer.from(paddedInput, 'utf8')
-    );
-
-    if (isMatch && storedPassword.length === inputPassword.length) {
+    if (await Settings.verifyLoginPassword(password)) {
         const token = crypto.randomBytes(32).toString('hex');
         const expiresAt = Date.now() + SESSION_TIMEOUT;
-        sessionStmts.insert.run(token, expiresAt);
-        return res.json({ success: true, token });
+        sessionStmts.cleanup.run(Date.now());
+        sessionStmts.insert.run(digestSessionToken(token), expiresAt);
+        res.cookie(SESSION_COOKIE, token, {
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: 'strict',
+            path: '/',
+            maxAge: SESSION_TIMEOUT
+        });
+        return res.json({ success: true, ...(process.env.NODE_ENV === 'test' ? { token } : {}) });
     } else {
         return res.status(401).json({ error: 'Invalid password' });
     }
@@ -164,10 +222,11 @@ app.post('/api/login', (req, res) => {
 
 
 app.post('/api/logout', (req, res) => {
-    const token = req.header('x-auth-token');
-    if (token) {
-        sessionStmts.delete.run(token);
+    const token = cookieToken(req) || req.header('x-auth-token');
+    if (isSessionToken(token)) {
+        sessionStmts.delete.run(digestSessionToken(token));
     }
+    res.clearCookie(SESSION_COOKIE, { httpOnly: true, secure: isProduction, sameSite: 'strict', path: '/' });
     res.json({ success: true });
 });
 
@@ -241,15 +300,27 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
             console.log('Starting SSE search stream...');
 
+            const abortController = new AbortController();
+            let clientDisconnected = false;
+            const onRequestClose = () => {
+                clientDisconnected = true;
+                abortController.abort();
+                clearInterval(keepAlive);
+            };
+
             // Keep connection alive with heartbeat every 5s (more frequent to prevent proxy timeouts)
             const keepAlive = setInterval(() => {
-                res.write(': keep-alive\n\n');
+                if (!clientDisconnected && !res.writableEnded && !res.destroyed) {
+                    res.write(': keep-alive\n\n');
+                }
             }, 5000);
 
-            // Ensure we clear interval if client disconnects
-            req.on('close', () => clearInterval(keepAlive));
+            // A disconnected client must not retain queued or streaming scraper work.
+            req.on('aborted', onRequestClose);
+            res.on('close', onRequestClose);
 
             const onProgress = (data) => {
+                if (clientDisconnected || abortController.signal.aborted || res.writableEnded || res.destroyed) return;
                 // If we have results, filter them before sending
                 if (data.type === 'result' && data.items) {
                     let filtered = BlockedItems.filterResults(data.items);
@@ -260,14 +331,22 @@ app.get('/api/search', requireAuth, async (req, res) => {
             };
 
             try {
-                await searchAggregator.searchAll(query, enabledOverride, strict, filters, onProgress, siteOptions);
-                res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+                await searchAggregator.searchAll(query, enabledOverride, strict, filters, onProgress, siteOptions, abortController.signal);
+                if (!clientDisconnected && !res.writableEnded && !res.destroyed) {
+                    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+                }
             } catch (err) {
-                console.error('SSE Search error:', err);
-                res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+                if (!abortController.signal.aborted) {
+                    console.error('SSE Search error:', err);
+                    if (!res.writableEnded && !res.destroyed) {
+                        res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+                    }
+                }
             } finally {
                 clearInterval(keepAlive);
-                res.end();
+                req.removeListener('aborted', onRequestClose);
+                res.removeListener('close', onRequestClose);
+                if (!res.writableEnded && !res.destroyed) res.end();
             }
             return;
         }
@@ -378,14 +457,47 @@ app.post('/api/watchlist/reorder', requireAuth, async (req, res) => {
 });
 
 app.get('/api/results/:id', requireAuth, async (req, res) => {
-    const results = await Scheduler.getResults(req.params.id);
+    const query = req.query || {};
+    const queryKeys = ['page', 'pageSize', 'sort', 'order', 'filter', 'source'];
+    const hasQueryOptions = queryKeys.some(key => query[key] !== undefined);
+    const parsePositiveInteger = (value, name, max) => {
+        if (!/^\d+$/.test(String(value)) || Number(value) < 1 || Number(value) > max) throw new Error(`${name} must be an integer from 1 to ${max}`);
+        return Number(value);
+    };
+    let options;
+    try {
+        if (hasQueryOptions) {
+            const sortValues = new Set(['firstSeen', 'lastSeen', 'price', 'title', 'source', 'favorite']);
+            const orderValues = new Set(['asc', 'desc']);
+            if (query.sort !== undefined && !sortValues.has(query.sort)) throw new Error('sort is invalid');
+            if (query.order !== undefined && !orderValues.has(String(query.order).toLowerCase())) throw new Error('order must be asc or desc');
+            if (query.filter !== undefined && (typeof query.filter !== 'string' || query.filter.length > 200 || /[\u0000-\u001f\u007f]/.test(query.filter))) throw new Error('filter is invalid');
+            if (query.source !== undefined && (typeof query.source !== 'string' || query.source.length > 100 || /[\u0000-\u001f\u007f]/.test(query.source))) throw new Error('source is invalid');
+            options = {
+                page: query.page === undefined ? 1 : parsePositiveInteger(query.page, 'page', 100000),
+                pageSize: query.pageSize === undefined ? 50 : parsePositiveInteger(query.pageSize, 'pageSize', 100),
+                sortBy: query.sort || 'firstSeen',
+                sortDirection: String(query.order || 'desc').toLowerCase(),
+                search: typeof query.filter === 'string' ? query.filter.trim() : '',
+                source: typeof query.source === 'string' ? query.source.trim() : '',
+                hidden: false
+            };
+        }
+    } catch (error) {
+        return res.status(400).json({ error: error.message });
+    }
+    const results = await Scheduler.getResults(req.params.id, options);
     // Filter results on read as well, in case we just blocked something
     // Also filter out HIDDEN items (grace period preservation)
     let items = results ? results.items : [];
     items = items.filter(i => !i.hidden);
     const filtered = BlockedItems.filterResults(items);
     const annotated = FavoriteItems.annotateResults(filtered);
-    res.json(results ? { ...results, items: annotated } : { items: [] });
+    if (!hasQueryOptions) return res.json(results ? { ...results, items: annotated } : { items: [] });
+    const total = Number.isInteger(results?.total) ? results.total : annotated.length;
+    const page = Number.isInteger(results?.page) ? results.page : options.page;
+    const pageSize = Number.isInteger(results?.pageSize) ? results.pageSize : options.pageSize;
+    return res.json({ ...(results || {}), items: annotated, total, page, pageSize, totalPages: Number.isInteger(results?.totalPages) ? results.totalPages : Math.ceil(total / pageSize) });
 
 });
 
@@ -614,15 +726,26 @@ app.get('/api/status', requireAuth, (req, res) => {
         progress: Scheduler.progress,
         completionVersion: Scheduler.completionVersion,
         nextScheduled,
-        minutesUntilNext
+        minutesUntilNext,
+        admission: searchAggregator.getAdmissionStats?.()
     });
 });
 
 // Check if login is required (unauthenticated endpoint)
+app.get('/api/health', (req, res) => {
+    try {
+        db.prepare('SELECT 1').get();
+        return res.json({ status: 'ok' });
+    } catch (_) {
+        return res.status(503).json({ status: 'unhealthy' });
+    }
+});
+
 app.get('/api/auth-status', (req, res) => {
     const settings = Settings.get();
     res.json({
-        loginRequired: settings.loginEnabled && !!settings.loginPassword
+        loginRequired: settings.loginEnabled,
+        authenticated: !settings.loginEnabled || !!sessionForToken(cookieToken(req) || req.header('x-auth-token'))
     });
 });
 
@@ -643,6 +766,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
 });
 
 app.post('/api/settings', requireAuth, async (req, res) => {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'Settings payload must be an object' });
     // Filter out computed fields that shouldn't be saved
     const { hasLoginPassword, hasSmtpPass, ...settingsToUpdate } = req.body;
 
@@ -659,7 +783,7 @@ app.post('/api/settings', requireAuth, async (req, res) => {
         res.json(updated);
     } catch (err) {
         console.error('Error updating settings:', err);
-        res.status(500).json({ error: 'Failed to update settings' });
+        res.status(400).json({ error: err.message });
     }
 });
 
@@ -734,9 +858,10 @@ app.post('/api/cookies/:site', requireAuth, async (req, res) => {
         }
 
         // Write to file
-        const filePath = path.join(__dirname, 'data', `${site}_cookies.json`);
+        const filePath = path.join(DATA_DIR, `${site}_cookies.json`);
 
-        await fsp.writeFile(filePath, JSON.stringify(cookieJson, null, 2));
+        await fsp.writeFile(filePath, JSON.stringify(cookieJson, null, 2), { mode: 0o600 });
+        await fsp.chmod(filePath, 0o600);
         console.log(`[API] Updated cookies for ${site}`);
 
         res.json({ success: true, message: 'Cookies saved successfully' });
@@ -759,10 +884,12 @@ const Cleanup = require('./utils/cleanup');
 // Run cleanup manually (log rotation + expired results)
 app.post('/api/cleanup', requireAuth, (req, res) => {
     try {
-        const stats = Cleanup.runFullCleanup();
+        const confirmed = req.body?.confirm === true;
+        const stats = Cleanup.runFullCleanup({ dryRun: !confirmed });
         res.json({
             success: true,
-            message: 'Cleanup completed',
+            requiresConfirmation: !confirmed,
+            message: confirmed ? 'Cleanup completed' : 'Cleanup preview completed',
             stats
         });
     } catch (err) {
@@ -777,8 +904,24 @@ app.get('/api/cleanup/config', requireAuth, (req, res) => {
 });
 
 app.post('/api/cleanup/config', requireAuth, (req, res) => {
-    const updated = Cleanup.updateConfig(req.body);
-    res.json({ success: true, config: updated });
+    const limits = {
+        maxLogSizeBytes: [64 * 1024, 100 * 1024 * 1024],
+        logLinesToKeep: [10, 100000],
+        resultsMaxAgeDays: [1, 365]
+    };
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'Cleanup configuration must be an object' });
+    for (const [key, value] of Object.entries(req.body)) {
+        const range = limits[key];
+        if (!range || !Number.isInteger(value) || value < range[0] || value > range[1]) {
+            return res.status(400).json({ error: `Invalid cleanup configuration: ${key}` });
+        }
+    }
+    try {
+        const updated = Cleanup.updateConfig(req.body);
+        return res.json({ success: true, config: updated });
+    } catch (error) {
+        return res.status(400).json({ error: 'Invalid cleanup configuration' });
+    }
 });
 
 // Manual Run - Trigger all watchlist searches now
@@ -878,7 +1021,18 @@ app.post('/api/settings/test-email', requireAuth, async (req, res) => {
 // Serve static files from React app if they exist
 const clientBuildPath = path.join(__dirname, '../client/dist');
 if (fs.existsSync(clientBuildPath)) {
-    app.use(express.static(clientBuildPath));
+    const assetsPath = path.join(clientBuildPath, 'assets');
+    if (fs.existsSync(assetsPath)) {
+        app.use('/assets', express.static(assetsPath, {
+            maxAge: 365 * 24 * 60 * 60 * 1000,
+            immutable: true,
+            setHeaders: (res) => res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        }));
+    }
+    app.use(express.static(clientBuildPath, {
+        maxAge: 0,
+        setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache')
+    }));
     app.get('*', (req, res) => {
         // Don't intercept API 404s
         if (req.path.startsWith('/api/')) {

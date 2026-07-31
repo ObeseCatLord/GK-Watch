@@ -92,19 +92,22 @@ describe('Settings', () => {
             expect(rawValue).toContain(':'); // IV:ciphertext format
         });
 
-        test('encrypts loginPassword at rest', async () => {
+        test('hashes loginPassword at rest and verifies it without exposing plaintext', async () => {
             await Settings.update({ loginPassword: 'secure_pass_123' });
             const settings = Settings.get();
-            expect(settings.loginPassword).toBe('secure_pass_123');
+            expect(settings.loginPassword).toMatch(/^scrypt\$/);
+            expect(settings.loginPassword).not.toContain('secure_pass_123');
+            await expect(Settings.verifyLoginPassword('secure_pass_123')).resolves.toBe(true);
+            await expect(Settings.verifyLoginPassword('wrong-password')).resolves.toBe(false);
         });
 
         test('rejects short passwords', async () => {
             await expect(Settings.update({ loginPassword: 'ab' }))
-                .rejects.toThrow('Password must be at least 5 characters long');
+                .rejects.toThrow('Password must be at least 12 characters long');
         });
 
         test('disables login if password is empty', async () => {
-            await Settings.update({ loginEnabled: true, loginPassword: 'validpass' });
+            await Settings.update({ loginEnabled: true, loginPassword: 'valid-password-123' });
             await Settings.update({ loginEnabled: true, loginPassword: '' });
             const settings = Settings.get();
             expect(settings.loginEnabled).toBe(false);
@@ -126,6 +129,25 @@ describe('Settings', () => {
             expect(settings.enabledSites.yahoo).toBe(true);
             expect(settings.enabledSites.surugaya).toBe(false);
             expect(settings.enabledSites.mandarake).toBe(false);
+        });
+
+        test('rejects unknown settings and invalid concurrency', async () => {
+            await expect(Settings.update({ unexpected: true })).rejects.toThrow('Unknown setting');
+            await expect(Settings.update({ concurrency: 6 })).rejects.toThrow('concurrency');
+            await expect(Settings.update({ concurrency: 1.5 })).rejects.toThrow('concurrency');
+        });
+
+        test('rejects non-HTTPS and non-allowlisted ntfy origins', async () => {
+            await expect(Settings.update({ ntfyServer: 'http://ntfy.sh' })).rejects.toThrow('HTTPS');
+            await expect(Settings.update({ ntfyServer: 'https://example.com' })).rejects.toThrow('allowlisted');
+        });
+
+        test('never returns recoverable credentials from a settings update', async () => {
+            const updated = await Settings.update({ smtpPass: 'mail-secret', loginPassword: 'login-secret' });
+            expect(updated.smtpPass).toBeNull();
+            expect(updated.loginPassword).toBeNull();
+            expect(updated.hasSmtpPass).toBe(true);
+            expect(updated.hasLoginPassword).toBe(true);
         });
     });
 });

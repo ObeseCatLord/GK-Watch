@@ -144,6 +144,30 @@ describe('PayPay SOLD retention', () => {
         expect(item).toBeUndefined();
     });
 
+    test('paginated reads exclude expired PayPay items without a pre-page cleanup scan', async () => {
+        const watch = await Watchlist.add({ term: 'garage kit', strict: false });
+        const oldSoldTime = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+
+        db.prepare(`
+            INSERT INTO results (watch_id, title, link, source, end_time, first_seen, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            watch.id,
+            'Expired sold garage kit',
+            'https://paypayfleamarket.yahoo.co.jp/item/z-expired-page',
+            'PayPay Flea Market',
+            oldSoldTime,
+            oldSoldTime,
+            oldSoldTime
+        );
+
+        const results = await Scheduler.getResults(watch.id, { page: 1, pageSize: 50 });
+
+        expect(results.items).toHaveLength(0);
+        expect(results.total).toBe(0);
+        expect(db.prepare('SELECT COUNT(*) AS count FROM results WHERE watch_id = ?').get(watch.id).count).toBe(1);
+    });
+
     test('scheduler preserves missing PayPay items without sold timestamps for the original 48 hour grace period', async () => {
         const watch = await Watchlist.add({ term: 'garage kit', strict: false });
 

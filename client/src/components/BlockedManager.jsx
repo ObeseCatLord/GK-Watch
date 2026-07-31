@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const BlockedManager = ({ authenticatedFetch }) => {
     const [blockedItems, setBlockedItems] = useState([]);
@@ -7,13 +7,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
     // to avoid confusion, let's rename newTerm to blacklistText
     const [blacklistText, setNewTerm] = useState(''); // Reusing setNewTerm setter to minimize diff, but essentially it's the text block 
 
-    useEffect(() => {
-        fetchBlockedItems();
-        fetchFavoriteItems();
-        fetchBlacklist();
-    }, []);
-
-    const fetchBlockedItems = async () => {
+    const fetchBlockedItems = useCallback(async () => {
         try {
             const res = await authenticatedFetch('/api/blocked');
             const data = await res.json();
@@ -21,9 +15,9 @@ const BlockedManager = ({ authenticatedFetch }) => {
         } catch (err) {
             console.error('Error fetching blocked items:', err);
         }
-    };
+    }, [authenticatedFetch]);
 
-    const fetchFavoriteItems = async () => {
+    const fetchFavoriteItems = useCallback(async () => {
         try {
             const res = await authenticatedFetch('/api/favorites');
             const data = await res.json();
@@ -31,9 +25,9 @@ const BlockedManager = ({ authenticatedFetch }) => {
         } catch (err) {
             console.error('Error fetching favorite items:', err);
         }
-    };
+    }, [authenticatedFetch]);
 
-    const fetchBlacklist = async () => {
+    const fetchBlacklist = useCallback(async () => {
         try {
             const res = await authenticatedFetch('/api/blacklist');
             const data = await res.json();
@@ -43,7 +37,18 @@ const BlockedManager = ({ authenticatedFetch }) => {
         } catch (err) {
             console.error('Error fetching blacklist:', err);
         }
-    };
+    }, [authenticatedFetch]);
+
+    useEffect(() => {
+        const loadInitialData = async () => {
+            await Promise.all([
+                fetchBlockedItems(),
+                fetchFavoriteItems(),
+                fetchBlacklist()
+            ]);
+        };
+        void loadInitialData();
+    }, [fetchBlockedItems, fetchFavoriteItems, fetchBlacklist]);
 
     const saveBulkBlacklist = async () => {
         const terms = blacklistText.split('\n').map(t => t.trim()).filter(t => t);

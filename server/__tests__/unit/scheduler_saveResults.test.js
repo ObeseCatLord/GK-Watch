@@ -160,4 +160,63 @@ describe('Scheduler.saveResults', () => {
         const meta = db.prepare('SELECT new_count FROM results_meta WHERE watch_id = ?').get(watch.id);
         expect(meta.new_count).toBe(1);
     });
+
+    test('returns server-side paginated, filtered, allowlisted-sort results when requested', async () => {
+        const watch = await Watchlist.add({ term: 'paged-results', strict: false });
+        await Scheduler.saveResults(watch.id, [
+            { link: 'https://example.test/charlie', title: 'Charlie', source: 'Mercari', price: '300' },
+            { link: 'https://example.test/alpha', title: 'Alpha', source: 'Mercari', price: '100' },
+            { link: 'https://example.test/bravo', title: 'Bravo', source: 'Yahoo', price: '200' }
+        ], 'paged-results');
+
+        const paged = await Scheduler.getResults(watch.id, {
+            page: 1,
+            pageSize: 1,
+            source: 'mercari',
+            sortBy: 'title',
+            sortDirection: 'asc'
+        });
+
+        expect(paged.total).toBe(2);
+        expect(paged.page).toBe(1);
+        expect(paged.pageSize).toBe(1);
+        expect(paged.totalPages).toBe(2);
+        expect(paged.items.map(item => item.title)).toEqual(['Alpha']);
+        expect(paged.sources).toEqual(['Mercari', 'Yahoo']);
+
+        const searched = await Scheduler.getResults(watch.id, {
+            page: 1,
+            pageSize: 10,
+            search: 'bravo',
+            sortBy: 'not_a_column; DROP TABLE results',
+            sortDirection: 'ascending'
+        });
+        expect(searched.total).toBe(1);
+        expect(searched.items[0].title).toBe('Bravo');
+        expect(db.prepare('SELECT COUNT(*) AS count FROM results').get().count).toBe(3);
+    });
+
+    test('excludes blocked and blacklisted rows from paginated totals and pages', async () => {
+        const watch = await Watchlist.add({ term: 'blocked-page', strict: false });
+        await Scheduler.saveResults(watch.id, [
+            { link: 'https://example.test/alpha', title: 'Alpha', source: 'Mercari', price: '100' },
+            { link: 'https://example.test/bravo', title: 'Bravo Recast', source: 'Yahoo', price: '200' },
+            { link: 'https://example.test/charlie', title: 'Charlie', source: 'Mercari', price: '300' }
+        ], 'blocked-page');
+        db.prepare('INSERT INTO blocked_items (id, url, blocked_at) VALUES (?, ?, ?)').run('blocked-1', 'https://example.test/alpha', new Date().toISOString());
+        db.prepare('INSERT INTO blacklist (id, term, added_at) VALUES (?, ?, ?)').run('term-1', 'recast', new Date().toISOString());
+
+        const paged = await Scheduler.getResults(watch.id, {
+            page: 1,
+            pageSize: 10,
+            sortBy: 'title',
+            sortDirection: 'asc',
+            hidden: false
+        });
+
+        expect(paged.total).toBe(1);
+        expect(paged.totalPages).toBe(1);
+        expect(paged.items.map(item => item.title)).toEqual(['Charlie']);
+        expect(paged.sources).toEqual(['Mercari']);
+    });
 });

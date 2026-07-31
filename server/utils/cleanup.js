@@ -17,6 +17,14 @@ const CONFIG = {
     RESULTS_MAX_AGE_DAYS: 3,               // Remove items older than 3 days (if not seen)
 };
 
+const CONFIG_VALIDATORS = {
+    maxLogSizeBytes: value => Number.isSafeInteger(value) && value >= 64 * 1024 && value <= 1024 * 1024 * 1024,
+    logLinesToKeep: value => Number.isSafeInteger(value) && value >= 1 && value <= 1000000,
+    // Zero/negative retention would make one cleanup pass eligible to remove
+    // every timestamped result, so retain at least one full day.
+    resultsMaxAgeDays: value => Number.isSafeInteger(value) && value >= 1 && value <= 3650
+};
+
 const SERVER_LOG_PATH = path.join(__dirname, '..', 'server.log');
 
 /**
@@ -25,7 +33,7 @@ const SERVER_LOG_PATH = path.join(__dirname, '..', 'server.log');
  * 
  * @returns {Object} Statistics about the rotation
  */
-function rotateLogIfNeeded() {
+function rotateLogIfNeeded({ dryRun = false } = {}) {
     const stats = {
         rotated: false,
         originalSize: 0,
@@ -56,14 +64,14 @@ function rotateLogIfNeeded() {
         const linesToKeep = lines.slice(-CONFIG.LOG_LINES_TO_KEEP);
         const newContent = linesToKeep.join('\n');
 
-        // Write back the truncated content
-        fs.writeFileSync(SERVER_LOG_PATH, newContent);
-
-        stats.rotated = true;
+        if (!dryRun) {
+            fs.writeFileSync(SERVER_LOG_PATH, newContent);
+            stats.rotated = true;
+        }
         stats.newSize = Buffer.byteLength(newContent, 'utf8');
         stats.linesRemoved = originalLineCount - linesToKeep.length;
 
-        console.log(`[Cleanup] Log rotated: removed ${stats.linesRemoved} lines, kept ${linesToKeep.length} lines`);
+        console.log(`[Cleanup] Log ${dryRun ? 'preview' : 'rotated'}: removed ${stats.linesRemoved} lines, kept ${linesToKeep.length} lines`);
         console.log(`[Cleanup] Log size reduced from ${(stats.originalSize / 1024).toFixed(1)} KB to ${(stats.newSize / 1024).toFixed(1)} KB`);
 
     } catch (error) {
@@ -79,12 +87,13 @@ function rotateLogIfNeeded() {
  * 
  * @returns {Object} Statistics about the cleanup
  */
-function cleanupExpiredResults() {
+function cleanupExpiredResults({ dryRun = false } = {}) {
     const stats = {
         cleaned: false,
         watchlistsProcessed: 0,
         itemsRemoved: 0,
         itemsKept: 0,
+        wouldRemove: 0,
         originalSize: 0,
         newSize: 0
     };
@@ -98,15 +107,22 @@ function cleanupExpiredResults() {
         const beforeCount = db.prepare('SELECT COUNT(*) as count FROM results').get().count;
         stats.originalSize = beforeCount;
 
-        // Delete expired items:
-        // Keep items that have no timestamps (legacy) or have been seen recently
+        // Keep items that have no timestamps (legacy) or have been seen recently.
+        // Count first so dry runs can return a useful, non-mutating preview.
+        const expiredWhere = `
+            COALESCE(last_seen, first_seen) IS NOT NULL
+            AND COALESCE(last_seen, first_seen) < ?
+        `;
+        stats.wouldRemove = db.prepare(`SELECT COUNT(*) AS count FROM results WHERE ${expiredWhere}`).get(cutoffIso).count;
+
         const deleteStmt = db.prepare(`
             DELETE FROM results 
-            WHERE COALESCE(last_seen, first_seen) IS NOT NULL 
-            AND COALESCE(last_seen, first_seen) < ?
+            WHERE ${expiredWhere}
         `);
-        const result = deleteStmt.run(cutoffIso);
-        stats.itemsRemoved = result.changes;
+        if (!dryRun) {
+            const result = deleteStmt.run(cutoffIso);
+            stats.itemsRemoved = result.changes;
+        }
 
         // Count after
         const afterCount = db.prepare('SELECT COUNT(*) as count FROM results').get().count;
@@ -127,6 +143,8 @@ function cleanupExpiredResults() {
 
             console.log(`[Cleanup] Results cleanup: removed ${stats.itemsRemoved} expired items (older than ${CONFIG.RESULTS_MAX_AGE_DAYS} days)`);
             console.log(`[Cleanup] Results: ${beforeCount} → ${afterCount} items`);
+        } else if (dryRun) {
+            console.log(`[Cleanup] Results cleanup preview: ${stats.wouldRemove} item(s) would be removed (older than ${CONFIG.RESULTS_MAX_AGE_DAYS} days)`);
         } else {
             console.log(`[Cleanup] Results cleanup: no expired items found`);
         }
@@ -146,7 +164,7 @@ function cleanupExpiredResults() {
  * 
  * @returns {Object} Statistics about the cleanup
  */
-function cleanupPuppeteerTemp() {
+function cleanupPuppeteerTemp({ dryRun = false } = {}) {
     const stats = {
         cleaned: false,
         filesRemoved: 0,
@@ -171,9 +189,9 @@ function cleanupPuppeteerTemp() {
                     if (age > oneHourMs) {
                         // Calculate size roughly (just the folder entry usually, recursive size is expensive)
                         // For cleanup stats, we count folders removed.
-                        fs.rmSync(filePath, { recursive: true, force: true });
+                        if (!dryRun) fs.rmSync(filePath, { recursive: true, force: true });
                         stats.filesRemoved++;
-                        stats.cleaned = true;
+                        stats.cleaned = !dryRun;
                     }
                 } catch (e) {
                     // Ignore errors accessing/deleting specific files (permission, etc)
@@ -195,7 +213,7 @@ function cleanupPuppeteerTemp() {
 /**
  * Cleanup debug files generated by scrapers.
  */
-function cleanupDebugFiles() {
+function cleanupDebugFiles({ dryRun = false } = {}) {
     const debugFiles = [
         '../yahoo_full.html',
         '../taobao_debug.html',
@@ -208,7 +226,7 @@ function cleanupDebugFiles() {
         const filePath = path.join(__dirname, file);
         if (fs.existsSync(filePath)) {
             try {
-                fs.unlinkSync(filePath);
+                if (!dryRun) fs.unlinkSync(filePath);
                 removedCount++;
             } catch (e) {
                 console.error(`[Cleanup] Failed to remove ${file}:`, e.message);
@@ -217,8 +235,10 @@ function cleanupDebugFiles() {
     });
 
     if (removedCount > 0) {
-        console.log(`[Cleanup] Removed ${removedCount} debug dump files.`);
+        console.log(`[Cleanup] ${dryRun ? 'Would remove' : 'Removed'} ${removedCount} debug dump files.`);
     }
+
+    return { filesRemoved: removedCount, dryRun };
 }
 
 /**
@@ -226,18 +246,21 @@ function cleanupDebugFiles() {
  * 
  * @returns {Object} Combined statistics from all cleanup operations
  */
-function runFullCleanup() {
-    console.log('[Cleanup] Starting full cleanup...');
+function runFullCleanup({ dryRun = false } = {}) {
+    console.log(`[Cleanup] Starting full cleanup${dryRun ? ' preview' : ''}...`);
 
-    const logStats = rotateLogIfNeeded();
-    const resultsStats = cleanupExpiredResults();
-    const puppeteerStats = cleanupPuppeteerTemp();
-    cleanupDebugFiles();
+    const options = { dryRun: dryRun === true };
+    const logStats = rotateLogIfNeeded(options);
+    const resultsStats = cleanupExpiredResults(options);
+    const puppeteerStats = cleanupPuppeteerTemp(options);
+    const debugStats = cleanupDebugFiles(options);
 
     const summary = {
         log: logStats,
         results: resultsStats,
         puppeteer: puppeteerStats,
+        debug: debugStats,
+        dryRun: options.dryRun,
         timestamp: new Date().toISOString()
     };
 
@@ -257,15 +280,22 @@ function getConfig() {
  * @param {Object} newConfig - New configuration values to merge
  */
 function updateConfig(newConfig) {
-    if (newConfig.maxLogSizeBytes !== undefined) {
-        CONFIG.MAX_LOG_SIZE_BYTES = newConfig.maxLogSizeBytes;
+    if (!newConfig || typeof newConfig !== 'object' || Array.isArray(newConfig)) {
+        throw new TypeError('Cleanup configuration must be an object');
     }
-    if (newConfig.logLinesToKeep !== undefined) {
-        CONFIG.LOG_LINES_TO_KEEP = newConfig.logLinesToKeep;
+
+    for (const [key, value] of Object.entries(newConfig)) {
+        if (!Object.prototype.hasOwnProperty.call(CONFIG_VALIDATORS, key)) {
+            throw new Error(`Unknown cleanup configuration key: ${key}`);
+        }
+        if (!CONFIG_VALIDATORS[key](value)) {
+            throw new RangeError(`Invalid cleanup configuration value for ${key}`);
+        }
     }
-    if (newConfig.resultsMaxAgeDays !== undefined) {
-        CONFIG.RESULTS_MAX_AGE_DAYS = newConfig.resultsMaxAgeDays;
-    }
+
+    if (newConfig.maxLogSizeBytes !== undefined) CONFIG.MAX_LOG_SIZE_BYTES = newConfig.maxLogSizeBytes;
+    if (newConfig.logLinesToKeep !== undefined) CONFIG.LOG_LINES_TO_KEEP = newConfig.logLinesToKeep;
+    if (newConfig.resultsMaxAgeDays !== undefined) CONFIG.RESULTS_MAX_AGE_DAYS = newConfig.resultsMaxAgeDays;
     return { ...CONFIG };
 }
 

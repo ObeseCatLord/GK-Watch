@@ -1,6 +1,37 @@
 const nodemailer = require('nodemailer');
 const Settings = require('./models/settings');
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+}
+
+function safeHttpUrl(value) {
+    try {
+        const url = new URL(String(value));
+        return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.toString() : null;
+    } catch (_) { return null; }
+}
+
+function itemHtml(item) {
+    const image = safeHttpUrl(item.image);
+    const link = safeHttpUrl(item.link);
+    const title = escapeHtml(item.title);
+    const imageHtml = image ? `<img src="${escapeHtml(image)}" alt="${title}" style="max-width: 150px; float: left; margin-right: 15px; border-radius: 4px;">` : '';
+    const linkHtml = link ? `<a href="${escapeHtml(link)}" style="color: #646cff;">View Item →</a>` : '';
+    return `<div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">${imageHtml}<h3 style="margin: 0 0 10px 0;">${title}</h3><p style="font-size: 1.2em; color: #646cff; font-weight: bold;">${escapeHtml(item.price)}</p><p style="color: #888;">${escapeHtml(item.source)}</p>${linkHtml}<div style="clear: both;"></div></div>`;
+}
+
+function digestItemHtml(item) {
+    const link = safeHttpUrl(item.link);
+    const image = safeHttpUrl(item.image);
+    const title = escapeHtml(String(item.title ?? '').slice(0, 50));
+    const priceHtml = item.isPriceUpdate
+        ? `<p style="font-size: 10px; color: #888; margin: 0;">Favorite price update</p><p style="font-size: 11px; color: #777; margin: 2px 0 0 0;">Old: <span style="text-decoration: line-through;">${escapeHtml(item.oldPrice)}</span></p><p style="font-size: 12px; color: #d32f2f; font-weight: bold; margin: 0;">New: ${escapeHtml(item.newPrice)}</p>`
+        : `<p style="font-size: 12px; color: #d32f2f; font-weight: bold; margin: 0;">${escapeHtml(item.price)}</p>`;
+    const content = `${image ? `<img src="${escapeHtml(image)}" alt="" style="width: 100%; max-height: 80px; object-fit: contain; border-radius: 4px; margin-bottom: 5px;">` : ''}<p style="font-size: 11px; color: #333; margin: 0 0 5px 0; line-height: 1.2; max-height: 28px; overflow: hidden;">${title}${String(item.title ?? '').length > 50 ? '...' : ''}</p>${priceHtml}<p style="font-size: 10px; color: #888; margin: 2px 0 0 0;">${escapeHtml(item.source)}</p>`;
+    return `<td style="width: 33%; padding: 8px; vertical-align: top;"><div style="border: 1px solid #eee; border-radius: 6px; background-color: #fafafa; padding: 8px; height: 100%;">${link ? `<a href="${escapeHtml(link)}" style="text-decoration: none; color: inherit;">${content}</a>` : content}</div></td>`;
+}
+
 const EmailService = {
     sendNewResultsEmail: async (term, newResults) => {
         const settings = Settings.get();
@@ -30,6 +61,8 @@ const EmailService = {
                     host: settings.smtpHost,
                     port: port,
                     secure: isSecure, // true for 465, false for 587/other ports
+                    disableFileAccess: true,
+                    disableUrlAccess: true,
                     auth: {
                         user: settings.smtpUser,
                         pass: settings.smtpPass
@@ -47,6 +80,8 @@ const EmailService = {
                     host: 'smtp.ethereal.email',
                     port: 587,
                     secure: false,
+                    disableFileAccess: true,
+                    disableUrlAccess: true,
                     auth: {
                         user: testAccount.user,
                         pass: testAccount.pass
@@ -55,16 +90,7 @@ const EmailService = {
             }
 
             // Build HTML email
-            const itemsHtml = newResults.map(item => `
-                <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
-                    <img src="${item.image}" alt="${item.title}" style="max-width: 150px; float: left; margin-right: 15px; border-radius: 4px;">
-                    <h3 style="margin: 0 0 10px 0;">${item.title}</h3>
-                    <p style="font-size: 1.2em; color: #646cff; font-weight: bold;">${item.price}</p>
-                    <p style="color: #888;">${item.source}</p>
-                    <a href="${item.link}" style="color: #646cff;">View Item →</a>
-                    <div style="clear: both;"></div>
-                </div>
-            `).join('');
+            const itemsHtml = newResults.map(itemHtml).join('');
 
             // Use smtpUser as sender if available, otherwise fallback
             const sender = settings.smtpUser ? `"GKWatch" <${settings.smtpUser}>` : '"GKWatch" <gkwatch@localhost>';
@@ -72,11 +98,11 @@ const EmailService = {
             const info = await transporter.sendMail({
                 from: sender,
                 to: settings.email,
-                subject: `🆕 ${newResults.length} New Results for "${term}"`,
+                subject: `🆕 ${newResults.length} New Results for "${String(term).replace(/[\r\n]/g, ' ')}"`,
                 html: `
                     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                         <h1 style="color: #646cff;">GKWatch Alert</h1>
-                        <p>Found <strong>${newResults.length}</strong> new item(s) for "<strong>${term}</strong>":</p>
+                        <p>Found <strong>${newResults.length}</strong> new item(s) for "<strong>${escapeHtml(term)}</strong>":</p>
                         ${itemsHtml}
                         <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
                         <p style="color: #888; font-size: 0.9em;">Sent by GKWatch Scheduler</p>
@@ -124,6 +150,8 @@ const EmailService = {
                     host: settings.smtpHost,
                     port: port,
                     secure: isSecure,
+                    disableFileAccess: true,
+                    disableUrlAccess: true,
                     auth: { user: settings.smtpUser, pass: settings.smtpPass },
                     tls: { rejectUnauthorized: true }
                 });
@@ -134,6 +162,8 @@ const EmailService = {
                     host: 'smtp.ethereal.email',
                     port: 587,
                     secure: false,
+                    disableFileAccess: true,
+                    disableUrlAccess: true,
                     auth: { user: testAccount.user, pass: testAccount.pass }
                 });
             }
@@ -144,7 +174,7 @@ const EmailService = {
 
             for (const [term, items] of Object.entries(allNewResults)) {
                 totalCount += items.length;
-                emailBody += `<h2 style="color: #4CAF50; border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-top: 30px;">${term} (${items.length})</h2>`;
+                emailBody += `<h2 style="color: #4CAF50; border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-top: 30px;">${escapeHtml(term)} (${items.length})</h2>`;
 
                 // Build 3-column grid using table for email compatibility
                 emailBody += '<table style="width: 100%; border-collapse: collapse;">';
@@ -154,24 +184,7 @@ const EmailService = {
                     for (let j = 0; j < 3; j++) {
                         const item = items[i + j];
                         if (item) {
-                            const priceHtml = item.isPriceUpdate
-                                ? `
-                                            <p style="font-size: 10px; color: #888; margin: 0;">Favorite price update</p>
-                                            <p style="font-size: 11px; color: #777; margin: 2px 0 0 0;">Old: <span style="text-decoration: line-through;">${item.oldPrice}</span></p>
-                                            <p style="font-size: 12px; color: #d32f2f; font-weight: bold; margin: 0;">New: ${item.newPrice}</p>`
-                                : `<p style="font-size: 12px; color: #d32f2f; font-weight: bold; margin: 0;">${item.price}</p>`;
-
-                            emailBody += `
-                                <td style="width: 33%; padding: 8px; vertical-align: top;">
-                                    <div style="border: 1px solid #eee; border-radius: 6px; background-color: #fafafa; padding: 8px; height: 100%;">
-                                        <a href="${item.link}" style="text-decoration: none; color: inherit;">
-                                            <img src="${item.image}" alt="" style="width: 100%; max-height: 80px; object-fit: contain; border-radius: 4px; margin-bottom: 5px;">
-                                            <p style="font-size: 11px; color: #333; margin: 0 0 5px 0; line-height: 1.2; max-height: 28px; overflow: hidden;">${item.title.substring(0, 50)}${item.title.length > 50 ? '...' : ''}</p>
-                                            ${priceHtml}
-                                            <p style="font-size: 10px; color: #888; margin: 2px 0 0 0;">${item.source}</p>
-                                        </a>
-                                    </div>
-                                </td>`;
+                            emailBody += digestItemHtml(item);
                         } else {
                             emailBody += '<td style="width: 33%;"></td>';
                         }
@@ -200,7 +213,7 @@ const EmailService = {
                             <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
                             <p style="color: #888; font-size: 0.9em; text-align: center;">Sent by GKWatch Scheduler</p>
                             <div style="text-align: center; margin-top: 10px;">
-                                <a href="${settings.baseUrl}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Open Dashboard</a>
+                                ${safeHttpUrl(settings.baseUrl) ? `<a href="${escapeHtml(safeHttpUrl(settings.baseUrl))}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Open Dashboard</a>` : ''}
                             </div>
                         </div>
                     </div>
@@ -241,6 +254,8 @@ const EmailService = {
                     host: settings.smtpHost,
                     port: port,
                     secure: isSecure,
+                    disableFileAccess: true,
+                    disableUrlAccess: true,
                     auth: {
                         user: settings.smtpUser,
                         pass: settings.smtpPass
@@ -256,6 +271,8 @@ const EmailService = {
                     host: 'smtp.ethereal.email',
                     port: 587,
                     secure: false,
+                    disableFileAccess: true,
+                    disableUrlAccess: true,
                     auth: {
                         user: testAccount.user,
                         pass: testAccount.pass
@@ -275,7 +292,7 @@ const EmailService = {
                         <h1 style="color: #646cff;">🎉 Test Email Successful!</h1>
                         <p>Great news! Your GKWatch email settings are configured correctly.</p>
                         <p>You will receive notifications when new items are found during scheduled searches.</p>
-                        <p>Dashboard Link: <a href="${settings.baseUrl}">${settings.baseUrl}</a></p>
+                        ${safeHttpUrl(settings.baseUrl) ? `<p>Dashboard Link: <a href="${escapeHtml(safeHttpUrl(settings.baseUrl))}">${escapeHtml(settings.baseUrl)}</a></p>` : ''}
                         <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
                         <p style="color: #888; font-size: 0.9em;">Sent at: ${new Date().toLocaleString()}</p>
                     </div>

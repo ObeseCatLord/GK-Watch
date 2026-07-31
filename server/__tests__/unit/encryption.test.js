@@ -15,10 +15,10 @@ describe('Encryption', () => {
             expect(Encryption.encrypt(undefined)).toBeUndefined();
         });
 
-        test('returns a string with IV separator', () => {
+        test('returns an authenticated versioned ciphertext', () => {
             const encrypted = Encryption.encrypt('hello world');
             expect(typeof encrypted).toBe('string');
-            expect(encrypted).toContain(':');
+            expect(encrypted).toMatch(/^v2:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
         });
 
         test('produces different ciphertext for same input (random IV)', () => {
@@ -53,10 +53,9 @@ describe('Encryption', () => {
             expect(decrypted).toBe(original);
         });
 
-        test('handles invalid encrypted data gracefully', () => {
-            // Returns original text if decryption fails (e.g., wrong format)
-            const result = Encryption.decrypt('invalid:data');
-            expect(typeof result).toBe('string');
+        test('fails closed for invalid encrypted data', () => {
+            expect(() => Encryption.decrypt('invalid:data')).toThrow('Unable to decrypt');
+            expect(() => Encryption.decrypt('v2:000000000000000000000000:00000000000000000000000000000000:00')).toThrow('Unable to decrypt');
         });
     });
 
