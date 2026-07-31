@@ -6,6 +6,15 @@ const stmts = {
     getAll: db.prepare('SELECT id, url, title, image, blocked_at as blockedAt FROM blocked_items ORDER BY blocked_at DESC'),
     insert: db.prepare('INSERT OR IGNORE INTO blocked_items (id, url, title, image, blocked_at) VALUES (?, ?, ?, ?, ?)'),
     remove: db.prepare('DELETE FROM blocked_items WHERE id = ?'),
+    clearMissingFromResults: db.prepare(`
+        DELETE FROM blocked_items
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM results
+            WHERE results.link = blocked_items.url
+              AND results.hidden = 0
+        )
+    `),
     findByUrl: db.prepare('SELECT id FROM blocked_items WHERE url = ?'),
     count: db.prepare('SELECT COUNT(*) as count FROM blocked_items'),
 };
@@ -47,6 +56,12 @@ const BlockedItems = {
     remove: (id) => {
         stmts.remove.run(id);
         invalidateCache();
+    },
+
+    clearMissingFromResults: () => {
+        const result = stmts.clearMissingFromResults.run();
+        invalidateCache();
+        return result.changes || 0;
     },
 
     /**

@@ -577,6 +577,11 @@ app.post('/api/blocked', requireAuth, (req, res) => {
     res.json(item);
 });
 
+app.post('/api/blocked/clear-missing', requireAuth, (req, res) => {
+    const removed = BlockedItems.clearMissingFromResults();
+    res.json({ success: true, removed });
+});
+
 app.delete('/api/blocked/:id', requireAuth, (req, res) => {
     BlockedItems.remove(req.params.id);
     res.json({ success: true });

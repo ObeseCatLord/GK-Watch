@@ -7,10 +7,13 @@
 const { getTestDb, closeTestDb, clearTestDb } = require('../testSetup');
 
 let BlockedItems;
+let Watchlist;
+let db;
 
 beforeAll(() => {
-    getTestDb();
+    db = getTestDb();
     BlockedItems = require('../../models/blocked_items');
+    Watchlist = require('../../models/watchlist');
 });
 
 afterAll(() => {
@@ -68,6 +71,28 @@ describe('BlockedItems', () => {
 
             const list = BlockedItems.getAll();
             expect(list).toHaveLength(0);
+        });
+
+        test('clears blocked items missing from visible stored results', async () => {
+            const watch = await Watchlist.add({ term: 'blocked-cleanup', strict: false });
+            const now = new Date().toISOString();
+
+            BlockedItems.add('http://example.com/visible', 'Visible Item');
+            BlockedItems.add('http://example.com/hidden', 'Hidden Item');
+            BlockedItems.add('http://example.com/missing', 'Missing Item');
+
+            const insertResult = db.prepare(`
+                INSERT INTO results (watch_id, title, link, first_seen, last_seen, hidden)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `);
+            insertResult.run(watch.id, 'Visible Item', 'http://example.com/visible', now, now, 0);
+            insertResult.run(watch.id, 'Hidden Item', 'http://example.com/hidden', now, now, 1);
+
+            const removed = BlockedItems.clearMissingFromResults();
+            const remainingUrls = BlockedItems.getAll().map(item => item.url);
+
+            expect(removed).toBe(2);
+            expect(remainingUrls).toEqual(['http://example.com/visible']);
         });
     });
 

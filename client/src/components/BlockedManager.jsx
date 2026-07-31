@@ -101,11 +101,29 @@ const BlockedManager = ({ authenticatedFetch }) => {
                 method: 'POST'
             });
             const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to clear missing favorites');
             await fetchFavoriteItems();
             alert(`Removed ${data.removed || 0} favorited item${data.removed === 1 ? '' : 's'}.`);
         } catch (err) {
             console.error('Error clearing missing favorites:', err);
             alert('Failed to clear missing favorites');
+        }
+    };
+
+    const clearMissingBlockedItems = async () => {
+        if (!window.confirm('Clear blocked items that are no longer found in stored results?')) return;
+
+        try {
+            const res = await authenticatedFetch('/api/blocked/clear-missing', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to clear missing blocked items');
+            await fetchBlockedItems();
+            alert(`Removed ${data.removed || 0} blocked item${data.removed === 1 ? '' : 's'}.`);
+        } catch (err) {
+            console.error('Error clearing missing blocked items:', err);
+            alert('Failed to clear missing blocked items');
         }
     };
 
@@ -219,6 +237,17 @@ const BlockedManager = ({ authenticatedFetch }) => {
                     <p style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#888' }}>
                         These specific items (by URL) will be permanently hidden from future search results.
                     </p>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                        <button
+                            className="page-btn"
+                            onClick={clearMissingBlockedItems}
+                            disabled={blockedItems.length === 0}
+                            title="Unblock items that are no longer in stored results"
+                        >
+                            Clear Missing
+                        </button>
+                    </div>
 
                     <ul className="watchlist-items" style={{ margin: '0' }}>
                         {blockedItems.length === 0 && <p style={{ textAlign: 'center' }}>No blocked items.</p>}

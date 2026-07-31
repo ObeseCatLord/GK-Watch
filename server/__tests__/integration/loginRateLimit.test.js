@@ -87,5 +87,13 @@ describe('Login Rate Limiting Integration Test', () => {
             .set('X-Forwarded-Proto', 'https')
             .send({ concurrency: 5 });
         expect(mismatchedOriginWrite.status).toBe(403);
+
+        expect((await request(app).post('/api/blocked/clear-missing')).status).toBe(401);
+        const allowedBlockedCleanup = await agent.post('/api/blocked/clear-missing')
+            .set('Host', 'gkwatch.example.test')
+            .set('Origin', 'https://gkwatch.example.test')
+            .set('X-Forwarded-Proto', 'https');
+        expect(allowedBlockedCleanup.status).toBe(200);
+        expect(allowedBlockedCleanup.body).toEqual({ success: true, removed: 0 });
     });
 });
