@@ -15,7 +15,7 @@ const db = require('./models/database');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
-const COOKIE_FILES = ['taobao_cookies.json', 'goofish_cookies.json', 'mandarake_cookies.json'];
+const COOKIE_FILES = ['taobao_cookies.json', 'goofish_cookies.json', 'mandarake_cookies.json', 'yahoo_cookies.json'];
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
 fs.chmodSync(DATA_DIR, 0o700);
 for (const cookieFile of COOKIE_FILES) {
@@ -840,13 +840,18 @@ app.get('/api/mandarake/status', requireAuth, (req, res) => {
     res.json({ hasCookies: mandarakeScraper.hasValidCookies() });
 });
 
+const yahooScraper = require('./scrapers/yahoo');
+app.get('/api/yahoo/status', requireAuth, (req, res) => {
+    res.json({ hasCookies: yahooScraper.hasValidCookies() });
+});
+
 // Update Cookies
 app.post('/api/cookies/:site', requireAuth, async (req, res) => {
     try {
         const { site } = req.params;
         const { cookies } = req.body;
 
-        if (!['taobao', 'goofish', 'mandarake'].includes(site)) {
+        if (!['taobao', 'goofish', 'mandarake', 'yahoo'].includes(site)) {
             return res.status(400).json({ error: 'Invalid site' });
         }
 
@@ -868,9 +873,17 @@ app.post('/api/cookies/:site', requireAuth, async (req, res) => {
 
         // Write to file
         const filePath = path.join(DATA_DIR, `${site}_cookies.json`);
+        const tempPath = path.join(DATA_DIR, `.${site}_cookies-${process.pid}-${crypto.randomBytes(8).toString('hex')}.tmp`);
 
-        await fsp.writeFile(filePath, JSON.stringify(cookieJson, null, 2), { mode: 0o600 });
-        await fsp.chmod(filePath, 0o600);
+        try {
+            await fsp.writeFile(tempPath, JSON.stringify(cookieJson, null, 2), { mode: 0o600 });
+            await fsp.chmod(tempPath, 0o600);
+            await fsp.rename(tempPath, filePath);
+        } finally {
+            await fsp.unlink(tempPath).catch(error => {
+                if (error.code !== 'ENOENT') console.warn(`[API] Failed to remove temporary cookie file for ${site}:`, error.message);
+            });
+        }
         console.log(`[API] Updated cookies for ${site}`);
 
         res.json({ success: true, message: 'Cookies saved successfully' });

@@ -89,6 +89,8 @@ describe('Login Rate Limiting Integration Test', () => {
         expect(mismatchedOriginWrite.status).toBe(403);
 
         expect((await request(app).post('/api/blocked/clear-missing')).status).toBe(401);
+        expect((await request(app).get('/api/yahoo/status')).status).toBe(401);
+        expect((await request(app).post('/api/cookies/yahoo').send({ cookies: [] })).status).toBe(401);
         const allowedBlockedCleanup = await agent.post('/api/blocked/clear-missing')
             .set('Host', 'gkwatch.example.test')
             .set('Origin', 'https://gkwatch.example.test')

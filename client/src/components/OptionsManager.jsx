@@ -49,7 +49,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
     const [smtpPassSaved, setSmtpPassSaved] = useState(false);
 
     // Cookie Upload State
-    const [cookieSite, setCookieSite] = useState(null); // 'taobao', 'goofish', or 'mandarake'
+    const [cookieSite, setCookieSite] = useState(null); // Sites that accept optional or required login cookies
     const [cookieContent, setCookieContent] = useState('');
     const [cookieError, setCookieError] = useState('');
     const [cookieSuccess, setCookieSuccess] = useState('');
@@ -734,7 +734,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                         Enable Search
                                     </label>
 
-                                    {(site === 'taobao' || site === 'goofish' || site === 'mandarake') && (
+                                    {(site === 'taobao' || site === 'goofish' || site === 'mandarake' || site === 'yahoo') && (
                                         <div style={{ marginTop: '5px', marginLeft: '24px' }}>
                                             <button
                                                 className="edit-btn"
@@ -762,7 +762,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                                 <div style={{ marginTop: '10px', background: '#333', padding: '10px', borderRadius: '8px', border: '1px solid #444' }}>
                                                     <p style={{ color: '#aaa', fontSize: '0.8rem', marginBottom: '8px', lineHeight: '1.4' }}>
                                                         1. Install <b>Cookie-Editor</b> extension.<br />
-                                                        2. Log in to <b>{site === 'taobao' ? 'Taobao' : site === 'goofish' ? 'Goofish' : 'Mandarake'}</b>.<br />
+                                                        2. Log in to <b>{site === 'taobao' ? 'Taobao' : site === 'goofish' ? 'Goofish' : site === 'yahoo' ? 'Yahoo Auctions' : 'Mandarake'}</b>.<br />
                                                         3. Click <b>Export</b> - <b>Export as JSON</b>.<br />
                                                         4. Paste below and Save.
                                                     </p>

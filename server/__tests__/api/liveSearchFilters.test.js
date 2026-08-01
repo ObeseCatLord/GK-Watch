@@ -1,12 +1,17 @@
 
 const request = require('supertest');
 const mockSearchAll = jest.fn();
+const mockYahooHasValidCookies = jest.fn(() => true);
 
 // Mock the dependencies BEFORE requiring the app
 jest.mock('../../scrapers', () => ({
     searchAll: mockSearchAll,
     // Add other exports if needed to prevent crashes
     hasValidCookies: () => true
+}));
+
+jest.mock('../../scrapers/yahoo', () => ({
+    hasValidCookies: mockYahooHasValidCookies
 }));
 
 // Mock database to prevent actual DB connection/writes during test load
@@ -56,6 +61,45 @@ describe('Live Search Filters API', () => {
 
         expect(response.status).toBe(200);
         expect(response.body.completionVersion).toBe(12);
+    });
+
+    test('reports optional Yahoo cookie status', async () => {
+        const response = await request(app).get('/api/yahoo/status');
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ hasCookies: true });
+        expect(mockYahooHasValidCookies).toHaveBeenCalled();
+    });
+
+    test('accepts Yahoo cookie uploads with private file permissions', async () => {
+        const fs = require('fs');
+        const writeFile = jest.spyOn(fs.promises, 'writeFile').mockResolvedValue();
+        const chmod = jest.spyOn(fs.promises, 'chmod').mockResolvedValue();
+        const rename = jest.spyOn(fs.promises, 'rename').mockResolvedValue();
+        const unlink = jest.spyOn(fs.promises, 'unlink').mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+
+        try {
+            const response = await request(app)
+                .post('/api/cookies/yahoo')
+                .send({ cookies: [{ name: 'A', value: 'test-value', domain: '.yahoo.co.jp' }] });
+
+            expect(response.status).toBe(200);
+            expect(writeFile).toHaveBeenCalledWith(
+                expect.stringMatching(/\.yahoo_cookies-.*\.tmp$/),
+                expect.stringContaining('test-value'),
+                { mode: 0o600 }
+            );
+            expect(chmod).toHaveBeenCalledWith(expect.stringMatching(/\.yahoo_cookies-.*\.tmp$/), 0o600);
+            expect(rename).toHaveBeenCalledWith(
+                expect.stringMatching(/\.yahoo_cookies-.*\.tmp$/),
+                expect.stringMatching(/yahoo_cookies\.json$/)
+            );
+        } finally {
+            writeFile.mockRestore();
+            chmod.mockRestore();
+            rename.mockRestore();
+            unlink.mockRestore();
+        }
     });
 
     test('parses comma-separated filters correctly', async () => {

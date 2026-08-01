@@ -5,9 +5,16 @@ const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../uti
 const axiosRetry = require('axios-retry').default;
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const Bottleneck = require('bottleneck');
 const { resolveBrowserExecutable } = require('../utils/browserExecutable');
 const { browserPool } = require('../utils/admissionControl');
+
+const COOKIES_FILE = path.join(__dirname, '../data/yahoo_cookies.json');
+const YAHOO_AUTH_COOKIE_NAMES = new Set(['A', 'T', 'Y', 'XA']);
+const YAHOO_SEARCH_HOST = 'auctions.yahoo.co.jp';
+const YAHOO_SEARCH_PATH = '/search/search';
 
 function abortError() {
     const error = new Error('Yahoo search aborted');
@@ -84,6 +91,74 @@ const scheduledGet = limiter.wrap(async (url, config) => {
 
 // --- HELPER FUNCTIONS ---
 
+function loadCookies() {
+    try {
+        try {
+            fs.accessSync(COOKIES_FILE, fs.constants.R_OK);
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                return null;
+            }
+            throw error;
+        }
+
+        const cookies = JSON.parse(fs.readFileSync(COOKIES_FILE, 'utf8'));
+        return Array.isArray(cookies) && cookies.length > 0 ? cookies : null;
+    } catch (error) {
+        console.error('[Yahoo] Error loading cookies:', error.message);
+        return null;
+    }
+}
+
+function isUsableYahooCookie(cookie, nowSeconds = Date.now() / 1000) {
+    if (!cookie || typeof cookie !== 'object') return false;
+    const domain = String(cookie.domain || '').toLowerCase().replace(/^\./, '');
+    const name = String(cookie.name || '');
+    const value = cookie.value;
+    const cookiePath = typeof cookie.path === 'string' && cookie.path.startsWith('/') ? cookie.path : '/';
+    const isYahooDomain = domain === 'yahoo.co.jp' || domain.endsWith('.yahoo.co.jp');
+    const domainMatches = cookie.hostOnly
+        ? domain === YAHOO_SEARCH_HOST
+        : YAHOO_SEARCH_HOST === domain || YAHOO_SEARCH_HOST.endsWith(`.${domain}`);
+    const pathMatches = YAHOO_SEARCH_PATH === cookiePath ||
+        YAHOO_SEARCH_PATH.startsWith(cookiePath.endsWith('/') ? cookiePath : `${cookiePath}/`);
+    if (!isYahooDomain || !domainMatches || !pathMatches) return false;
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name)) return false;
+    if (value === undefined || value === '' || /[\u0000-\u001f\u007f;]/.test(String(value))) return false;
+    if (cookie.expirationDate != null) {
+        const expirationDate = Number(cookie.expirationDate);
+        if (!Number.isFinite(expirationDate) || expirationDate <= nowSeconds) return false;
+    }
+    return true;
+}
+
+function cookiesToHeader(cookies) {
+    if (!Array.isArray(cookies)) return '';
+    return cookies
+        .filter(cookie => isUsableYahooCookie(cookie))
+        .map(cookie => `${cookie.name}=${cookie.value}`)
+        .join('; ');
+}
+
+function hasValidCookies(cookies = loadCookies()) {
+    return Array.isArray(cookies) && cookies.some(cookie =>
+        isUsableYahooCookie(cookie) && YAHOO_AUTH_COOKIE_NAMES.has(String(cookie.name))
+    );
+}
+
+function getSearchStrategy(cookies) {
+    return hasValidCookies(cookies) ? 'authenticated-native' : 'doorzo-first';
+}
+
+function stripCookieOnUnsafeRedirect(options) {
+    const isSafeTarget = String(options?.hostname || '').toLowerCase() === YAHOO_SEARCH_HOST &&
+        String(options?.protocol || '').toLowerCase() === 'https:';
+    if (isSafeTarget || !options?.headers) return;
+    for (const headerName of Object.keys(options.headers)) {
+        if (headerName.toLowerCase() === 'cookie') delete options.headers[headerName];
+    }
+}
+
 function formatYahooPrice(priceText) {
     if (!priceText || priceText === 'N/A') return 'N/A';
     // Remove existing ¥, 円, commas, spaces and extract number
@@ -155,17 +230,25 @@ function sleep(ms, signal) {
 async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = [], signal = null) {
     console.log(`Searching Yahoo Auctions for ${query} (Target: ${targetSource})...`);
     throwIfAborted(signal);
+    const cookies = loadCookies();
+    const searchStrategy = getSearchStrategy(cookies);
+    const cookieHeader = searchStrategy === 'authenticated-native' ? cookiesToHeader(cookies) : '';
 
-    // Chain 1: Doorzo (Primary - Fast API)
-    try {
-        const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters, signal);
-        if (doorzoResults !== null) {
-            console.log(`[Yahoo] Doorzo API successful (${doorzoResults.length} items). Skipping Native.`);
-            return doorzoResults;
+    // Doorzo remains the anonymous fast path. A configured Yahoo session uses
+    // Yahoo directly so login-gated inventory cannot be hidden by proxy results.
+    if (searchStrategy === 'doorzo-first') {
+        try {
+            const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters, signal);
+            if (doorzoResults !== null) {
+                console.log(`[Yahoo] Doorzo API successful (${doorzoResults.length} items). Skipping Native.`);
+                return doorzoResults;
+            }
+        } catch (doorzoError) {
+            if (isAborted(signal, doorzoError)) throw abortError();
+            console.warn(`[Yahoo] Doorzo API failed (${doorzoError.message}), falling back to Native Axios...`);
         }
-    } catch (doorzoError) {
-        if (isAborted(signal, doorzoError)) throw abortError();
-        console.warn(`[Yahoo] Doorzo API failed (${doorzoError.message}), falling back to Native Axios...`);
+    } else {
+        console.log('[Yahoo] Valid login cookies found. Using authenticated Native search instead of Doorzo.');
     }
 
     // Chain 2: Robust Native Axios Scraper (Fallback - Deep Search)
@@ -187,7 +270,13 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
 
                 // Use the throttled, resilient client
                 // Note: client base URL is set, so we just pass the path
-                const response = await scheduledGet(url, { signal });
+                const response = await scheduledGet(url, {
+                    signal,
+                    ...(cookieHeader ? {
+                        headers: { Cookie: cookieHeader },
+                        beforeRedirect: stripCookieOnUnsafeRedirect
+                    } : {})
+                });
                 const data = response.data;
 
                 // Check for "Page Not Found" or "Invalid Page"
@@ -675,4 +764,12 @@ async function searchJauce(query, signal = null) {
     }
 }
 
-module.exports = { search, searchDoorzo };
+module.exports = {
+    search,
+    searchDoorzo,
+    hasValidCookies,
+    cookiesToHeader,
+    isUsableYahooCookie,
+    getSearchStrategy,
+    stripCookieOnUnsafeRedirect
+};
