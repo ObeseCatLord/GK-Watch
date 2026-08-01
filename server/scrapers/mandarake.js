@@ -15,10 +15,16 @@ function throwIfAborted(signal) {
 const MANDARAKE_BASE_URL = 'https://order.mandarake.co.jp';
 const MANDARAKE_SEARCH_URL = `${MANDARAKE_BASE_URL}/order/listPage/list`;
 const COOKIES_FILE = path.join(__dirname, '../data/mandarake_cookies.json');
+const DETAIL_CACHE_FILE = path.join(__dirname, '../data/mandarake_detail_cache.json');
 
 const EVERYTHING_CATEGORY_CODE = '00';
 const GARAGE_KIT_CATEGORY_CODE = '020107';
 const DETAIL_CATEGORY_CONCURRENCY = 4;
+const DETAIL_CACHE_VERSION = 1;
+const DETAIL_CACHE_MAX_BYTES = 10 * 1024 * 1024;
+const DETAIL_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DETAIL_CACHE_MAX_ENTRIES = 5000;
+const GARAGE_KIT_CATALOG_TTL_MS = 30 * 60 * 1000;
 
 const DEFAULT_SEARCH_PARAMS = {
     keyword: '',
@@ -46,6 +52,13 @@ const GARAGE_KIT_SUFFIXES = [
 
 let cachedCookies = null;
 let lastCookiesLoadTime = 0;
+let detailCacheLoaded = false;
+let detailCache = new Map();
+let detailFetches = new Map();
+let garageKitCatalog = [];
+let garageKitCatalogFetchedAt = 0;
+let garageKitCatalogRefresh = null;
+let detailCacheDirty = false;
 
 function loadCookies() {
     try {
@@ -102,6 +115,127 @@ function isMandarakeCookie(cookie) {
 function hasValidCookies() {
     const cookies = loadCookies();
     return Array.isArray(cookies) && cookies.some(isMandarakeCookie);
+}
+
+function normalizeText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isCacheMetadata(value) {
+    return value && typeof value === 'object' &&
+        typeof value.categoryPath === 'string' &&
+        typeof value.itemInformation === 'string' &&
+        Number.isFinite(value.fetchedAt) &&
+        Number.isFinite(value.lastSeenAt);
+}
+
+function sanitizeCatalogItem(value) {
+    if (!value || typeof value !== 'object') return null;
+
+    const itemCode = getItemCode(value);
+    const title = normalizeText(value.title);
+    const link = absoluteUrl(value.link);
+    if (!itemCode || !title || !link) return null;
+
+    return {
+        title,
+        link,
+        image: absoluteUrl(value.image),
+        price: normalizeText(value.price) || 'N/A',
+        source: 'Mandarake',
+        shopName: normalizeText(value.shopName),
+        itemNo: Array.isArray(value.itemNo) ? value.itemNo.map(normalizeText).filter(Boolean) : [],
+        inStorefront: value.inStorefront === true
+    };
+}
+
+function loadDetailCache() {
+    if (detailCacheLoaded) return;
+    detailCacheLoaded = true;
+
+    try {
+        const stats = fs.statSync(DETAIL_CACHE_FILE);
+        if (!stats.isFile() || stats.size > DETAIL_CACHE_MAX_BYTES) {
+            console.warn('[Mandarake] Ignoring invalid or oversized detail cache');
+            return;
+        }
+
+        const stored = JSON.parse(fs.readFileSync(DETAIL_CACHE_FILE, 'utf8'));
+        if (!stored || stored.version !== DETAIL_CACHE_VERSION || !stored.entries || typeof stored.entries !== 'object') {
+            console.warn('[Mandarake] Ignoring incompatible detail cache');
+            return;
+        }
+
+        for (const [itemCode, metadata] of Object.entries(stored.entries)) {
+            if (/^\d+$/.test(itemCode) && isCacheMetadata(metadata)) {
+                detailCache.set(itemCode, {
+                    categoryPath: normalizeText(metadata.categoryPath),
+                    itemInformation: normalizeText(metadata.itemInformation),
+                    fetchedAt: metadata.fetchedAt,
+                    lastSeenAt: metadata.lastSeenAt
+                });
+            }
+        }
+
+        const catalogFetchedAt = Number(stored.catalog?.fetchedAt);
+        if (Number.isFinite(catalogFetchedAt) && Array.isArray(stored.catalog?.items)) {
+            garageKitCatalog = stored.catalog.items.map(sanitizeCatalogItem).filter(Boolean);
+            garageKitCatalogFetchedAt = catalogFetchedAt;
+        }
+
+        console.log(`[Mandarake] Loaded ${detailCache.size} cached detail record(s).`);
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            console.warn('[Mandarake] Failed to load detail cache:', error.message);
+        }
+    }
+}
+
+function pruneDetailCache(now = Date.now()) {
+    const entries = Array.from(detailCache.entries())
+        .sort((a, b) => b[1].lastSeenAt - a[1].lastSeenAt);
+
+    detailCache = new Map(entries.slice(0, DETAIL_CACHE_MAX_ENTRIES));
+
+    for (const [itemCode, metadata] of detailCache) {
+        if (now - metadata.lastSeenAt > DETAIL_CACHE_TTL_MS) {
+            detailCache.delete(itemCode);
+        }
+    }
+}
+
+function persistDetailCache() {
+    loadDetailCache();
+    if (!detailCacheDirty) return;
+
+    const now = Date.now();
+    pruneDetailCache(now);
+
+    try {
+        fs.mkdirSync(path.dirname(DETAIL_CACHE_FILE), { recursive: true, mode: 0o700 });
+        const temporary = `${DETAIL_CACHE_FILE}.${process.pid}.tmp`;
+        const buildPayload = () => JSON.stringify({
+            version: DETAIL_CACHE_VERSION,
+            entries: Object.fromEntries(detailCache),
+            catalog: { fetchedAt: garageKitCatalogFetchedAt, items: garageKitCatalog }
+        });
+        let serialized = buildPayload();
+
+        while (Buffer.byteLength(serialized) > DETAIL_CACHE_MAX_BYTES && detailCache.size > 0) {
+            const oldestItemCode = Array.from(detailCache.keys()).at(-1);
+            detailCache.delete(oldestItemCode);
+            serialized = buildPayload();
+        }
+        if (Buffer.byteLength(serialized) > DETAIL_CACHE_MAX_BYTES) {
+            throw new Error('cache payload exceeds size limit');
+        }
+
+        fs.writeFileSync(temporary, serialized, { mode: 0o600 });
+        fs.renameSync(temporary, DETAIL_CACHE_FILE);
+        detailCacheDirty = false;
+    } catch (error) {
+        console.warn('[Mandarake] Failed to persist detail cache:', error.message);
+    }
 }
 
 function normalizeMode(options = {}) {
@@ -277,13 +411,24 @@ function applyFilters(results, query, strict, filters) {
 }
 
 function parseDetailCategory(html) {
+    return parseDetailMetadata(html).categoryPath;
+}
+
+function parseDetailMetadata(html) {
     const $ = cheerio.load(html || '');
-    return $('tr.category_path')
-        .first()
-        .text()
-        .replace(/\s+/g, ' ')
-        .trim()
+    const categoryPath = normalizeText($('tr.category_path').first().text())
         .replace(/^カテゴリ\s*/, '');
+    let itemInformation = '';
+
+    $('tr').each((index, row) => {
+        if (itemInformation) return;
+        const heading = normalizeText($(row).find('th').first().text());
+        if (/^(商品情報|item information)$/i.test(heading)) {
+            itemInformation = normalizeText($(row).find('td').first().text());
+        }
+    });
+
+    return { categoryPath, itemInformation };
 }
 
 function isGarageKitCategory(categoryPath) {
@@ -347,13 +492,221 @@ async function fetchDetailHtml(detailUrl, cookies, signal = null) {
     return response.data;
 }
 
+function waitForPromise(promise, signal) {
+    if (!signal) return promise;
+    throwIfAborted(signal);
+
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            signal.removeEventListener('abort', onAbort);
+            const error = new Error('Search was aborted');
+            error.name = 'AbortError';
+            error.code = 'ABORT_ERR';
+            reject(error);
+        };
+
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            value => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
+            },
+            error => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+            }
+        );
+    });
+}
+
+async function getDetailMetadata(item, cookies, options = {}, signal = null) {
+    throwIfAborted(signal);
+    loadDetailCache();
+
+    const itemCode = getItemCode(item);
+    if (!itemCode) throw new Error('Missing Mandarake item code');
+
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const cached = detailCache.get(itemCode);
+    if (cached && now - cached.fetchedAt < DETAIL_CACHE_TTL_MS) {
+        if (now - cached.lastSeenAt >= GARAGE_KIT_CATALOG_TTL_MS) {
+            cached.lastSeenAt = now;
+            detailCacheDirty = true;
+        }
+        return cached;
+    }
+
+    const fetchMetadata = async (fetchSignal) => {
+        const detailFetcher = options.fetchDetailHtml
+            ? (url) => options.fetchDetailHtml(url, cookies, item, fetchSignal)
+            : (url) => fetchDetailHtml(url, cookies, fetchSignal);
+        const html = await detailFetcher(buildDetailUrl(itemCode));
+        const parsed = parseDetailMetadata(html);
+        if (!parsed.categoryPath) {
+            throw new Error('Mandarake detail page did not contain a category');
+        }
+        const metadata = {
+            ...parsed,
+            fetchedAt: now,
+            lastSeenAt: now
+        };
+        detailCache.set(itemCode, metadata);
+        detailCacheDirty = true;
+        return metadata;
+    };
+
+    let pending = detailFetches.get(itemCode);
+    if (!pending) {
+        if (signal) {
+            pending = fetchMetadata(signal);
+        } else {
+            pending = fetchMetadata(null).finally(() => {
+                detailFetches.delete(itemCode);
+            });
+            detailFetches.set(itemCode, pending);
+        }
+    }
+
+    try {
+        const metadata = await waitForPromise(pending, signal);
+        metadata.lastSeenAt = now;
+        return metadata;
+    } catch (error) {
+        throwIfAborted(signal);
+        if (cached) {
+            if (now - cached.lastSeenAt >= GARAGE_KIT_CATALOG_TTL_MS) {
+                cached.lastSeenAt = now;
+                detailCacheDirty = true;
+            }
+            console.warn(`[Mandarake] Using stale detail metadata for itemCode=${itemCode}: ${error.message}`);
+            return cached;
+        }
+        throw error;
+    }
+}
+
+async function refreshGarageKitCatalog(cookies, options = {}) {
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const searchFetcher = options.fetchSearchHtml
+        ? (url) => options.fetchSearchHtml(url, cookies, null)
+        : (url) => fetchSearchHtml(url, cookies, null);
+    const searchUrl = buildSearchUrl('', { mode: 'garageKit' });
+    const html = await searchFetcher(searchUrl);
+
+    if (String(html).includes('body class="login"')) {
+        throw new Error('Login Required');
+    }
+
+    const listedItems = parseResults(html);
+    if (listedItems.length === 0) {
+        throw new Error('Mandarake garage-kit catalog returned no items');
+    }
+    let failed = 0;
+    let rejected = 0;
+    const verified = await mapWithConcurrency(
+        listedItems,
+        options.concurrency || DETAIL_CATEGORY_CONCURRENCY,
+        async (item) => {
+            try {
+                const metadata = await getDetailMetadata(item, cookies, {
+                    fetchDetailHtml: options.fetchDetailHtml,
+                    now
+                });
+                if (!isGarageKitCategory(metadata.categoryPath)) {
+                    rejected++;
+                    return null;
+                }
+                return item;
+            } catch (error) {
+                failed++;
+                if (failed <= 5) {
+                    console.warn(`[Mandarake] Failed to cache itemCode=${getItemCode(item)}: ${error.message}`);
+                }
+                return null;
+            }
+        }
+    );
+
+    garageKitCatalog = verified.filter(Boolean);
+    garageKitCatalogFetchedAt = now;
+    detailCacheDirty = true;
+    if (options.persistCache !== false) {
+        persistDetailCache();
+    }
+
+    console.log(
+        `[Mandarake] Garage-kit catalog cached ${garageKitCatalog.length}/${listedItems.length} item(s); ` +
+        `rejected ${rejected}, failed ${failed}.`
+    );
+    return garageKitCatalog;
+}
+
+async function getGarageKitCatalog(cookies, options = {}, signal = null) {
+    loadDetailCache();
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+
+    if (!options.forceRefresh && garageKitCatalog.length > 0 &&
+        now - garageKitCatalogFetchedAt < GARAGE_KIT_CATALOG_TTL_MS) {
+        return garageKitCatalog;
+    }
+
+    if (options.refresh === false) {
+        return [];
+    }
+
+    if (!garageKitCatalogRefresh) {
+        garageKitCatalogRefresh = refreshGarageKitCatalog(cookies, options)
+            .finally(() => {
+                garageKitCatalogRefresh = null;
+            });
+    }
+
+    try {
+        return await waitForPromise(garageKitCatalogRefresh, signal);
+    } catch (error) {
+        throwIfAborted(signal);
+        if (garageKitCatalog.length > 0 && now - garageKitCatalogFetchedAt < GARAGE_KIT_CATALOG_TTL_MS) {
+            console.warn(`[Mandarake] Using stale garage-kit catalog after refresh failure: ${error.message}`);
+            return garageKitCatalog;
+        }
+        throw error;
+    }
+}
+
+function findGarageKitCatalogMatches(catalog, query, filters = [], metadataByItemCode = detailCache) {
+    const parsedQuery = queryMatcher.parseQuery(query);
+    const matches = (Array.isArray(catalog) ? catalog : []).filter(item => {
+        const metadata = metadataByItemCode.get(getItemCode(item));
+        if (!metadata) return false;
+
+        const searchableText = [item.title, metadata.itemInformation, metadata.categoryPath]
+            .map(normalizeText)
+            .filter(Boolean)
+            .join(' ');
+        return queryMatcher.matchesQuery(searchableText, parsedQuery, true);
+    });
+
+    return applyFilters(matches, '', false, filters);
+}
+
+function mergeResults(primary, additional) {
+    const merged = [];
+    const seen = new Set();
+
+    for (const item of [...primary, ...additional]) {
+        const key = getItemCode(item) || item.link;
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+    }
+
+    return merged;
+}
+
 async function filterGarageKitResults(results, cookies, options = {}, signal = null) {
     throwIfAborted(signal);
     if (!Array.isArray(results) || results.length === 0) return [];
 
-    const detailFetcher = options.fetchDetailHtml
-        ? (url, item) => options.fetchDetailHtml(url, cookies, item, signal)
-        : (url) => fetchDetailHtml(url, cookies, signal);
     const concurrency = options.concurrency || DETAIL_CATEGORY_CONCURRENCY;
     let rejected = 0;
     let failed = 0;
@@ -366,10 +719,12 @@ async function filterGarageKitResults(results, cookies, options = {}, signal = n
         }
 
         try {
-            const detailHtml = await detailFetcher(buildDetailUrl(itemCode), item);
-            const categoryPath = parseDetailCategory(detailHtml);
+            const metadata = await getDetailMetadata(item, cookies, {
+                fetchDetailHtml: options.fetchDetailHtml,
+                now: options.now
+            }, signal);
 
-            if (isGarageKitCategory(categoryPath)) {
+            if (isGarageKitCategory(metadata.categoryPath)) {
                 return item;
             }
 
@@ -386,6 +741,9 @@ async function filterGarageKitResults(results, cookies, options = {}, signal = n
     const filtered = verified.filter(Boolean);
     if (rejected > 0 || failed > 0) {
         console.log(`[Mandarake] Detail category verification kept ${filtered.length}/${results.length} item(s); rejected ${rejected}, failed ${failed}.`);
+    }
+    if (!options.fetchDetailHtml || options.persistCache === true) {
+        persistDetailCache();
     }
 
     return filtered;
@@ -416,6 +774,18 @@ async function search(query, strict = true, filters = [], options = {}, signal =
 
         if (mode === 'garageKit') {
             filtered = await filterGarageKitResults(filtered, cookies, {}, signal);
+
+            try {
+                const catalog = await getGarageKitCatalog(cookies, { refresh: !signal }, signal);
+                const catalogMatches = findGarageKitCatalogMatches(catalog, effectiveQuery, filters);
+                filtered = mergeResults(filtered, catalogMatches);
+                if (catalogMatches.length > 0) {
+                    console.log(`[Mandarake] Added ${catalogMatches.length} cached metadata match(es).`);
+                }
+            } catch (catalogError) {
+                throwIfAborted(signal);
+                console.warn('[Mandarake] Garage-kit metadata search unavailable:', catalogError.message);
+            }
         }
 
         console.log(`[Mandarake] Found ${parsed.length} item(s), ${filtered.length} after filtering.`);
@@ -435,9 +805,21 @@ module.exports = {
     getEffectiveQuery,
     buildDetailUrl,
     getItemCode,
+    parseDetailMetadata,
     parseDetailCategory,
     isGarageKitCategory,
     filterGarageKitResults,
+    getGarageKitCatalog,
+    findGarageKitCatalogMatches,
     GARAGE_KIT_CATEGORY_CODE,
-    EVERYTHING_CATEGORY_CODE
+    EVERYTHING_CATEGORY_CODE,
+    _resetCacheForTests: () => {
+        detailCacheLoaded = true;
+        detailCache = new Map();
+        detailFetches = new Map();
+        garageKitCatalog = [];
+        garageKitCatalogFetchedAt = 0;
+        garageKitCatalogRefresh = null;
+        detailCacheDirty = false;
+    }
 };
