@@ -69,6 +69,42 @@ function withAbort(promise, signal) {
     });
 }
 
+const DIRECT_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
+const DIRECT_RATE_LIMIT_RETRY_MS = 500;
+
+class MercariRateLimitError extends Error {
+    constructor() {
+        super('Mercari direct API remained rate limited');
+        this.name = 'MercariRateLimitError';
+        this.code = 'MERCARI_RATE_LIMITED';
+    }
+}
+
+let directCircuitState = 'closed';
+let directCircuitOpenUntil = 0;
+
+function beginDirectSearch(now = Date.now()) {
+    if (directCircuitState === 'open') {
+        if (now < directCircuitOpenUntil) return { allowed: false, probe: false };
+        directCircuitState = 'half-open';
+        return { allowed: true, probe: true };
+    }
+
+    if (directCircuitState === 'half-open') return { allowed: false, probe: false };
+    return { allowed: true, probe: false };
+}
+
+function openDirectCircuit(now = Date.now()) {
+    directCircuitState = 'open';
+    directCircuitOpenUntil = now + DIRECT_RATE_LIMIT_COOLDOWN_MS;
+}
+
+function completeDirectSearch(probe) {
+    if (!probe || directCircuitState !== 'half-open') return;
+    directCircuitState = 'closed';
+    directCircuitOpenUntil = 0;
+}
+
 // --- DPoP Utils ---
 function encodeBase64Url(buffer) {
     return Buffer.from(buffer)
@@ -188,7 +224,7 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null, sig
         try {
             let response;
             let retries = 0;
-            const MAX_RETRIES = 3;
+            const MAX_RETRIES = 1;
 
             while (true) {
                 throwIfAborted(signal);
@@ -214,10 +250,15 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null, sig
                     if (isAborted(signal, err)) throw abortError();
                     if (err.response && err.response.status === 429 && retries < MAX_RETRIES) {
                         retries++;
-                        const retryDelay = 2000 * retries;
+                        const retryAfterSeconds = Number(err.response.headers?.['retry-after']);
+                        const retryDelay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+                            ? Math.min(retryAfterSeconds * 1000, 2000)
+                            : DIRECT_RATE_LIMIT_RETRY_MS;
                         console.log(`[Mercari Axios] Rate limited (429) on page ${page + 1}. Retrying in ${retryDelay}ms...`);
                         await delay(retryDelay, signal);
                         // Retry loop will regenerate DPoP
+                    } else if (err.response && err.response.status === 429) {
+                        throw new MercariRateLimitError();
                     } else {
                         throw err; // Propagate other errors
                     }
@@ -282,6 +323,12 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null, sig
 
         } catch (err) {
             if (isAborted(signal, err)) throw abortError();
+            if (err instanceof MercariRateLimitError) {
+                openDirectCircuit();
+                if (allResults.length === 0) throw err;
+                console.warn(`[Mercari Axios] Rate limited after page ${page}; returning ${allResults.length} item(s) already fetched.`);
+                break;
+            }
             console.error(`[Mercari Axios] Error on page ${page + 1}: ${err.message}`);
             if (allResults.length === 0) return null; // If first page fails, return null to trigger fallback
             break; // Otherwise return what we have
@@ -335,9 +382,13 @@ async function getBrowser() {
 }
 
 
-function reset() {
+function reset({ resetRateLimitCircuit = false } = {}) {
     consecutiveTimeouts = 0;
     isDisabled = false;
+    if (resetRateLimitCircuit) {
+        directCircuitState = 'closed';
+        directCircuitOpenUntil = 0;
+    }
     console.log('Mercari Scraper state reset.');
 }
 
@@ -813,16 +864,28 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
     }
 
     // Priority 1: Direct Axios (Fastest, DPoP Auth)
-    try {
-        const axiosResults = await searchAxios(query, strictEnabled, filters, onProgress, signal);
-        if (axiosResults !== null) {
-            console.log(`[Mercari] Axios search successful (${axiosResults.length} items).`);
-            return axiosResults;
+    const directAttempt = beginDirectSearch();
+    if (directAttempt.allowed) {
+        try {
+            const axiosResults = await searchAxios(query, strictEnabled, filters, onProgress, signal);
+            if (axiosResults !== null) {
+                console.log(`[Mercari] Axios search successful (${axiosResults.length} items).`);
+                return axiosResults;
+            }
+            console.warn('[Mercari] Axios failed (returned null), falling back to Doorzo...');
+        } catch (err) {
+            if (isAborted(signal, err)) throw abortError();
+            if (err instanceof MercariRateLimitError) {
+                openDirectCircuit();
+                console.warn('[Mercari] Direct API rate-limit circuit breaker opened for 15 minutes; falling back to Doorzo.');
+            } else {
+                console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to Doorzo...`);
+            }
+        } finally {
+            completeDirectSearch(directAttempt.probe);
         }
-        console.warn('[Mercari] Axios failed (returned null), falling back to Doorzo...');
-    } catch (err) {
-        if (isAborted(signal, err)) throw abortError();
-        console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to Doorzo...`);
+    } else {
+        console.log('[Mercari] Direct API rate-limit circuit breaker active. Using Doorzo.');
     }
 
     // Priority 2: Doorzo (Fast/Axios + native Mercari IDs)
