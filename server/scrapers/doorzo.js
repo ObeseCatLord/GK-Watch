@@ -134,7 +134,9 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
                 signal
             });
 
-            const apiFailed = res.data?.code !== undefined && res.data.code !== 0;
+            const responseCode = res.data?.code;
+            const apiFailed = responseCode !== undefined
+                && ![0, 200].includes(Number(responseCode));
             if (!apiFailed && res.data?.data && Array.isArray(res.data.data.items)) {
                 const items = res.data.data.items;
                 allItems = allItems.concat(items);
