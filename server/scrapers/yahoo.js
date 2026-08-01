@@ -44,15 +44,18 @@ const agentConfig = {
 const httpAgent = new http.Agent(agentConfig);
 const httpsAgent = new https.Agent(agentConfig);
 
+function envInteger(name, fallback, min, max) {
+    const value = Number(process.env[name]);
+    return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+}
+
 // 2. Create Axios Instance with default headers and agents
 const client = axios.create({
     baseURL: 'https://auctions.yahoo.co.jp',
     timeout: 30000, // 30s timeout per request
     httpAgent,
     httpsAgent,
-    validateStatus: function (status) {
-        return status < 500;
-    },
+    validateStatus: status => status < 400 || status === 404,
     headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -72,16 +75,17 @@ axiosRetry(client, {
     },
     retryCondition: (error) => {
         if (error.config?.signal?.aborted) return false;
-        // Retry on network errors or 5xx status codes (500, 502, 503, 504)
+        // Retry on network errors, rate limiting, or 5xx status codes.
         return axiosRetry.isNetworkOrIdempotentRequestError(error) ||
+            error.response?.status === 429 ||
             (error.response && error.response.status >= 500 && error.response.status <= 599);
     }
 });
 
-// 4. Rate Limiting: 1 request per 2 seconds (Conservative to avoid blocks)
+// 4. Conservative defaults, with bounded overrides for controlled benchmarking/tuning.
 const limiter = new Bottleneck({
-    minTime: 2000,
-    maxConcurrent: 1
+    minTime: envInteger('GKWATCH_YAHOO_NATIVE_MIN_TIME_MS', 2000, 100, 10000),
+    maxConcurrent: envInteger('GKWATCH_YAHOO_NATIVE_CONCURRENCY', 1, 1, 6)
 });
 
 // Wrap the Axios GET method with rate limiting
