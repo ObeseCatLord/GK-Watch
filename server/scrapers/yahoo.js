@@ -254,129 +254,149 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
     // Chain 2: Robust Native Axios Scraper (Fallback - Deep Search)
     try {
         let results = [];
-        let page = 0;
         const MAX_PAGES = 200;
         const seenLinks = new Set();
         const itemsPerPage = 50;
+        const searchScopes = cookieHeader && targetSource !== 'paypay'
+            ? [
+                { name: 'adult', querySuffix: '&auccat=26146&tab_ex=commerce&ei=utf-8' },
+                { name: 'standard', querySuffix: '' }
+            ]
+            : [{ name: 'standard', querySuffix: '' }];
+        let completedScopeCount = 0;
+        let lastScopeError = null;
 
         console.log(`[Yahoo Fallback] Starting Native Axios Scraper for ${query}...`);
 
-        while (page < MAX_PAGES) {
-            throwIfAborted(signal);
-            try {
-                // Yahoo pagination: b=1 (page 1), b=51 (page 2), b=101 (page 3)
-                const offset = page * itemsPerPage + 1;
-                const url = `/search/search?p=${encodeURIComponent(query)}&b=${offset}&n=${itemsPerPage}`;
+        for (const scope of searchScopes) {
+            let page = 0;
+            let scopeCompleted = false;
 
-                // Use the throttled, resilient client
-                // Note: client base URL is set, so we just pass the path
-                const response = await scheduledGet(url, {
-                    signal,
-                    ...(cookieHeader ? {
-                        headers: { Cookie: cookieHeader },
-                        beforeRedirect: stripCookieOnUnsafeRedirect
-                    } : {})
-                });
-                const data = response.data;
+            while (page < MAX_PAGES) {
+                throwIfAborted(signal);
+                try {
+                    // Yahoo pagination: b=1 (page 1), b=51 (page 2), b=101 (page 3)
+                    const offset = page * itemsPerPage + 1;
+                    const url = `/search/search?p=${encodeURIComponent(query)}&b=${offset}&n=${itemsPerPage}${scope.querySuffix}`;
 
-                // Check for "Page Not Found" or "Invalid Page"
-                if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
-                    if (page === 0) throw new Error('Yahoo Search Page invalid/404');
-                    break; // Stop pagination if page is empty/404
-                }
+                    // Use the throttled, resilient client
+                    // Note: client base URL is set, so we just pass the path
+                    const response = await scheduledGet(url, {
+                        signal,
+                        ...(cookieHeader ? {
+                            headers: { Cookie: cookieHeader },
+                            beforeRedirect: stripCookieOnUnsafeRedirect
+                        } : {})
+                    });
+                    const data = response.data;
 
-                // Check for "Partial Match" (Soft Match) - Yahoo returns broad results when exact match fails
-                // Text: "一致する商品はありません。キーワードの一部を利用した結果を表示しています"
-                if (data.includes('キーワードの一部を利用した結果を表示しています')) {
-                    console.log(`[Yahoo Native] [${query}] Partial match detected (Yahoo couldn't find exact match). Stopping to avoid irrelevant results.`);
-                    break;
-                }
-
-                const $ = cheerio.load(data);
-                let pageResults = [];
-
-                $('.Products__items li.Product').each((i, element) => {
-                    try {
-                        // International Shipping Filter
-                        if (!allowInternationalShipping) {
-                            const fullText = $(element).text();
-                            if (fullText.includes('海外から発送')) {
-                                return; // Skip this item
-                            }
-                        }
-
-                        const titleEl = $(element).find('.Product__titleLink');
-                        const title = titleEl.text().trim();
-                        const link = titleEl.attr('href');
-                        const imageEl = $(element).find('.Product__imageData');
-                        const image = imageEl.attr('src');
-
-                        const timeEl = $(element).find('.Product__time');
-                        const timeStr = timeEl.text().trim();
-                        const endTime = calculateEndTime(timeStr);
-
-                        const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
-
-                        if (targetSource === 'yahoo' && isPayPay) return;
-                        if (targetSource === 'paypay' && !isPayPay) return;
-
-                        const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
-
-                        const priceElements = $(element).find('.Product__priceValue');
-                        let bidPrice = '';
-                        let binPrice = '';
-
-                        if (priceElements.length >= 1) bidPrice = $(priceElements[0]).text().trim();
-                        if (priceElements.length >= 2) binPrice = $(priceElements[1]).text().trim();
-
-                        const price = bidPrice || 'N/A';
-
-                        if (title && link) {
-                            pageResults.push({
-                                title,
-                                link,
-                                image: image || '',
-                                price: formatYahooPrice(price),
-                                bidPrice: formatYahooPrice(bidPrice),
-                                binPrice: formatYahooPrice(binPrice),
-                                endTime,
-                                source: itemSource
-                            });
-                        }
-                    } catch (err) {
-                        console.error('Error parsing yahoo item:', err);
+                    // Check for "Page Not Found" or "Invalid Page"
+                    if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
+                        if (page === 0) throw new Error(`Yahoo ${scope.name} search page invalid/404`);
+                        break; // Stop pagination if page is empty/404
                     }
-                });
+                    scopeCompleted = true;
 
-                if (pageResults.length === 0) break; // Stop if no items found
+                    // Check for "Partial Match" (Soft Match) - Yahoo returns broad results when exact match fails
+                    // Text: "一致する商品はありません。キーワードの一部を利用した結果を表示しています"
+                    if (data.includes('キーワードの一部を利用した結果を表示しています')) {
+                        console.log(`[Yahoo Native] [${query}] ${scope.name} partial match detected. Stopping to avoid irrelevant results.`);
+                        break;
+                    }
 
-                // Deduplicate
-                const newResults = pageResults.filter(item => !seenLinks.has(item.link));
-                newResults.forEach(item => seenLinks.add(item.link));
+                    const $ = cheerio.load(data);
+                    let pageResults = [];
 
-                if (newResults.length === 0) {
-                    console.log(`[Yahoo Native] [${query}] Page ${page + 1}: all items duplicates. Stopping.`);
+                    $('.Products__items li.Product').each((i, element) => {
+                        try {
+                            // International Shipping Filter
+                            if (!allowInternationalShipping) {
+                                const fullText = $(element).text();
+                                if (fullText.includes('海外から発送')) {
+                                    return; // Skip this item
+                                }
+                            }
+
+                            const titleEl = $(element).find('.Product__titleLink');
+                            const title = titleEl.text().trim();
+                            const link = titleEl.attr('href');
+                            const imageEl = $(element).find('.Product__imageData');
+                            const image = imageEl.attr('src');
+
+                            const timeEl = $(element).find('.Product__time');
+                            const timeStr = timeEl.text().trim();
+                            const endTime = calculateEndTime(timeStr);
+
+                            const isPayPay = $(element).find('.Product__icon').text().includes('Yahoo!フリマ') || (link && link.includes('paypayfleamarket'));
+
+                            if (targetSource === 'yahoo' && isPayPay) return;
+                            if (targetSource === 'paypay' && !isPayPay) return;
+
+                            const itemSource = isPayPay ? 'PayPay Flea Market' : 'Yahoo';
+
+                            const priceElements = $(element).find('.Product__priceValue');
+                            let bidPrice = '';
+                            let binPrice = '';
+
+                            if (priceElements.length >= 1) bidPrice = $(priceElements[0]).text().trim();
+                            if (priceElements.length >= 2) binPrice = $(priceElements[1]).text().trim();
+
+                            const price = bidPrice || 'N/A';
+
+                            if (title && link) {
+                                pageResults.push({
+                                    title,
+                                    link,
+                                    image: image || '',
+                                    price: formatYahooPrice(price),
+                                    bidPrice: formatYahooPrice(bidPrice),
+                                    binPrice: formatYahooPrice(binPrice),
+                                    endTime,
+                                    source: itemSource
+                                });
+                            }
+                        } catch (err) {
+                            console.error('Error parsing yahoo item:', err);
+                        }
+                    });
+
+                    if (pageResults.length === 0) break; // Stop if no items found
+
+                    // Deduplicate across pages and standard/adult search scopes.
+                    const newResults = pageResults.filter(item => {
+                        if (seenLinks.has(item.link)) return false;
+                        seenLinks.add(item.link);
+                        return true;
+                    });
+
+                    if (newResults.length === 0) {
+                        console.log(`[Yahoo Native] [${query}] ${scope.name} page ${page + 1}: all items duplicates. Stopping.`);
+                        break;
+                    }
+
+                    console.log(`[Yahoo Native] [${query}] ${scope.name} page ${page + 1} found ${newResults.length} new items.`);
+                    results = results.concat(newResults);
+
+                    // Early stop if last page (fewer items than requested)
+                    if (pageResults.length < itemsPerPage) {
+                        console.log(`[Yahoo Native] [${query}] ${scope.name} page ${page + 1} had ${pageResults.length} items (< ${itemsPerPage}). Last page reached.`);
+                        break;
+                    }
+
+                    page++;
+
+                } catch (err) {
+                    if (isAborted(signal, err)) throw abortError();
+                    lastScopeError = err;
+                    console.warn(`[Yahoo Native] [${query}] ${scope.name} error on page ${page + 1} (${err.message}). Continuing with ${results.length} items found so far.`);
                     break;
                 }
-
-                console.log(`[Yahoo Native] [${query}] Page ${page + 1} found ${newResults.length} new items.`);
-                results = results.concat(newResults);
-
-                // Early stop if last page (fewer items than requested)
-                if (pageResults.length < itemsPerPage) {
-                    console.log(`[Yahoo Native] [${query}] Page ${page + 1} had ${pageResults.length} items (< ${itemsPerPage}). Last page reached.`);
-                    break;
-                }
-
-                page++;
-
-            } catch (err) {
-                if (isAborted(signal, err)) throw abortError();
-                if (page === 0) throw err; // Re-throw to trigger fallback if first page fails
-                console.warn(`[Yahoo Native] [${query}] Error on page ${page + 1} (${err.message}). Returning ${results.length} items found so far.`);
-                break; // Stop pagination but return what we have
             }
+
+            if (scopeCompleted) completedScopeCount++;
         }
+
+        if (completedScopeCount === 0 && lastScopeError) throw lastScopeError;
 
         // Apply negative filtering (server-side)
         if (filters && filters.length > 0) {

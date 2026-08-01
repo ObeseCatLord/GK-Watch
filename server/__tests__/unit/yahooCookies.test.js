@@ -81,8 +81,15 @@ describe('Yahoo cookie handling', () => {
 });
 
 describe('Yahoo authenticated search routing', () => {
-    test('bypasses Doorzo and sends Yahoo cookies only to native search', async () => {
-        const nativeGet = jest.fn().mockResolvedValue({ data: '<html><body></body></html>' });
+    test('searches adult and standard scopes directly while deduplicating Yahoo results', async () => {
+        const product = `
+            <li class="Product">
+                <a class="Product__titleLink" href="https://auctions.yahoo.co.jp/jp/auction/test123">test item</a>
+                <span class="Product__priceValue">100円</span>
+            </li>`;
+        const nativeGet = jest.fn()
+            .mockResolvedValueOnce({ data: `<ul class="Products__items">${product}${product}</ul>` })
+            .mockResolvedValueOnce({ data: '<html><body>お探しのページは見つかりませんでした</body></html>' });
         const doorzoPost = jest.fn();
         const retry = jest.fn();
         retry.exponentialDelay = jest.fn();
@@ -108,15 +115,27 @@ describe('Yahoo authenticated search routing', () => {
         }));
 
         const yahoo = require('../../scrapers/yahoo');
-        await expect(yahoo.search('test', false, false, 'yahoo')).resolves.toEqual([]);
+        await expect(yahoo.search('test', false, false, 'yahoo')).resolves.toEqual([
+            expect.objectContaining({
+                title: 'test item',
+                link: 'https://auctions.yahoo.co.jp/jp/auction/test123',
+                price: '¥100'
+            })
+        ]);
 
         expect(doorzoPost).not.toHaveBeenCalled();
-        expect(nativeGet).toHaveBeenCalledWith(
-            expect.stringContaining('/search/search?p=test'),
+        expect(nativeGet).toHaveBeenNthCalledWith(
+            1,
+            expect.stringMatching(/\/search\/search\?p=test.*auccat=26146/),
             expect.objectContaining({
                 headers: { Cookie: 'A=auth-value' },
                 beforeRedirect: expect.any(Function)
             })
+        );
+        expect(nativeGet).toHaveBeenNthCalledWith(
+            2,
+            expect.not.stringContaining('auccat=26146'),
+            expect.objectContaining({ headers: { Cookie: 'A=auth-value' } })
         );
     });
 });
