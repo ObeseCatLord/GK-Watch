@@ -16,6 +16,9 @@ describe('Mercari Scraper Retry Logic', () => {
         mock = new MockAdapter(axios);
     });
 
+    const mockDoorzoFailure = () => mock.onGet('https://sig.doorzo.com/').reply(503, {});
+    const mockEmptyNeokyo = () => mock.onGet(/https:\/\/neokyo\.com\/en\/search\/mercari.*/).reply(200, '<html></html>');
+
     afterEach(() => {
         mock.reset();
         onProgress.mockClear();
@@ -50,10 +53,12 @@ describe('Mercari Scraper Retry Logic', () => {
             }
             return [200, searchResponse];
         });
+        mockDoorzoFailure();
 
         // Spy on console to check for retry logs
         const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
 
         const results = await search('test query');
 
@@ -71,19 +76,84 @@ describe('Mercari Scraper Retry Logic', () => {
 
         logSpy.mockRestore();
         warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
+
+    test('treats an empty Doorzo response as success without calling direct Axios', async () => {
+        mock.onGet('https://sig.doorzo.com/').reply(200, {
+            code: 0,
+            data: { items: [], nextPageToken: null }
+        });
+        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
+            items: [{ id: 'm999', name: 'should not be fetched', price: '1000' }],
+            meta: { nextPageToken: null }
+        });
+
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
+        const results = await search('test query');
+
+        expect(results).toEqual([]);
+        expect(mock.history.post).toHaveLength(0);
+        expect(logSpy).toHaveBeenCalledWith('[Mercari] Doorzo search successful (0 items).');
+
+        logSpy.mockRestore();
+    });
+
+    test('falls back to direct Axios for a malformed Doorzo API response', async () => {
+        mock.onGet('https://sig.doorzo.com/').reply(200, { code: 123, data: {} });
+        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
+            items: [{ id: 'm998', name: 'test query direct item', price: '1200' }],
+            meta: { nextPageToken: null }
+        });
+
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
+        const results = await search('test query');
+
+        expect(results).toHaveLength(1);
+        expect(results[0].link).toBe('https://jp.mercari.com/item/m998');
+        expect(mock.history.post).toHaveLength(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to direct API'));
+
+        logSpy.mockRestore();
+        warnSpy.mockRestore();
+    });
+
+    test('does not enter another fallback when an in-flight Doorzo search is aborted', async () => {
+        let releaseDoorzo;
+        mock.onGet('https://sig.doorzo.com/').reply(() => new Promise(resolve => {
+            releaseDoorzo = resolve;
+        }));
+        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
+            items: [{ id: 'm997', name: 'must not be fetched', price: '1000' }],
+            meta: { nextPageToken: null }
+        });
+
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
+        const controller = new AbortController();
+        const pending = search('test query', true, [], null, controller.signal);
+        for (let attempt = 0; mock.history.get.length === 0 && attempt < 10; attempt++) {
+            await new Promise(resolve => setImmediate(resolve));
+        }
+        controller.abort();
+        releaseDoorzo([200, { code: 0, data: { items: [], nextPageToken: null } }]);
+
+        await expect(pending).rejects.toMatchObject({ code: 'ABORT_ERR' });
+        expect(mock.history.post).toHaveLength(0);
+
+        logSpy.mockRestore();
     });
 
     test('fails after max retries and falls back', async () => {
         // Always 429
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
-        mock.onGet('https://sig.doorzo.com/').reply(200, {
-            code: 0,
-            data: { items: [], nextPageToken: null }
-        });
+        mockDoorzoFailure();
+        mockEmptyNeokyo();
 
         const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
         // Fallback warnings
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
 
         // One short retry distinguishes a transient response from a persistent limit.
 
@@ -95,14 +165,13 @@ describe('Mercari Scraper Retry Logic', () => {
 
         logSpy.mockRestore();
         warnSpy.mockRestore();
+        errorSpy.mockRestore();
     });
 
     test('bypasses direct Axios while the rate-limit circuit breaker is open', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
-        mock.onGet('https://sig.doorzo.com/').reply(200, {
-            code: 0,
-            data: { items: [], nextPageToken: null }
-        });
+        mockDoorzoFailure();
+        mockEmptyNeokyo();
 
         const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
@@ -123,10 +192,8 @@ describe('Mercari Scraper Retry Logic', () => {
 
     test('allows only one direct recovery probe after the cooldown', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
-        mock.onGet('https://sig.doorzo.com/').reply(200, {
-            code: 0,
-            data: { items: [], nextPageToken: null }
-        });
+        mockDoorzoFailure();
+        mockEmptyNeokyo();
 
         const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
@@ -142,10 +209,8 @@ describe('Mercari Scraper Retry Logic', () => {
             items: [],
             meta: { nextPageToken: null }
         });
-        mock.onGet('https://sig.doorzo.com/').reply(200, {
-            code: 0,
-            data: { items: [], nextPageToken: null }
-        });
+        mockDoorzoFailure();
+        mockEmptyNeokyo();
 
         await Promise.all([
             search('probe one'),
@@ -177,10 +242,8 @@ describe('Mercari Scraper Retry Logic', () => {
             }
             return [429, {}];
         });
-        mock.onGet('https://sig.doorzo.com/').reply(200, {
-            code: 0,
-            data: { items: [], nextPageToken: null }
-        });
+        mockDoorzoFailure();
+        mockEmptyNeokyo();
 
         const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
@@ -190,11 +253,12 @@ describe('Mercari Scraper Retry Logic', () => {
         expect(results).toHaveLength(1);
         expect(results[0].link).toBe('https://jp.mercari.com/item/m444');
         expect(mock.history.post).toHaveLength(3);
-        expect(mock.history.get).toHaveLength(0);
+        expect(mock.history.get.filter(request => request.url.startsWith('https://neokyo.com/'))).toHaveLength(0);
 
         await search('circuit remains open');
         expect(mock.history.post).toHaveLength(3);
-        expect(mock.history.get).toHaveLength(1);
+        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(2);
+        expect(mock.history.get.filter(request => request.url.startsWith('https://neokyo.com/'))).toHaveLength(1);
 
         logSpy.mockRestore();
         warnSpy.mockRestore();
@@ -203,10 +267,8 @@ describe('Mercari Scraper Retry Logic', () => {
 
     test('does not extend the cooldown when a recovery probe is aborted', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
-        mock.onGet('https://sig.doorzo.com/').reply(200, {
-            code: 0,
-            data: { items: [], nextPageToken: null }
-        });
+        mockDoorzoFailure();
+        mockEmptyNeokyo();
 
         const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
@@ -218,6 +280,7 @@ describe('Mercari Scraper Retry Logic', () => {
 
         let releaseProbe;
         mock.resetHandlers();
+        mockDoorzoFailure();
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(() => new Promise(resolve => {
             releaseProbe = resolve;
         }));
@@ -232,6 +295,7 @@ describe('Mercari Scraper Retry Logic', () => {
         await expect(probe).rejects.toMatchObject({ code: 'ABORT_ERR' });
 
         mock.resetHandlers();
+        mockDoorzoFailure();
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
             items: [],
             meta: { nextPageToken: null }
@@ -245,7 +309,7 @@ describe('Mercari Scraper Retry Logic', () => {
         errorSpy.mockRestore();
     });
 
-    test('falls back to Doorzo before DEJapan and captures token pages', async () => {
+    test('uses Doorzo before direct Axios and captures token pages', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
 
         let doorzoCallCount = 0;
@@ -286,7 +350,7 @@ describe('Mercari Scraper Retry Logic', () => {
         const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
         const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
 
-        const results = await search('test query', true, []);
+        const results = await search('test query', true, [], onProgress);
 
         expect(doorzoCallCount).toBe(2);
         expect(results).toHaveLength(2);
@@ -294,7 +358,12 @@ describe('Mercari Scraper Retry Logic', () => {
             'https://jp.mercari.com/item/m111',
             'https://jp.mercari.com/item/m222'
         ]);
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to Doorzo'));
+        expect(mock.history.post).toHaveLength(0);
+        expect(onProgress).toHaveBeenCalledTimes(2);
+        expect(onProgress.mock.calls.flatMap(([event]) => event.items.map(item => item.link))).toEqual([
+            'https://jp.mercari.com/item/m111',
+            'https://jp.mercari.com/item/m222'
+        ]);
         expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Doorzo search successful'));
 
         logSpy.mockRestore();
@@ -330,6 +399,7 @@ describe('Mercari Scraper Retry Logic', () => {
         expect(requestedUrls).toContain('https://sig.doorzo.com/');
         expect(requestedUrls.some(url => url.startsWith('https://neokyo.com/en/search/mercari'))).toBe(true);
         expect(requestedUrls.some(url => url.includes('dejapan.com/en/shopping/mercari'))).toBe(false);
+        expect(mock.history.post).toHaveLength(2);
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to Neokyo'));
         expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Neokyo search successful'));
 

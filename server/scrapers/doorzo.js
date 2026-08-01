@@ -93,7 +93,7 @@ function mapDoorzoItem(item, website) {
     };
 }
 
-async function search(query, targetSite = 'paypay', signal = null) {
+async function search(query, targetSite = 'paypay', signal = null, onPage = null) {
     signal?.throwIfAborted();
     // Doorzo requires specific params to filter
     const website = normalizeWebsite(targetSite);
@@ -134,10 +134,15 @@ async function search(query, targetSite = 'paypay', signal = null) {
                 signal
             });
 
-            if (res.data && res.data.data && Array.isArray(res.data.data.items)) {
+            const apiFailed = res.data?.code !== undefined && res.data.code !== 0;
+            if (!apiFailed && res.data?.data && Array.isArray(res.data.data.items)) {
                 const items = res.data.data.items;
                 allItems = allItems.concat(items);
                 console.log(`[Doorzo] Page ${pageCount + 1} found ${items.length} items (Total: ${allItems.length})`);
+
+                if (onPage && items.length > 0) {
+                    await onPage(items.map(item => mapDoorzoItem(item, website)));
+                }
 
                 nextToken = res.data.data.nextPageToken;
                 pageCount++;
@@ -146,7 +151,10 @@ async function search(query, targetSite = 'paypay', signal = null) {
                 if (nextToken) await sleep(500, signal);
 
             } else {
-                nextToken = null; // Stop if invalid response
+                console.warn(`[Doorzo] Invalid API response while searching "${query}" on ${website}.`);
+                return allItems.length > 0
+                    ? allItems.map(item => mapDoorzoItem(item, website))
+                    : null;
             }
 
         } while (nextToken && pageCount < MAX_PAGES);

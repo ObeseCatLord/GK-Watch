@@ -823,14 +823,7 @@ async function searchNeokyo(query, strictEnabled, filters, signal = null) {
     }
 }
 
-async function searchDoorzo(query, strictEnabled = true, filters = [], signal = null) {
-    console.log(`[Mercari Doorzo] Searching Doorzo for ${query}...`);
-    throwIfAborted(signal);
-
-    const results = await withAbort(doorzo.search(query, 'mercari', signal), signal);
-    throwIfAborted(signal);
-    if (results === null) return null;
-
+function filterDoorzoItems(results, query, strictEnabled, filters, logChanges = true) {
     let filtered = Array.isArray(results) ? results : [];
 
     if (filters && filters.length > 0) {
@@ -840,7 +833,7 @@ async function searchDoorzo(query, strictEnabled = true, filters = [], signal = 
             const titleLower = String(item.title || '').toLowerCase();
             return !filterTerms.some(term => titleLower.includes(term));
         });
-        console.log(`[Mercari Doorzo] Negative filtering removed ${preCount - filtered.length} items.`);
+        if (logChanges) console.log(`[Mercari Doorzo] Negative filtering removed ${preCount - filtered.length} items.`);
     }
 
     const parsedQuery = parseQuery(query);
@@ -848,10 +841,25 @@ async function searchDoorzo(query, strictEnabled = true, filters = [], signal = 
     if (strictEnabled || hasQuoted || (filters && filters.length > 0)) {
         const preCount = filtered.length;
         filtered = filtered.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
-        console.log(`[Mercari Doorzo] Local filtering: ${preCount} -> ${filtered.length} items.`);
+        if (logChanges) console.log(`[Mercari Doorzo] Local filtering: ${preCount} -> ${filtered.length} items.`);
     }
 
     return filtered;
+}
+
+async function searchDoorzo(query, strictEnabled = true, filters = [], signal = null, onProgress = null) {
+    console.log(`[Mercari Doorzo] Searching Doorzo for ${query}...`);
+    throwIfAborted(signal);
+
+    const onPage = onProgress ? pageItems => {
+        const filteredPage = filterDoorzoItems(pageItems, query, strictEnabled, filters, false);
+        if (filteredPage.length > 0) onProgress({ items: filteredPage, partial: true });
+    } : null;
+    const results = await withAbort(doorzo.search(query, 'mercari', signal, onPage), signal);
+    throwIfAborted(signal);
+    if (results === null) return null;
+
+    return filterDoorzoItems(results, query, strictEnabled, filters);
 }
 
 async function search(query, strictEnabled = true, filters = [], onProgress = null, signal = null) {
@@ -863,7 +871,20 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
         return [];
     }
 
-    // Priority 1: Direct Axios (Fastest, DPoP Auth)
+    // Priority 1: Doorzo (fast proxy with native Mercari IDs)
+    try {
+        const doorzoResults = await searchDoorzo(query, strictEnabled, filters, signal, onProgress);
+        if (doorzoResults !== null) {
+            console.log(`[Mercari] Doorzo search successful (${doorzoResults.length} items).`);
+            return doorzoResults;
+        }
+        console.warn('[Mercari] Doorzo failed (returned null), falling back to direct API...');
+    } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
+        console.warn(`[Mercari] Doorzo error: ${err.message}, falling back to direct API...`);
+    }
+
+    // Priority 2: Direct Axios (DPoP Auth)
     const directAttempt = beginDirectSearch();
     if (directAttempt.allowed) {
         try {
@@ -872,33 +893,20 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
                 console.log(`[Mercari] Axios search successful (${axiosResults.length} items).`);
                 return axiosResults;
             }
-            console.warn('[Mercari] Axios failed (returned null), falling back to Doorzo...');
+            console.warn('[Mercari] Axios failed (returned null), falling back to Neokyo...');
         } catch (err) {
             if (isAborted(signal, err)) throw abortError();
             if (err instanceof MercariRateLimitError) {
                 openDirectCircuit();
-                console.warn('[Mercari] Direct API rate-limit circuit breaker opened for 15 minutes; falling back to Doorzo.');
+                console.warn('[Mercari] Direct API rate-limit circuit breaker opened for 15 minutes; falling back to Neokyo.');
             } else {
-                console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to Doorzo...`);
+                console.warn(`[Mercari] Axios critical error: ${err.message}, falling back to Neokyo...`);
             }
         } finally {
             completeDirectSearch(directAttempt.probe);
         }
     } else {
-        console.log('[Mercari] Direct API rate-limit circuit breaker active. Using Doorzo.');
-    }
-
-    // Priority 2: Doorzo (Fast/Axios + native Mercari IDs)
-    try {
-        const doorzoResults = await searchDoorzo(query, strictEnabled, filters, signal);
-        if (doorzoResults !== null) {
-            console.log(`[Mercari] Doorzo search successful (${doorzoResults.length} items).`);
-            return doorzoResults;
-        }
-        console.warn('[Mercari] Doorzo failed (returned null), falling back to Neokyo...');
-    } catch (err) {
-        if (isAborted(signal, err)) throw abortError();
-        console.warn(`[Mercari] Doorzo error: ${err.message}, falling back to Neokyo...`);
+        console.log('[Mercari] Direct API rate-limit circuit breaker active. Skipping direct fallback.');
     }
 
     // Priority 3: Neokyo (Fast/Axios)
