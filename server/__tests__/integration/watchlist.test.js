@@ -74,6 +74,14 @@ describe('Watchlist', () => {
             expect(duplicate.id).toBe(original.id);
         });
 
+        test('reports whether a watch was created when status is requested', async () => {
+            const created = await Watchlist.add({ term: 'status_test_item' }, { withStatus: true });
+            const duplicate = await Watchlist.add({ term: 'status_test_item' }, { withStatus: true });
+
+            expect(created).toMatchObject({ created: true, item: { term: 'status_test_item' } });
+            expect(duplicate).toMatchObject({ created: false, item: { id: created.item.id } });
+        });
+
         test('uses custom name if provided', async () => {
             const item = await Watchlist.add({ term: 'my_search_custom', name: 'Custom Name' });
             expect(item.name).toBe('Custom Name');

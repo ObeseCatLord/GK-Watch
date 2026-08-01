@@ -54,6 +54,31 @@ describe('NtfyService priority alerts', () => {
         expect(payload).not.toHaveProperty('actions');
     });
 
+    test('returns the pinned address in the DNS shape requested by undici', () => {
+        const lookup = NtfyService._createPinnedLookup({ address: '93.184.216.34', family: 4 });
+        const scalarCallback = jest.fn();
+        const arrayCallback = jest.fn();
+
+        lookup('ntfy.sh', {}, scalarCallback);
+        lookup('ntfy.sh', { all: true }, arrayCallback);
+
+        expect(scalarCallback).toHaveBeenCalledWith(null, '93.184.216.34', 4);
+        expect(arrayCallback).toHaveBeenCalledWith(null, [{ address: '93.184.216.34', family: 4 }]);
+    });
+
+    test('prefers a validated IPv4 destination when IPv6 is also available', async () => {
+        const dns = require('dns');
+        dns.promises.lookup.mockResolvedValueOnce([
+            { address: '2606:4700:4700::1111', family: 6 },
+            { address: '93.184.216.34', family: 4 }
+        ]);
+
+        await expect(NtfyService.validateDestination('https://ntfy.sh')).resolves.toMatchObject({
+            address: '93.184.216.34',
+            family: 4
+        });
+    });
+
     test('rejects private ntfy destinations before sending', async () => {
         const Settings = require('../../models/settings');
         Settings.get.mockReturnValueOnce({ ntfyEnabled: true, ntfyTopic: 'test-topic', ntfyServer: 'https://127.0.0.1/notify' });

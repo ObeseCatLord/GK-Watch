@@ -12,8 +12,51 @@ describe('WatchlistManager', () => {
     const mockAuthenticatedFetch = vi.fn();
 
     beforeEach(() => {
+        vi.restoreAllMocks();
         vi.clearAllMocks();
     });
+
+    it.each(['Add', 'Add GK', 'Add CN'])(
+        'shows the duplicate-watch popup when %s receives a conflict',
+        async (buttonName) => {
+            const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+            mockAuthenticatedFetch.mockImplementation((url, options = {}) => {
+                if (url === '/api/watchlist' && options.method === 'POST') {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 409,
+                        json: async () => ({ error: 'Watch already exists' })
+                    });
+                }
+                if (url === '/api/watchlist') {
+                    return Promise.resolve({ ok: true, json: async () => [] });
+                }
+                if (url === '/api/status') {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({ isRunning: false, completionVersion: 0 })
+                    });
+                }
+                return Promise.resolve({ ok: true, json: async () => ({}) });
+            });
+
+            render(
+                <WatchlistManager
+                    authenticatedFetch={mockAuthenticatedFetch}
+                    taobaoEnabled
+                    goofishEnabled={false}
+                />
+            );
+
+            fireEvent.change(screen.getByRole('textbox'), { target: { value: 'duplicate watch' } });
+            fireEvent.click(screen.getByRole('button', { name: buttonName }));
+
+            await waitFor(() => {
+                expect(alertSpy).toHaveBeenCalledWith('Watch already exists');
+            });
+            expect(screen.getByRole('textbox')).toHaveValue('duplicate watch');
+        }
+    );
 
     it('handles network connection errors gracefully', async () => {
         // Mock fetch to reject (network error)

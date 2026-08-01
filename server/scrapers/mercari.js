@@ -421,6 +421,7 @@ async function performSearch(query, strictEnabled, filters, signal = null) {
         console.log(`Searching Mercari for ${effectiveQuery}...`);
 
         const MAX_PAGES = 30; // Increased to 30 for deep scraping fallback
+        let allResults = [];
 
         const browser = await getBrowser();
         throwIfAborted(signal);

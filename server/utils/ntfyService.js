@@ -54,7 +54,19 @@ async function validateDestination(value) {
     if (!records.length || records.some(record => isBlockedAddress(record.address))) {
         throw new Error('Ntfy server resolves to a blocked network address');
     }
-    return { url: url.toString(), address: records[0].address, family: records[0].family };
+    const selected = records.find(record => record.family === 4) || records[0];
+    return { url: url.toString(), address: selected.address, family: selected.family };
+}
+
+function createPinnedLookup(destination) {
+    return (_hostname, options, callback) => {
+        const record = { address: destination.address, family: destination.family };
+        if (options?.all) {
+            callback(null, [record]);
+            return;
+        }
+        callback(null, record.address, record.family);
+    };
 }
 
 function validWebUrl(value) {
@@ -85,7 +97,7 @@ const NtfyService = {
             const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
             const dispatcher = new Agent({
                 connect: {
-                    lookup: (_hostname, _options, callback) => callback(null, destination.address, destination.family)
+                    lookup: createPinnedLookup(destination)
                 }
             });
             try {
@@ -102,7 +114,8 @@ const NtfyService = {
                 await dispatcher.close();
             }
         } catch (error) {
-            console.error('[Ntfy] Send failed:', error.message);
+            const causeCode = error.cause?.code;
+            console.error('[Ntfy] Send failed:', causeCode ? `${error.message} (${causeCode})` : error.message);
             return false;
         }
     },
@@ -114,7 +127,9 @@ const NtfyService = {
         const linkedItems = newItems.map(item => ({ ...item, link: validWebUrl(item.link) })).filter(item => item.link).slice(0, 3);
         const actions = linkedItems.map((item, index) => ({ action: 'view', label: linkedItems.length === 1 ? 'Open listing' : `Open ${index + 1}`, url: item.link, clear: true }));
         return NtfyService.send(title, message, 5, ['rotating_light', 'warning'], { click: linkedItems[0]?.link, actions });
-    }
+    },
+
+    _createPinnedLookup: createPinnedLookup
 };
 
 module.exports = NtfyService;

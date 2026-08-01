@@ -82,7 +82,7 @@ describe('Mercari Scraper Retry Logic', () => {
     test('treats an empty Doorzo response as success without calling direct Axios', async () => {
         mock.onGet('https://sig.doorzo.com/').reply(200, {
             code: 200,
-            data: { items: [], nextPageToken: null }
+            data: { items: null, nextPageToken: null }
         });
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
             items: [{ id: 'm999', name: 'should not be fetched', price: '1000' }],

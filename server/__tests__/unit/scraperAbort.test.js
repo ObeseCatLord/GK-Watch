@@ -114,6 +114,67 @@ describe('Mercari and Yahoo cancellation', () => {
         expect(mockBrowser.close).not.toHaveBeenCalled();
     });
 
+    test('Mercari native fallback returns extracted results when HTTP providers fail', async () => {
+        const mockBrowserPoolRun = jest.fn((task, options) => task(options.signal));
+        let evaluateCall = 0;
+        const mockPage = {
+            close: jest.fn(async () => {}),
+            setRequestInterception: jest.fn(async () => {}),
+            on: jest.fn(),
+            setUserAgent: jest.fn(async () => {}),
+            setExtraHTTPHeaders: jest.fn(async () => {}),
+            evaluateOnNewDocument: jest.fn(async () => {}),
+            goto: jest.fn(async () => {}),
+            waitForFunction: jest.fn(async () => ({ jsonValue: async () => 'HAS_ITEMS' })),
+            waitForNetworkIdle: jest.fn(async () => {}),
+            evaluate: jest.fn(async () => {
+                evaluateCall += 1;
+                if (evaluateCall === 2) {
+                    return [{
+                        title: 'test native item',
+                        link: 'https://jp.mercari.com/item/m123',
+                        image: '',
+                        price: '¥1,000',
+                        source: 'Mercari'
+                    }];
+                }
+                return null;
+            })
+        };
+        const mockContext = {
+            close: jest.fn(async () => {}),
+            newPage: jest.fn(async () => mockPage)
+        };
+        const mockBrowser = {
+            close: jest.fn(async () => {}),
+            createBrowserContext: jest.fn(async () => mockContext),
+            isConnected: jest.fn(() => true)
+        };
+        const mockAxios = {
+            get: jest.fn().mockRejectedValue(new Error('fallback unavailable')),
+            post: jest.fn().mockRejectedValue(new Error('primary unavailable'))
+        };
+
+        jest.resetModules();
+        jest.doMock('axios', () => mockAxios);
+        jest.doMock('puppeteer', () => ({ launch: jest.fn(async () => mockBrowser) }));
+        jest.doMock('../../utils/admissionControl', () => ({ browserPool: { run: mockBrowserPoolRun } }));
+        jest.doMock('../../utils/browserExecutable', () => ({ resolveBrowserExecutable: jest.fn(() => undefined) }));
+        jest.doMock('../../scrapers/doorzo', () => ({ search: jest.fn(async () => null) }));
+        jest.doMock('../../scrapers/dejapan', () => ({ search: jest.fn(async () => null) }));
+
+        const mercari = require('../../scrapers/mercari');
+        const results = await mercari.search('test', false, []);
+
+        expect(results).toEqual([expect.objectContaining({
+            title: 'test native item',
+            link: 'https://jp.mercari.com/item/m123'
+        })]);
+        expect(mockBrowserPoolRun).toHaveBeenCalled();
+        expect(mockPage.close).toHaveBeenCalled();
+        expect(mockContext.close).toHaveBeenCalled();
+    });
+
     test('Yahoo admits its browser fallback to browserPool and closes it on abort', async () => {
         const mockBrowserPoolRun = jest.fn((task, options) => task(options.signal));
         let rejectGoto;

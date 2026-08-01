@@ -135,7 +135,7 @@ const Watchlist = {
         }
     },
 
-    add: async (data) => {
+    add: async (data, { withStatus = false } = {}) => {
         const list = await Watchlist.getAll();
 
         // Support both simple string (legacy) and object with terms
@@ -152,7 +152,7 @@ const Watchlist = {
         });
 
         if (existing) {
-            return existing;
+            return withStatus ? { item: existing, created: false } : existing;
         }
 
         // Get max sort order
@@ -178,7 +178,7 @@ const Watchlist = {
         };
 
         stmts.insert.run(itemToParams(newItem));
-        return newItem;
+        return withStatus ? { item: newItem, created: true } : newItem;
     },
 
     update: async (id, updates) => {

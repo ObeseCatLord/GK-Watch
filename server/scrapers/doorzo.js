@@ -137,8 +137,9 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
             const responseCode = res.data?.code;
             const apiFailed = responseCode !== undefined
                 && ![0, 200].includes(Number(responseCode));
-            if (!apiFailed && res.data?.data && Array.isArray(res.data.data.items)) {
-                const items = res.data.data.items;
+            const responseData = res.data?.data;
+            const items = responseData?.items === null ? [] : responseData?.items;
+            if (!apiFailed && responseData && Array.isArray(items)) {
                 allItems = allItems.concat(items);
                 console.log(`[Doorzo] Page ${pageCount + 1} found ${items.length} items (Total: ${allItems.length})`);
 
@@ -146,14 +147,15 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
                     await onPage(items.map(item => mapDoorzoItem(item, website)));
                 }
 
-                nextToken = res.data.data.nextPageToken;
+                nextToken = responseData.nextPageToken;
                 pageCount++;
 
                 // Be polite
                 if (nextToken) await sleep(500, signal);
 
             } else {
-                console.warn(`[Doorzo] Invalid API response while searching "${query}" on ${website}.`);
+                const itemShape = responseData?.items === undefined ? 'missing' : typeof responseData.items;
+                console.warn(`[Doorzo] Invalid API response while searching "${query}" on ${website} (code=${String(responseCode)}, items=${itemShape}).`);
                 return allItems.length > 0
                     ? allItems.map(item => mapDoorzoItem(item, website))
                     : null;

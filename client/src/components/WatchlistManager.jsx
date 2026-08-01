@@ -444,23 +444,35 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         }
     };
 
+    const createWatch = async (payload) => {
+        const res = await authenticatedFetch('/api/watchlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.status === 409) {
+            window.alert('Watch already exists');
+            return false;
+        }
+        if (!res.ok) throw new Error(`Add failed with status ${res.status}`);
+
+        setNewTerm('');
+        fetchWatchlist();
+        return true;
+    };
+
     const addToWatchlist = async (e) => {
         e.preventDefault();
         if (!newTerm.trim()) return;
 
         try {
-            await authenticatedFetch('/api/watchlist', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    term: newTerm,
-                    strict: newStrict,
-                    enabledSites: { ...DEFAULT_ENABLED_SITES },
-                    siteOptions: { mandarake: { mode: 'garageKit' } }
-                })
+            await createWatch({
+                term: newTerm,
+                strict: newStrict,
+                enabledSites: { ...DEFAULT_ENABLED_SITES },
+                siteOptions: { mandarake: { mode: 'garageKit' } }
             });
-            setNewTerm('');
-            fetchWatchlist();
         } catch (err) {
             console.error('Error adding to watchlist:', err);
         }
@@ -476,20 +488,14 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         ];
 
         try {
-            await authenticatedFetch('/api/watchlist', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    terms,
-                    name: terms[0], // Set name explicitly to first term
-                    filters: [],
-                    strict: newStrict,
-                    enabledSites: { ...DEFAULT_ENABLED_SITES },
-                    siteOptions: { mandarake: { mode: 'garageKit' } }
-                })
+            await createWatch({
+                terms,
+                name: terms[0], // Set name explicitly to first term
+                filters: [],
+                strict: newStrict,
+                enabledSites: { ...DEFAULT_ENABLED_SITES },
+                siteOptions: { mandarake: { mode: 'garageKit' } }
             });
-            setNewTerm('');
-            fetchWatchlist();
         } catch (err) {
             console.error('Error adding GK entry:', err);
         }
@@ -511,18 +517,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         };
 
         try {
-            await authenticatedFetch('/api/watchlist', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    term: newTerm,
-                    enabledSites: cnEnabledSites,
-                    strict: newStrict,
-                    name: `${newTerm} (CN)`
-                })
+            await createWatch({
+                term: newTerm,
+                enabledSites: cnEnabledSites,
+                strict: newStrict,
+                name: `${newTerm} (CN)`
             });
-            setNewTerm('');
-            fetchWatchlist();
         } catch (err) {
             console.error('Error adding CN watch:', err);
         }

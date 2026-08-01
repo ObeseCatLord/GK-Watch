@@ -396,7 +396,10 @@ app.post('/api/watchlist', requireAuth, async (req, res) => {
         if (!term && (!terms || terms.length === 0)) {
             return res.status(400).json({ error: 'Term or terms required' });
         }
-        const item = await Watchlist.add(req.body);
+        const { item, created } = await Watchlist.add(req.body, { withStatus: true });
+        if (!created) {
+            return res.status(409).json({ error: 'Watch already exists', item });
+        }
         res.json(item);
     } catch (err) {
         res.status(500).json({ error: 'Failed to add to watchlist' });

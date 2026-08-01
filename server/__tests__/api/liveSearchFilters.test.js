@@ -2,6 +2,7 @@
 const request = require('supertest');
 const mockSearchAll = jest.fn();
 const mockYahooHasValidCookies = jest.fn(() => true);
+const mockWatchlistAdd = jest.fn();
 
 // Mock the dependencies BEFORE requiring the app
 jest.mock('../../scrapers', () => ({
@@ -12,6 +13,10 @@ jest.mock('../../scrapers', () => ({
 
 jest.mock('../../scrapers/yahoo', () => ({
     hasValidCookies: mockYahooHasValidCookies
+}));
+
+jest.mock('../../models/watchlist', () => ({
+    add: mockWatchlistAdd
 }));
 
 // Mock database to prevent actual DB connection/writes during test load
@@ -52,6 +57,7 @@ const app = require('../../server');
 describe('Live Search Filters API', () => {
     beforeEach(() => {
         mockSearchAll.mockClear();
+        mockWatchlistAdd.mockReset();
         // Default mock implementation to return empty array
         mockSearchAll.mockResolvedValue([]);
     });
@@ -69,6 +75,22 @@ describe('Live Search Filters API', () => {
         expect(response.status).toBe(200);
         expect(response.body).toEqual({ hasCookies: true });
         expect(mockYahooHasValidCookies).toHaveBeenCalled();
+    });
+
+    test('returns a conflict when a watch already exists', async () => {
+        const existing = { id: 'existing-watch', term: 'duplicate' };
+        mockWatchlistAdd.mockResolvedValue({ item: existing, created: false });
+
+        const response = await request(app)
+            .post('/api/watchlist')
+            .send({ term: 'duplicate' });
+
+        expect(response.status).toBe(409);
+        expect(response.body).toEqual({ error: 'Watch already exists', item: existing });
+        expect(mockWatchlistAdd).toHaveBeenCalledWith(
+            expect.objectContaining({ term: 'duplicate' }),
+            { withStatus: true }
+        );
     });
 
     test('accepts Yahoo cookie uploads with private file permissions', async () => {
