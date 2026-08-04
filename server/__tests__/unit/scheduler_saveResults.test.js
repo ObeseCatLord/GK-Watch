@@ -14,6 +14,7 @@ jest.mock('../../scrapers', () => mockSearchAggregator);
 let Scheduler;
 let Watchlist;
 let FavoriteItems;
+let BlockedItems;
 let db;
 
 beforeAll(() => {
@@ -21,6 +22,7 @@ beforeAll(() => {
     Scheduler = require('../../scheduler');
     Watchlist = require('../../models/watchlist');
     FavoriteItems = require('../../models/favorite_items');
+    BlockedItems = require('../../models/blocked_items');
 });
 
 afterAll(() => {
@@ -30,6 +32,7 @@ afterAll(() => {
 beforeEach(() => {
     clearTestDb();
     FavoriteItems._resetCache();
+    BlockedItems._resetCache();
 });
 
 describe('Scheduler.saveResults', () => {
@@ -218,5 +221,63 @@ describe('Scheduler.saveResults', () => {
         expect(paged.totalPages).toBe(1);
         expect(paged.items.map(item => item.title)).toEqual(['Charlie']);
         expect(paged.sources).toEqual(['Mercari']);
+    });
+
+    test('stores blocked observations without exposing, counting, or notifying them', async () => {
+        const watch = await Watchlist.add({ term: 'blocked-observation', strict: false });
+        BlockedItems.add('https://example.test/blocked', 'Blocked Item');
+        FavoriteItems.add('https://example.test/blocked', 'Blocked Item', '', '100', 'Mercari');
+
+        const saved = Scheduler.saveResults(watch.id, [
+            { link: 'https://example.test/blocked', title: 'Blocked Item', source: 'Mercari', price: '200' },
+            { link: 'https://example.test/visible', title: 'Visible Item', source: 'Mercari', price: '300' }
+        ], 'blocked-observation');
+
+        expect(saved.newItems.map(item => item.link)).toEqual(['https://example.test/visible']);
+        expect(saved.favoritePriceUpdates).toEqual([]);
+        expect(saved.totalCount).toBe(1);
+        expect(db.prepare('SELECT hidden, is_new FROM results WHERE link = ?').get('https://example.test/blocked')).toEqual({ hidden: 1, is_new: 0 });
+        expect(db.prepare('SELECT new_count FROM results_meta WHERE watch_id = ?').get(watch.id).new_count).toBe(1);
+        expect(FavoriteItems.getByUrlMap().get('https://example.test/blocked').price).toBe('100');
+
+        const legacy = await Scheduler.getResults(watch.id);
+        expect(legacy.items.map(item => item.link)).toEqual(['https://example.test/visible']);
+    });
+
+    test('confirms and clears a blocked observation only after a successful source miss exceeds grace', async () => {
+        const watch = await Watchlist.add({ term: 'blocked-missing', strict: false });
+        const url = 'https://example.test/gone';
+        BlockedItems.add(url, 'Gone Item');
+        Scheduler.saveResults(watch.id, [{ link: url, title: 'Gone Item', source: 'Mercari' }], 'blocked-missing');
+        db.prepare("UPDATE results SET last_seen = datetime('now', '-3 days') WHERE watch_id = ? AND link = ?").run(watch.id, url);
+
+        Scheduler.saveResults(watch.id, [], 'blocked-missing', { successfulSources: new Set(['mercari']) });
+
+        expect(db.prepare('SELECT 1 FROM results WHERE watch_id = ? AND link = ?').get(watch.id, url)).toBeUndefined();
+        expect(db.prepare('SELECT missing_confirmed_at FROM blocked_items WHERE url = ?').get(url).missing_confirmed_at).not.toBeNull();
+        expect(BlockedItems.clearMissingFromResults()).toBe(1);
+    });
+
+    test('does not age out a blocked observation when its source failed', async () => {
+        const watch = await Watchlist.add({ term: 'blocked-failed-source', strict: false });
+        const url = 'https://example.test/source-failed';
+        BlockedItems.add(url, 'Source Failed Item');
+        Scheduler.saveResults(watch.id, [{ link: url, title: 'Source Failed Item', source: 'Mercari' }], 'blocked-failed-source');
+        db.prepare("UPDATE results SET last_seen = datetime('now', '-3 days') WHERE watch_id = ? AND link = ?").run(watch.id, url);
+
+        Scheduler.saveResults(watch.id, [], 'blocked-failed-source', { successfulSources: new Set() });
+
+        expect(db.prepare('SELECT hidden FROM results WHERE watch_id = ? AND link = ?').get(watch.id, url)).toEqual({ hidden: 1 });
+        expect(db.prepare('SELECT missing_confirmed_at FROM blocked_items WHERE url = ?').get(url).missing_confirmed_at).toBeNull();
+        expect(BlockedItems.clearMissingFromResults()).toBe(0);
+    });
+
+    test('source outcome tracking lets failures override successful term searches', () => {
+        const outcomes = Scheduler.createSourceOutcomeTracker();
+        outcomes.onProgress({ type: 'result', source: 'Mercari', items: [], partial: false });
+        outcomes.onProgress({ type: 'result', source: 'Yahoo', items: [], partial: false });
+        outcomes.onProgress({ type: 'error', source: 'Mercari', error: 'timeout' });
+
+        expect([...outcomes.successfulSources()]).toEqual(['yahoo']);
     });
 });

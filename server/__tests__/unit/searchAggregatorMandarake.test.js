@@ -113,4 +113,29 @@ describe('search aggregator Mandarake integration', () => {
             partial: false
         }));
     });
+
+    test('reports scraper error arrays as failures instead of successful empty completions', async () => {
+        mockMandarakeSearch.mockResolvedValue([{ error: 'Login Required' }]);
+        const onProgress = jest.fn();
+
+        await searchAggregator.searchAll(
+            'Kit',
+            { mercari: false, yahoo: false, paypay: false, fril: false, surugaya: false, taobao: false, goofish: false, mandarake: true },
+            true,
+            [],
+            onProgress,
+            { mandarake: { mode: 'garageKit' } }
+        );
+
+        expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'error',
+            source: 'Mandarake',
+            error: 'Login Required'
+        }));
+        expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({
+            type: 'result',
+            source: 'Mandarake',
+            partial: false
+        }));
+    });
 });

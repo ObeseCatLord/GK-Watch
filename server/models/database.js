@@ -108,7 +108,9 @@ function initSchema() {
             url TEXT UNIQUE NOT NULL,
             title TEXT,
             image TEXT,
-            blocked_at TEXT
+            blocked_at TEXT,
+            last_seen_at TEXT,
+            missing_confirmed_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS favorite_items (
@@ -152,6 +154,9 @@ function initSchema() {
 
     addColumnIfMissing('results', 'new_type', "TEXT DEFAULT 'new'");
     addColumnIfMissing('watchlist', 'site_options', "TEXT DEFAULT '{}'");
+    addColumnIfMissing('blocked_items', 'last_seen_at', 'TEXT');
+    addColumnIfMissing('blocked_items', 'missing_confirmed_at', 'TEXT');
+    reconcileBlockedResultState();
 
     // Create indexes (IF NOT EXISTS is implicit with CREATE INDEX IF NOT EXISTS)
     db.exec(`
@@ -176,6 +181,66 @@ function addColumnIfMissing(table, column, definition) {
     if (!columns.some(info => info.name === column)) {
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
+}
+
+function reconcileBlockedResultState() {
+    if (db.prepare('SELECT 1 FROM blocked_items LIMIT 1').get() === undefined) return;
+
+    db.exec(`
+        UPDATE blocked_items
+        SET last_seen_at = COALESCE(last_seen_at, blocked_at)
+        WHERE last_seen_at IS NULL;
+
+        UPDATE results
+        SET hidden = 1,
+            is_new = 0,
+            new_type = 'new',
+            last_seen = CASE
+                WHEN COALESCE(last_seen, '') < COALESCE((
+                    SELECT blocked_items.blocked_at
+                    FROM blocked_items
+                    WHERE blocked_items.url = results.link
+                ), '')
+                THEN (
+                    SELECT blocked_items.blocked_at
+                    FROM blocked_items
+                    WHERE blocked_items.url = results.link
+                )
+                ELSE last_seen
+            END
+        WHERE EXISTS (SELECT 1 FROM blocked_items WHERE blocked_items.url = results.link);
+
+        UPDATE results_meta
+        SET new_count = (
+            SELECT COUNT(*)
+            FROM results
+            WHERE results.watch_id = results_meta.watch_id
+              AND results.is_new = 1
+              AND NOT EXISTS (SELECT 1 FROM blocked_items WHERE blocked_items.url = results.link)
+        )
+        WHERE EXISTS (
+            SELECT 1
+            FROM results
+            JOIN blocked_items ON blocked_items.url = results.link
+            WHERE results.watch_id = results_meta.watch_id
+        );
+
+        UPDATE watchlist
+        SET last_result_count = (
+            SELECT COUNT(*)
+            FROM results
+            WHERE results.watch_id = watchlist.id
+              AND results.hidden = 0
+              AND NOT EXISTS (SELECT 1 FROM blocked_items WHERE blocked_items.url = results.link)
+        )
+        WHERE last_result_count IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM results
+              JOIN blocked_items ON blocked_items.url = results.link
+              WHERE results.watch_id = watchlist.id
+          );
+    `);
 }
 
 function cleanupOrphanedWatchData() {
@@ -277,11 +342,13 @@ function migrateFromJson() {
             try {
                 const data = JSON.parse(fs.readFileSync(LEGACY_FILES.blocked_items, 'utf8'));
                 if (Array.isArray(data)) {
-                    const insertBlocked = db.prepare(
-                        'INSERT OR IGNORE INTO blocked_items (id, url, title, image, blocked_at) VALUES (?, ?, ?, ?, ?)'
-                    );
+                    const insertBlocked = db.prepare(`
+                        INSERT OR IGNORE INTO blocked_items
+                        (id, url, title, image, blocked_at, last_seen_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `);
                     for (const item of data) {
-                        insertBlocked.run(item.id, item.url, item.title || '', item.image || '', item.blockedAt);
+                        insertBlocked.run(item.id, item.url, item.title || '', item.image || '', item.blockedAt, item.blockedAt);
                     }
                     console.log(`[DB Migration] Migrated blocked items (${data.length} items)`);
                 }
@@ -404,6 +471,7 @@ initSchema();
 if (needsMigration()) {
     migrateFromJson();
     cleanupOrphanedWatchData();
+    reconcileBlockedResultState();
 }
 
 enforceDatabaseFilePermissions();

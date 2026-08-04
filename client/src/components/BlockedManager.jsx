@@ -111,7 +111,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
     };
 
     const clearMissingBlockedItems = async () => {
-        if (!window.confirm('Clear blocked items that are no longer found in stored results?')) return;
+        if (!window.confirm('Clear blocked items confirmed missing by tracked watch searches?')) return;
 
         try {
             const res = await authenticatedFetch('/api/blocked/clear-missing', {

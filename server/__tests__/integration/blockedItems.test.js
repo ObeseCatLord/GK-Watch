@@ -73,7 +73,7 @@ describe('BlockedItems', () => {
             expect(list).toHaveLength(0);
         });
 
-        test('clears blocked items missing from visible stored results', async () => {
+        test('retains live-only, visible, and hidden blocked items without confirmed absence', async () => {
             const watch = await Watchlist.add({ term: 'blocked-cleanup', strict: false });
             const now = new Date().toISOString();
 
@@ -89,10 +89,49 @@ describe('BlockedItems', () => {
             insertResult.run(watch.id, 'Hidden Item', 'http://example.com/hidden', now, now, 1);
 
             const removed = BlockedItems.clearMissingFromResults();
-            const remainingUrls = BlockedItems.getAll().map(item => item.url);
+            const remainingUrls = BlockedItems.getAll().map(item => item.url).sort();
 
-            expect(removed).toBe(2);
-            expect(remainingUrls).toEqual(['http://example.com/visible']);
+            expect(removed).toBe(0);
+            expect(remainingUrls).toEqual([
+                'http://example.com/hidden',
+                'http://example.com/missing',
+                'http://example.com/visible'
+            ]);
+        });
+
+        test('clears only a blocked item with confirmed absence and no stored observation', () => {
+            const item = BlockedItems.add('http://example.com/confirmed-missing', 'Missing Item');
+
+            expect(BlockedItems.confirmMissing(item.url)).toBe(true);
+            expect(BlockedItems.clearMissingFromResults()).toBe(1);
+            expect(BlockedItems.isBlocked(item.url)).toBe(false);
+        });
+
+        test('a later raw sighting cancels confirmed absence', () => {
+            const item = BlockedItems.add('http://example.com/reappeared', 'Reappeared Item');
+            BlockedItems.confirmMissing(item.url, '2026-08-01T00:00:00.000Z');
+
+            BlockedItems.recordSeen([{ link: item.url }], '2026-08-02T00:00:00.000Z');
+
+            expect(BlockedItems.clearMissingFromResults()).toBe(0);
+            expect(BlockedItems.isBlocked(item.url)).toBe(true);
+        });
+
+        test('blocking a stored unread result hides it and refreshes counts', async () => {
+            const watch = await Watchlist.add({ term: 'block-counts', strict: false });
+            const now = new Date().toISOString();
+            db.prepare(`
+                INSERT INTO results (watch_id, title, link, first_seen, last_seen, hidden, is_new)
+                VALUES (?, ?, ?, ?, ?, 0, 1)
+            `).run(watch.id, 'Unread Item', 'http://example.com/unread', now, now);
+            db.prepare('INSERT INTO results_meta (watch_id, updated_at, new_count) VALUES (?, ?, 1)').run(watch.id, now);
+            db.prepare('UPDATE watchlist SET last_result_count = 1 WHERE id = ?').run(watch.id);
+
+            BlockedItems.add('http://example.com/unread', 'Unread Item');
+
+            expect(db.prepare('SELECT hidden, is_new FROM results WHERE link = ?').get('http://example.com/unread')).toEqual({ hidden: 1, is_new: 0 });
+            expect(db.prepare('SELECT new_count FROM results_meta WHERE watch_id = ?').get(watch.id).new_count).toBe(0);
+            expect(db.prepare('SELECT last_result_count FROM watchlist WHERE id = ?').get(watch.id).last_result_count).toBe(0);
         });
     });
 

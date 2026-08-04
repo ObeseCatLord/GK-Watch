@@ -36,6 +36,40 @@ function normalizeConcurrency(value) {
     return Math.min(MAX_BATCH_CONCURRENCY, Math.max(1, Math.floor(parsed)));
 }
 
+function sourceKey(source) {
+    const normalized = String(source || '').toLowerCase();
+    if (normalized.includes('yahoo')) return 'yahoo';
+    if (normalized.includes('suruga')) return 'suruga';
+    if (normalized.includes('mercari')) return 'mercari';
+    if (normalized.includes('paypay')) return 'paypay';
+    if (normalized.includes('fril') || normalized.includes('rakuma')) return 'fril';
+    if (normalized.includes('taobao')) return 'taobao';
+    if (normalized.includes('goofish')) return 'goofish';
+    if (normalized.includes('mandarake')) return 'mandarake';
+    return normalized;
+}
+
+function createSourceOutcomeTracker() {
+    const successful = new Set();
+    const failed = new Set();
+
+    return {
+        onProgress(data) {
+            const key = sourceKey(data?.source);
+            if (!key) return;
+            if (data.type === 'error') {
+                failed.add(key);
+            } else if (data.type === 'result' && data.partial === false) {
+                if (Array.isArray(data.items) && data.items.some(item => item?.error)) failed.add(key);
+                else successful.add(key);
+            }
+        },
+        successfulSources() {
+            return new Set([...successful].filter(key => !failed.has(key)));
+        }
+    };
+}
+
 function validateResumeState(state, now = Date.now()) {
     if (!state || typeof state !== 'object' || Array.isArray(state)) return null;
     if (!['manual', 'scheduled'].includes(state.type)) return null;
@@ -175,6 +209,15 @@ const stmts = {
         FROM results WHERE watch_id = ?
         ORDER BY is_new DESC, first_seen DESC
     `),
+    getVisibleResultsByWatchId: db.prepare(`
+        SELECT title, link, image, price, bid_price as bidPrice, bin_price as binPrice,
+               end_time as endTime, source, first_seen as firstSeen, last_seen as lastSeen,
+               is_new as isNew, new_type as newType, hidden
+        FROM results
+        WHERE watch_id = ?
+          AND NOT EXISTS (SELECT 1 FROM blocked_items WHERE blocked_items.url = results.link)
+        ORDER BY is_new DESC, first_seen DESC
+    `),
     getPayPayExpiryCandidates: db.prepare(`
         SELECT link, source, end_time as endTime, first_seen as firstSeen
         FROM results
@@ -193,8 +236,16 @@ const stmts = {
     deleteResultByLink: db.prepare('DELETE FROM results WHERE watch_id = ? AND link = ?'),
     clearNewFlags: db.prepare("UPDATE results SET is_new = 0, new_type = 'new' WHERE watch_id = ?"),
     clearAllNewFlags: db.prepare("UPDATE results SET is_new = 0, new_type = 'new'"),
-    countNonHidden: db.prepare('SELECT COUNT(*) as count FROM results WHERE watch_id = ? AND hidden = 0'),
-    countNew: db.prepare('SELECT COUNT(*) as count FROM results WHERE watch_id = ? AND is_new = 1'),
+    countNonHidden: db.prepare(`
+        SELECT COUNT(*) as count FROM results
+        WHERE watch_id = ? AND hidden = 0
+          AND NOT EXISTS (SELECT 1 FROM blocked_items WHERE blocked_items.url = results.link)
+    `),
+    countNew: db.prepare(`
+        SELECT COUNT(*) as count FROM results
+        WHERE watch_id = ? AND is_new = 1
+          AND NOT EXISTS (SELECT 1 FROM blocked_items WHERE blocked_items.url = results.link)
+    `),
     deleteBySource: db.prepare('DELETE FROM results WHERE watch_id = ? AND source LIKE ?'),
 
     // Prune results by source
@@ -227,6 +278,7 @@ const Scheduler = {
     progress: null,
     shouldAbort: false,
     completionVersion: 0,
+    createSourceOutcomeTracker,
 
     // No longer need results cache - SQLite is the source of truth
     // Keep loadResults/persistResults as no-ops for backward compatibility
@@ -403,17 +455,21 @@ const Scheduler = {
 
                     const terms = item.terms || [item.term];
                     const uniqueResultsMap = new Map();
-                    let payPayErrorOccurred = false;
+                    const sourceOutcomes = createSourceOutcomeTracker();
 
                     console.log(`[Batch] Processing: ${item.name}`);
 
                     await Promise.all(terms.map(async (term) => {
                         console.log(`[Batch] - Searching: ${term}`);
                         try {
-                            const results = await searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, item.filters || [], null, item.siteOptions || {});
-                            if (searchAggregator.isPayPayFailed && searchAggregator.isPayPayFailed()) {
-                                payPayErrorOccurred = true;
-                            }
+                            const results = await searchAggregator.searchAll(
+                                term,
+                                item.enabledSites,
+                                item.strict !== false,
+                                item.filters || [],
+                                sourceOutcomes.onProgress,
+                                item.siteOptions || {}
+                            );
                             if (results && results.length > 0) {
                                 for (const res of results) {
                                     const persistable = normalizePersistableResult(res);
@@ -432,8 +488,8 @@ const Scheduler = {
                     const uniqueResults = Array.from(uniqueResultsMap.values());
 
                     try {
-                        let filtered = BlockedItems.filterResults(uniqueResults);
-                        filtered = Blacklist.filterResults(filtered);
+                        BlockedItems.recordSeen(uniqueResults);
+                        let filtered = Blacklist.filterResults(uniqueResults);
 
                         if (item.filters && item.filters.length > 0) {
                             const filterTerms = item.filters.map(f => f.toLowerCase());
@@ -443,7 +499,12 @@ const Scheduler = {
                             });
                         }
 
-                        const { newItems, totalCount, favoritePriceUpdates } = Scheduler.saveResults(item.id, filtered, item.name, payPayErrorOccurred);
+                        const { newItems, totalCount, favoritePriceUpdates } = Scheduler.saveResults(
+                            item.id,
+                            filtered,
+                            item.name,
+                            { successfulSources: sourceOutcomes.successfulSources() }
+                        );
 
                         const digestItemsByLink = new Map();
                         for (const newItem of newItems || []) {
@@ -499,10 +560,14 @@ const Scheduler = {
         }
     },
 
-    saveResults: (watchId, newResults, term = '', payPayError = false) => {
+    saveResults: (watchId, newResults, term = '', searchStatus = null) => {
         const now = new Date().toISOString();
         const nowMs = Date.now();
         const persistableResults = filterPersistableResults(newResults, term || watchId);
+        const blockedUrls = BlockedItems.getUrlSet();
+        const successfulSources = searchStatus?.successfulSources instanceof Set
+            ? searchStatus.successfulSources
+            : null;
         const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
         const SURUGAYA_GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
         const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
@@ -523,7 +588,7 @@ const Scheduler = {
             // Create map for duplicate detection by Title + Source
             const existingByTitleSource = new Map();
             existingItems.forEach(item => {
-                if (item.title && item.source) {
+                if (!blockedUrls.has(item.link) && item.title && item.source) {
                     const key = `${item.title.trim()}|${item.source}`;
                     existingByTitleSource.set(key, item);
                 }
@@ -541,7 +606,7 @@ const Scheduler = {
             };
 
             persistableResults.forEach(result => {
-                if (!result.title) return;
+                if (!result.title || blockedUrls.has(result.link)) return;
                 const title = result.title.trim();
                 const source = result.source ? result.source.toLowerCase() : '';
 
@@ -559,14 +624,15 @@ const Scheduler = {
 
             for (const result of persistableResults) {
                 const existing = existingByLink.get(result.link);
-                const favorite = favoritesByUrl.get(result.link);
+                const isBlocked = blockedUrls.has(result.link);
+                const favorite = isBlocked ? null : favoritesByUrl.get(result.link);
                 const source = result.source ? result.source.toLowerCase() : '';
                 const isTimedSource = source.includes('yahoo') || source.includes('suruga') ||
                     source.includes('mercari') || source.includes('paypay') ||
                     source === 'taobao' || source === 'goofish' || source === 'mandarake';
 
                 let duplicateInfo = null;
-                if (result.title && result.source) {
+                if (!isBlocked && result.title && result.source) {
                     const titleStr = String(result.title).trim();
                     const duplicateKey = `${titleStr}|${result.source}`;
                     duplicateInfo = existingByTitleSource.get(duplicateKey);
@@ -583,6 +649,28 @@ const Scheduler = {
                     if (duplicateInfo && duplicateInfo.link !== existing?.link) {
                         stmts.deleteExpiredGrace.run(watchId, duplicateInfo.link);
                     }
+                    if (isBlocked) BlockedItems.confirmMissing(result.link, now);
+                    processedLinks.add(result.link);
+                    continue;
+                }
+
+                if (isBlocked) {
+                    stmts.upsertResult.run({
+                        watchId,
+                        title: result.title || '',
+                        link: result.link,
+                        image: result.image || '',
+                        price: result.price || '',
+                        bidPrice: result.bidPrice || '',
+                        binPrice: result.binPrice || '',
+                        endTime: result.endTime || '',
+                        source: result.source || '',
+                        firstSeen: existing?.firstSeen || now,
+                        lastSeen: isTimedSource ? now : (existing?.lastSeen || null),
+                        isNew: 0,
+                        newType: 'new',
+                        hidden: 1
+                    });
                     processedLinks.add(result.link);
                     continue;
                 }
@@ -654,6 +742,11 @@ const Scheduler = {
 
                 if (isExpiredPayPaySold(item, nowMs)) {
                     stmts.deleteExpiredGrace.run(watchId, item.link);
+                    if (blockedUrls.has(item.link)) BlockedItems.confirmMissing(item.link, now);
+                    continue;
+                }
+
+                if (successfulSources && !successfulSources.has(sourceKey(source))) {
                     continue;
                 }
 
@@ -712,6 +805,7 @@ const Scheduler = {
                 } else {
                     // Remove expired items
                     stmts.deleteExpiredGrace.run(watchId, item.link);
+                    if (blockedUrls.has(item.link)) BlockedItems.confirmMissing(item.link, now);
                 }
             }
 
@@ -762,6 +856,7 @@ const Scheduler = {
                 const cleanupTransaction = db.transaction(() => {
                     for (const item of expiredPayPaySoldItems) {
                         stmts.deleteExpiredGrace.run(watchId, item.link);
+                        BlockedItems.confirmMissing(item.link);
                     }
 
                     const newCount = stmts.countNew.get(watchId).count;
@@ -771,7 +866,7 @@ const Scheduler = {
                 meta = stmts.getMeta.get(watchId);
             }
 
-            const items = stmts.getResultsByWatchId.all(watchId);
+            const items = stmts.getVisibleResultsByWatchId.all(watchId);
             if (!meta && items.length === 0) return null;
             return {
                 updatedAt: meta?.updated_at || null,

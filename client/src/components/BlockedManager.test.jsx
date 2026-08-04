@@ -45,7 +45,7 @@ describe('BlockedManager', () => {
             expect(window.alert).toHaveBeenCalledWith('Removed 1 blocked item.');
         });
         expect(window.confirm).toHaveBeenCalledWith(
-            'Clear blocked items that are no longer found in stored results?'
+            'Clear blocked items confirmed missing by tracked watch searches?'
         );
         expect(await screen.findByText('No blocked items.')).toBeInTheDocument();
     });

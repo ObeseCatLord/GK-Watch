@@ -162,6 +162,16 @@ async function runSearch(query, enabledOverride = null, strictOverride = null, f
             }
 
             if (onProgress && !signal?.aborted) {
+                const scraperError = result === null
+                    ? 'Scraper returned no completion result'
+                    : (!Array.isArray(result) && result?.error)
+                        ? (result.message || result.error)
+                        : items.find(item => item?.error)?.error;
+                if (scraperError) {
+                    onProgress({ type: 'error', source: name, error: String(scraperError), duration });
+                    return result;
+                }
+
                 // Always finish with a non-partial event so clients can mark this source complete.
                 const CHUNK_SIZE = 50;
                 if (items.length > CHUNK_SIZE) {

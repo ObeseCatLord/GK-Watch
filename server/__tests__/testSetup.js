@@ -87,7 +87,9 @@ function getTestDb() {
             url TEXT NOT NULL UNIQUE,
             title TEXT DEFAULT '',
             image TEXT DEFAULT '',
-            blocked_at TEXT NOT NULL
+            blocked_at TEXT NOT NULL,
+            last_seen_at TEXT,
+            missing_confirmed_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS favorite_items (

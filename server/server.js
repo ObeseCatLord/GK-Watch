@@ -327,6 +327,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
                 if (clientDisconnected || abortController.signal.aborted || res.writableEnded || res.destroyed) return;
                 // If we have results, filter them before sending
                 if (data.type === 'result' && data.items) {
+                    BlockedItems.recordSeen(data.items);
                     let filtered = BlockedItems.filterResults(data.items);
                     filtered = Blacklist.filterResults(filtered);
                     data.items = FavoriteItems.annotateResults(filtered);
@@ -357,6 +358,7 @@ app.get('/api/search', requireAuth, async (req, res) => {
 
         // Legacy blocking behavior
         const results = await searchAggregator.searchAll(query, enabledOverride, strict, filters, null, siteOptions);
+        BlockedItems.recordSeen(results);
         let filteredResults = BlockedItems.filterResults(results);
         filteredResults = Blacklist.filterResults(filteredResults);
         res.json(FavoriteItems.annotateResults(filteredResults));
@@ -993,6 +995,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
 
         const terms = item.terms || [item.term];
         const uniqueResultsMap = new Map();
+        const sourceOutcomes = Scheduler.createSourceOutcomeTracker();
 
         const settings = Settings.get();
         const globalFilters = Blacklist.getAll().map(i => i.term);
@@ -1000,7 +1003,14 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
         const filters = [...new Set([...(item.filters || []), ...globalFilters])];
 
         const resultsArray = await Promise.all(terms.map(term =>
-            searchAggregator.searchAll(term, item.enabledSites, item.strict !== false, filters, null, item.siteOptions || {})
+            searchAggregator.searchAll(
+                term,
+                item.enabledSites,
+                item.strict !== false,
+                filters,
+                sourceOutcomes.onProgress,
+                item.siteOptions || {}
+            )
         ));
 
         for (const results of resultsArray) {
@@ -1015,8 +1025,14 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
 
         const uniqueResults = Array.from(uniqueResultsMap.values());
 
+        BlockedItems.recordSeen(uniqueResults);
         const filtered = BlockedItems.filterResults(uniqueResults);
-        const { newItems, totalCount } = Scheduler.saveResults(item.id, filtered, item.name);
+        const { newItems, totalCount } = Scheduler.saveResults(
+            item.id,
+            uniqueResults,
+            item.name,
+            { successfulSources: sourceOutcomes.successfulSources() }
+        );
         await Watchlist.updateLastRun(item.id, totalCount);
         res.json({ success: true, resultCount: filtered.length, newCount: newItems.length });
     } catch (err) {

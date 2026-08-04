@@ -3,6 +3,13 @@ const request = require('supertest');
 const mockSearchAll = jest.fn();
 const mockYahooHasValidCookies = jest.fn(() => true);
 const mockWatchlistAdd = jest.fn();
+const mockWatchlistGetAll = jest.fn();
+const mockWatchlistUpdateLastRun = jest.fn();
+const mockRecordBlockedSeen = jest.fn();
+const mockFilterBlockedResults = jest.fn(items => items.filter(item => item.link !== 'https://example.test/blocked'));
+const mockSchedulerSaveResults = jest.fn();
+const mockSuccessfulSources = jest.fn(() => new Set(['mercari']));
+const mockSourceProgress = jest.fn();
 
 // Mock the dependencies BEFORE requiring the app
 jest.mock('../../scrapers', () => ({
@@ -16,7 +23,9 @@ jest.mock('../../scrapers/yahoo', () => ({
 }));
 
 jest.mock('../../models/watchlist', () => ({
-    add: mockWatchlistAdd
+    add: mockWatchlistAdd,
+    getAll: mockWatchlistGetAll,
+    updateLastRun: mockWatchlistUpdateLastRun
 }));
 
 // Mock database to prevent actual DB connection/writes during test load
@@ -37,7 +46,11 @@ jest.mock('../../models/settings', () => ({
 
 // Mock BlockedItems & Blacklist (optional, but good for isolation)
 jest.mock('../../models/blocked_items', () => ({
-    filterResults: (items) => items
+    recordSeen: mockRecordBlockedSeen,
+    filterResults: mockFilterBlockedResults
+}));
+jest.mock('../../models/favorite_items', () => ({
+    annotateResults: items => items
 }));
 jest.mock('../../models/blacklist', () => ({
     getAll: () => [], // No global filters for this test
@@ -49,7 +62,12 @@ jest.mock('../../scheduler', () => ({
     start: jest.fn(),
     isRunning: false,
     progress: null,
-    completionVersion: 12
+    completionVersion: 12,
+    createSourceOutcomeTracker: () => ({
+        onProgress: mockSourceProgress,
+        successfulSources: mockSuccessfulSources
+    }),
+    saveResults: mockSchedulerSaveResults
 }));
 
 const app = require('../../server');
@@ -58,6 +76,14 @@ describe('Live Search Filters API', () => {
     beforeEach(() => {
         mockSearchAll.mockClear();
         mockWatchlistAdd.mockReset();
+        mockWatchlistGetAll.mockReset();
+        mockWatchlistUpdateLastRun.mockReset();
+        mockRecordBlockedSeen.mockClear();
+        mockFilterBlockedResults.mockClear();
+        mockSchedulerSaveResults.mockReset();
+        mockSchedulerSaveResults.mockReturnValue({ newItems: [], totalCount: 1 });
+        mockSuccessfulSources.mockClear();
+        mockSourceProgress.mockClear();
         // Default mock implementation to return empty array
         mockSearchAll.mockResolvedValue([]);
     });
@@ -211,5 +237,68 @@ describe('Live Search Filters API', () => {
         expect(signal).toBeDefined();
         expect(typeof signal.addEventListener).toBe('function');
         expect(signal.aborted).toBe(false);
+    });
+
+    test('records raw blocking-search sightings before filtering blocked items', async () => {
+        const rawResults = [
+            { link: 'https://example.test/blocked', title: 'Blocked' },
+            { link: 'https://example.test/visible', title: 'Visible' }
+        ];
+        mockSearchAll.mockResolvedValue(rawResults);
+
+        const response = await request(app).get('/api/search?q=tracked');
+
+        expect(response.status).toBe(200);
+        expect(mockRecordBlockedSeen).toHaveBeenCalledWith(rawResults);
+        expect(response.body.map(item => item.link)).toEqual(['https://example.test/visible']);
+    });
+
+    test('records and filters each raw SSE result event', async () => {
+        const rawItems = [
+            { link: 'https://example.test/blocked', title: 'Blocked' },
+            { link: 'https://example.test/visible', title: 'Visible' }
+        ];
+        mockSearchAll.mockImplementation(async (...args) => {
+            args[4]({ type: 'result', source: 'Mercari', items: rawItems, partial: false });
+            return rawItems;
+        });
+
+        const response = await request(app)
+            .get('/api/search?q=tracked')
+            .set('Accept', 'text/event-stream');
+
+        expect(response.status).toBe(200);
+        expect(mockRecordBlockedSeen).toHaveBeenCalledWith(rawItems);
+        expect(response.text).toContain('https://example.test/visible');
+        expect(response.text).not.toContain('https://example.test/blocked');
+    });
+
+    test('manual single-watch runs persist raw blocked observations', async () => {
+        const rawResults = [
+            { link: 'https://example.test/blocked', title: 'Blocked', source: 'Mercari' },
+            { link: 'https://example.test/visible', title: 'Visible', source: 'Mercari' }
+        ];
+        mockWatchlistGetAll.mockResolvedValue([{
+            id: 'watch-1',
+            name: 'Tracked Watch',
+            terms: ['tracked'],
+            enabledSites: { mercari: true },
+            strict: true,
+            filters: [],
+            siteOptions: {}
+        }]);
+        mockSearchAll.mockResolvedValue(rawResults);
+
+        const response = await request(app).post('/api/run-single/watch-1');
+
+        expect(response.status).toBe(200);
+        expect(mockRecordBlockedSeen).toHaveBeenCalledWith(rawResults);
+        expect(mockSchedulerSaveResults).toHaveBeenCalledWith(
+            'watch-1',
+            rawResults,
+            'Tracked Watch',
+            { successfulSources: new Set(['mercari']) }
+        );
+        expect(response.body.resultCount).toBe(1);
     });
 });
