@@ -820,9 +820,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                         onChange={(e) => setNewTerm(e.target.value)}
                         placeholder={isMobile ? "Add watch..." : "Add new term to watch..."}
                         className="search-input"
-                        style={{ maxWidth: '400px', fontSize: '1rem' }}
                     />
-                    <label style={{ display: 'flex', alignItems: 'center', marginLeft: '10px', fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Enable Strict Filtering (Exact Match)">
+                    <label className="watch-strict-toggle" title="Enable Strict Filtering (Exact Match)">
                         <input
                             type="checkbox"
                             checked={newStrict}
@@ -841,7 +840,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                             title={(!taobaoEnabled && !goofishEnabled) ? "CN Watch Disabled (Cookies Missing)" : "Add CN Watch (Taobao/Goofish)"}
                         style={{
                             backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
-                            marginLeft: '5px',
                             cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
                             opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
                         }}

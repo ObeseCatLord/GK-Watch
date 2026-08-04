@@ -1074,6 +1074,20 @@ h1 {
   flex: 1;
 }
 
+.watchlist-top-row .add-watch-form .search-input {
+  max-width: 400px;
+  font-size: 1rem;
+}
+
+.watch-strict-toggle {
+  display: flex;
+  align-items: center;
+  margin-left: 10px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .watchlist-top-row .run-now-btn {
   padding: 0.6rem 1rem;
   font-size: 0.9rem;
@@ -1487,6 +1501,8 @@ h1 {
 /* Mobile (up to 767px) */
 @media (max-width: 767px) {
   #root {
+    box-sizing: border-box;
+    width: 100%;
     max-width: 100%;
     padding: 0.5rem;
   }
@@ -1501,26 +1517,39 @@ h1 {
     flex-wrap: wrap;
     gap: 0.3rem;
     justify-content: center;
+    box-sizing: border-box;
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    padding: 0.5rem;
   }
 
   .main-nav button {
     padding: 0.4rem 0.6rem;
     font-size: 0.75rem;
     flex: 1;
+    min-width: 0;
     white-space: nowrap;
   }
 
   .clock-display {
     order: -1;
-    width: 100%;
+    box-sizing: border-box;
+    flex: 0 0 calc(100% + 1rem);
+    width: calc(100% + 1rem);
     display: flex;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    padding: 0.2rem 0.5rem;
+    gap: 0.25rem;
+    min-width: 0;
+    margin: -0.5rem -0.5rem 0.2rem;
+    padding: 0.45rem 0.75rem;
     background: #2a2a2a;
     font-size: 0.75rem;
-    margin-bottom: 0.5rem;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    overflow: hidden;
   }
 
   .blocked-grid {
@@ -1530,9 +1559,22 @@ h1 {
 
   .clock-display .clock-item {
     display: flex;
+    flex: 1 1 0;
     flex-direction: row;
-    gap: 0.5rem;
+    justify-content: center;
+    gap: 0.25rem;
     align-items: center;
+    min-width: 0;
+  }
+
+  .clock-display .clock-label {
+    font-size: 0.65rem;
+    letter-spacing: 0;
+  }
+
+  .clock-display .clock-time {
+    font-size: 0.8rem;
+    white-space: nowrap;
   }
 
   .clock-display .clock-divider {
@@ -1568,14 +1610,12 @@ h1 {
 
   /* Compact Header - Separated */
   .watchlist-top-row {
-    display: flex;
-    flex-wrap: nowrap;
-    /* Use gap for spacing instead of fusion */
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
     gap: 4px;
     padding: 2px 0;
     margin: 0;
     align-items: stretch;
-    /* Ensure equal height */
   }
 
   .watchlist-top-row .run-now-btn {
@@ -1585,39 +1625,63 @@ h1 {
     font-size: 0.75rem !important;
     display: flex;
     align-items: center;
+    justify-content: center;
     padding: 0 8px;
-    /* Horizontal padding, height controlled by stretch */
   }
 
   .watchlist-top-row .add-watch-form {
-    display: flex;
-    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     min-width: 0;
-    gap: 2px;
+    gap: 4px;
     order: 0;
     margin: 0;
     padding: 0;
-    align-items: stretch;
   }
 
-  .watchlist-top-row .add-watch-form input {
+  .watchlist-top-row .add-watch-form > .search-input {
+    box-sizing: border-box;
+    grid-column: 1 / span 2;
+    width: 100%;
+    max-width: none;
+    min-height: 36px;
     border-radius: 4px;
-    flex: 1;
     min-width: 0;
     padding: 6px;
-    font-size: 0.75rem;
+    font-size: 1rem;
     margin: 0;
   }
 
-  .watchlist-top-row .add-btn,
-  .watchlist-top-row .gk-btn {
+  .watchlist-top-row .watch-strict-toggle {
+    grid-column: 3;
+    justify-content: center;
+    min-width: 0;
+    margin: 0;
+    font-size: 0.75rem;
+  }
+
+  .watchlist-top-row .watch-strict-toggle input {
+    flex: 0 0 auto;
+    width: 16px;
+    min-width: 16px;
+    height: 16px;
+    min-height: 0;
+    padding: 0;
+  }
+
+  .watchlist-top-row .add-watch-form .add-btn {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    margin: 0 !important;
     border-radius: 4px;
     font-size: 0.75rem !important;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 8px;
-    /* Horizontal padding only */
+    padding: 0 4px !important;
+    white-space: nowrap;
   }
 
 
@@ -1650,16 +1714,6 @@ h1 {
 
   .results-actions .action-btn:first-child {
     border-left: none;
-  }
-
-  .watchlist-top-row .add-btn.gk-btn {
-    width: auto;
-    padding: 6px 6px;
-    font-size: 0.75rem;
-    flex-shrink: 0;
-    white-space: nowrap;
-    order: 0;
-    margin: 0;
   }
 
   /* Remove blank space on top of watchlist-grid */
@@ -1947,7 +2001,7 @@ h1 {
   }
 
   .main-nav {
-    flex-direction: column;
+    flex-direction: row;
   }
 
   .hour-grid {
