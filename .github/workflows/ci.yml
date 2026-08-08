@@ -33,8 +33,10 @@ jobs:
 
     - name: Validate operational scripts
       run: |
-        bash -n deploy.sh deploy_osx.sh start.sh start_osx.sh update.sh update_osx.sh
+        bash -n deploy.sh deploy_remote.sh deploy_osx.sh start.sh start_osx.sh update.sh update_osx.sh
         node --check ecosystem.config.js
+        node --check scripts/gkwatch-tasks.mjs
+        node --test scripts/gkwatch-tasks.test.mjs
 
     - name: Audit production dependencies
       run: npm audit --omit=dev --audit-level=high --prefix server && npm audit --omit=dev --audit-level=high --prefix client
@@ -56,3 +58,25 @@ jobs:
     - name: Build client
       working-directory: client
       run: npm run build
+
+  windows-script-smoke:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Test shared task runner
+      run: node --test scripts/gkwatch-tasks.test.mjs
+
+    - name: Validate batch entry points
+      shell: cmd
+      env:
+        GKWATCH_NO_PAUSE: 1
+      run: |
+        call start.bat --check
+        call update.bat --check
+        call deploy.bat --check

@@ -1,50 +1,29 @@
 @echo off
-
-echo Starting GK Watcher...
-
+setlocal
 cd /d "%~dp0"
 
-if not exist "server\node_modules" (
-    echo [ERROR] Server dependencies not found.
-    echo         Please run deploy.bat first!
-    pause
-    exit /b 1
+where node >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Node.js is not installed or is not available in PATH.
+    echo Run deploy.bat first.
+    goto failure
 )
 
-:: Check if client is built (Production Mode)
-if exist "client\dist\index.html" (
-    echo [INFO] Client build found. Starting in PRODUCTION mode...
-    echo.
-    echo Starting server ^(backend serves frontend^)...
-    start "GK Watcher" cmd /c "cd server && set NODE_ENV=production&& node server.js"
-
-    timeout /t 3 /nobreak > nul
-    echo.
-    echo GK Watcher is running at http://localhost:3000
-    start http://localhost:3000
-) else (
-    echo [INFO] Client build NOT found. Starting in DEV mode...
-    echo.
-
-    echo Starting backend server...
-    start "GK Watcher Backend" cmd /c "cd server && node server.js"
-
-    timeout /t 2 /nobreak > nul
-
-    echo Starting frontend...
-    start "GK Watcher Frontend" cmd /c "cd client && npm run dev"
-
-    echo.
-    echo GK Watcher is running!
-    echo    Backend:  http://localhost:3000
-    echo    Frontend: http://localhost:5173
-    echo.
-
-    echo Opening browser...
-    timeout /t 4 /nobreak > nul
-    start http://localhost:5173
+if /i "%~1"=="--check" (
+    call node scripts\gkwatch-tasks.mjs doctor --skip-browser
+    if errorlevel 1 goto failure
+    echo [OK] start.bat prerequisites passed.
+    exit /b 0
 )
 
+call node scripts\gkwatch-tasks.mjs start %*
+if errorlevel 1 goto failure
+exit /b 0
+
+:failure
+set "EXIT_CODE=%ERRORLEVEL%"
+if "%EXIT_CODE%"=="0" set "EXIT_CODE=1"
 echo.
-echo Close the server window(s) to stop.
-pause > nul
+echo [ERROR] GK Watcher did not start successfully.
+if not "%GKWATCH_NO_PAUSE%"=="1" pause
+exit /b %EXIT_CODE%

@@ -48,6 +48,21 @@ describe('browser executable resolution', () => {
     test('throws when no browser executable can be resolved', () => {
         existsSyncSpy.mockReturnValue(false);
 
-        expect(() => resolveBrowserExecutable()).toThrow('Chromium or Google Chrome is required; set PUPPETEER_EXECUTABLE_PATH');
+        expect(() => resolveBrowserExecutable()).toThrow('Chrome, Chromium, or Edge is required; set PUPPETEER_EXECUTABLE_PATH');
+    });
+
+    test('uses Microsoft Edge on Windows when Chrome is unavailable', () => {
+        Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+        const programFiles = process.env.PROGRAMFILES;
+        process.env.PROGRAMFILES = 'C:\\Program Files';
+        const edge = path.join(process.env.PROGRAMFILES, 'Microsoft/Edge/Application/msedge.exe');
+        existsSyncSpy.mockImplementation(candidate => candidate === edge);
+
+        try {
+            expect(resolveBrowserExecutable()).toBe(edge);
+        } finally {
+            if (programFiles === undefined) delete process.env.PROGRAMFILES;
+            else process.env.PROGRAMFILES = programFiles;
+        }
     });
 });

@@ -54,9 +54,6 @@ client/README.md
 # Agent Rules
 .agent/
 
-# Deployment Scripts
-deploy_remote.sh
-
 ARCHITECTURE.md
 
 recovered_watchlist.json

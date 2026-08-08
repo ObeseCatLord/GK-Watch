@@ -1,80 +1,63 @@
-#!/bin/bash
-# GK Watcher Deploy Script (Multi-Distro)
-# Checks and installs dependencies before starting the application
+#!/usr/bin/env bash
 
 set -euo pipefail
 umask 077
 
-echo "🚀 GK Watcher Deployment Setup"
-echo "================================"
-
-# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Helper function to detect package manager and install
-install_dependency() {
-    local PKG_NAME=$1
-    local CMD_NAME=$2 # Optional: if command differs from package name (e.g., git vs git-all)
-    
-    if command -v "$CMD_NAME" &> /dev/null || command -v "$PKG_NAME" &> /dev/null; then
-        echo "✅ $PKG_NAME is already installed."
-        return 0
-    fi
-
-    echo "⚙️  $PKG_NAME not found. Attempting install..."
-
-    if command -v apt-get &> /dev/null; then
-        echo "   Detected APT (Debian/Ubuntu). Using sudo..."
+install_linux_dependency() {
+    local package_name=$1
+    if command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update
-        sudo apt-get install -y "$PKG_NAME"
-    elif command -v dnf &> /dev/null; then
-        echo "   Detected DNF (Fedora/RHEL). Using sudo..."
-        sudo dnf install -y "$PKG_NAME"
-    elif command -v pacman &> /dev/null; then
-        echo "   Detected Pacman (Arch). Using sudo..."
-        sudo pacman -S --noconfirm "$PKG_NAME"
-    elif command -v zypper &> /dev/null; then
-        echo "   Detected Zypper (openSUSE). Using sudo..."
-        sudo zypper install -y "$PKG_NAME"
-    elif command -v apk &> /dev/null; then
-        echo "   Detected APK (Alpine). Using sudo..."
-        sudo apk add "$PKG_NAME"
+        sudo apt-get install -y "$package_name"
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y "$package_name"
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --noconfirm "$package_name"
+    elif command -v zypper >/dev/null 2>&1; then
+        sudo zypper install -y "$package_name"
+    elif command -v apk >/dev/null 2>&1; then
+        sudo apk add "$package_name"
     else
-        echo "❌ Could not detect package manager. Please manually install '$PKG_NAME'."
+        echo "[ERROR] No supported Linux package manager was found." >&2
         return 1
     fi
 }
 
-# 1. Check/Install Git
-install_dependency git git
+echo "GK Watcher deployment setup"
 
-# 2. Check/Install Node.js
-# Distros name it 'nodejs', 'npm' usually pulls it in. 
-# Some need 'nodejs' and 'npm' separate.
-if ! command -v node &> /dev/null; then
-    echo "⚙️  Node.js not found. Installing..."
-    install_dependency nodejs node
-    
+if [ "$(uname -s)" = "Darwin" ]; then
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "[ERROR] Homebrew is required. Install it from https://brew.sh/." >&2
+        exit 1
+    fi
+    command -v git >/dev/null 2>&1 || brew install git
+    command -v node >/dev/null 2>&1 || brew install node
+
+    if [ ! -x "${PUPPETEER_EXECUTABLE_PATH:-}" ] \
+        && [ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ] \
+        && [ ! -x "/Applications/Chromium.app/Contents/MacOS/Chromium" ] \
+        && [ ! -x "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" ]; then
+        brew install --cask google-chrome
+    fi
 else
-    echo "✅ Node.js $(node -v) found"
+    command -v git >/dev/null 2>&1 || install_linux_dependency git
+    command -v node >/dev/null 2>&1 || install_linux_dependency nodejs
+    command -v npm >/dev/null 2>&1 || install_linux_dependency npm
+
+    if [ ! -x "${PUPPETEER_EXECUTABLE_PATH:-}" ] \
+        && ! command -v chromium >/dev/null 2>&1 \
+        && ! command -v chromium-browser >/dev/null 2>&1 \
+        && ! command -v google-chrome >/dev/null 2>&1 \
+        && ! command -v microsoft-edge >/dev/null 2>&1 \
+        && ! command -v microsoft-edge-stable >/dev/null 2>&1; then
+        install_linux_dependency chromium
+    fi
 fi
 
-# 3. Check/Install NPM
-if ! command -v npm &> /dev/null; then
-    echo "⚙️  npm not found. Installing..."
-    install_dependency npm
-fi
-
-# 4. Browser scrapers use the host browser so installs do not depend on large,
-# failure-prone Puppeteer downloads.
-if ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1 && ! command -v google-chrome >/dev/null 2>&1; then
-    install_dependency chromium chromium
-fi
-
-# Final Check
-if ! command -v node &> /dev/null || ! command -v npm &> /dev/null; then
-    echo "❌ Failed to install Node.js/npm. Please install manually."
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    echo "[ERROR] Node.js and npm must be available in PATH." >&2
     exit 1
 fi
 
@@ -83,46 +66,7 @@ if command -v gcc-10 >/dev/null 2>&1 && command -v g++-10 >/dev/null 2>&1; then
     export CXX=g++-10
 fi
 
-if ! node -e "const [a,b,c]=process.versions.node.split('.').map(Number);const ok=(a===20&&(b>18||(b===18&&c>=1)))||(a>20&&a<27);process.exit(ok?0:1)"; then
-    echo "❌ Node.js 20.18.1 through 26.x is required. Found $(node -v)."
-    exit 1
-fi
+node scripts/gkwatch-tasks.mjs setup
+chmod 700 server/data 2>/dev/null || true
 
-# Install server dependencies
-echo ""
-echo "📦 Installing server dependencies..."
-cd server
-if ! npm ci; then
-    echo "⚠️  npm ci failed. Retrying with PUPPETEER_SKIP_DOWNLOAD=true..."
-    PUPPETEER_SKIP_DOWNLOAD=true npm ci
-fi
-npm audit --omit=dev --audit-level=high
-npm test -- --runInBand
-cd ..
-
-# Install client dependencies
-echo ""
-echo "📦 Installing client dependencies..."
-cd client
-npm ci
-npm audit --omit=dev --audit-level=high
-npm run lint
-npm test -- --run
-
-# Build client
-echo ""
-echo "🔨 Building client..."
-npm run build
-cd ..
-
-# Create data directory
-echo ""
-echo "📁 Setting up data directory..."
-install -d -m 700 server/data
-
-echo ""
-echo "================================"
-echo "✅ Deployment setup complete!"
-echo ""
-echo "To start the application, run:"
-echo "  ./start.sh"
+echo "Deployment setup complete. Start with ./start.sh --production."

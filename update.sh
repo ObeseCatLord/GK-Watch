@@ -1,47 +1,39 @@
-#!/bin/bash
-# GK Watcher Update Script
-# Pulls latest code and rebuilds the client
+#!/usr/bin/env bash
 
 set -euo pipefail
 umask 077
 
-echo "🔄 Updating GK Watcher..."
-
-# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-if command -v gcc-10 >/dev/null 2>&1 && command -v g++-10 >/dev/null 2>&1; then
-    export CC=gcc-10
-    export CXX=g++-10
+if [ "${1:-}" = "--check" ]; then
+    exec node scripts/gkwatch-tasks.mjs doctor --skip-browser
 fi
 
-# Pull latest changes
-echo "📥 Pulling latest changes..."
-git pull --ff-only
+if [ "${GKWATCH_UPDATE_AFTER_PULL:-0}" != "1" ]; then
+    if ! command -v git >/dev/null 2>&1; then
+        echo "[ERROR] Git is required to download updates." >&2
+        exit 1
+    fi
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "[ERROR] This copy is not a Git checkout and cannot download updates." >&2
+        echo "Clone https://github.com/ObeseCatLord/GK-Watch.git to enable in-place updates." >&2
+        exit 1
+    fi
 
-# Install server dependencies
-echo "📦 Installing server dependencies..."
-cd server
-if ! npm ci; then
-    echo "⚠️  npm ci failed. Retrying with PUPPETEER_SKIP_DOWNLOAD=true..."
-    PUPPETEER_SKIP_DOWNLOAD=true npm ci
+    echo "Pulling latest changes..."
+    git pull --ff-only
+
+    # Run the newly pulled script instead of continuing stale update logic.
+    export GKWATCH_UPDATE_AFTER_PULL=1
+    exec "$SCRIPT_DIR/update.sh" "$@"
 fi
-npm audit --omit=dev --audit-level=high
-npm test -- --runInBand
-cd ..
 
-# Install client dependencies
-echo "📦 Installing client dependencies..."
-cd client
-npm ci
-npm audit --omit=dev --audit-level=high
-npm run lint
-npm test -- --run
+if ! command -v node >/dev/null 2>&1; then
+    echo "[ERROR] Node.js is not installed or is not available in PATH." >&2
+    echo "Run ./deploy.sh first." >&2
+    exit 1
+fi
 
-# Rebuild client
-echo "🔨 Building client..."
-npm run build
-cd ..
-
-echo "✅ Update complete!"
+node scripts/gkwatch-tasks.mjs setup
+echo "Update complete. Restart GK Watcher to run the new version."
