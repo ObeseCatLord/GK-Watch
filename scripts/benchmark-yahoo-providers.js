@@ -88,7 +88,7 @@ async function runProvider(provider, query, options) {
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
     const started = performance.now();
     try {
-        const results = await withScraperLogsSuppressed(options.verbose, () => yahoo.search(
+        const results = await yahoo.search(
             query,
             false,
             false,
@@ -96,7 +96,7 @@ async function runProvider(provider, query, options) {
             [],
             controller.signal,
             { mode: 'live', provider, fallback: false, useCookies: options.authenticated }
-        ));
+        );
         return {
             ok: true,
             durationMs: Math.round(performance.now() - started),
@@ -206,16 +206,20 @@ async function main() {
             doorzoOnly: doorzoLinks.size - overlap
         };
         rows[index] = row;
-        console.log(`YAHOO_BENCHMARK_TERM ${JSON.stringify(row)}`);
     }
 
     const workerCount = Math.min(options.parallel, terms.length);
-    await Promise.all(Array.from({ length: workerCount }, async () => {
-        while (nextIndex < terms.length) {
-            const index = nextIndex++;
-            await runTerm(index);
-        }
-    }));
+    await withScraperLogsSuppressed(options.verbose, () => Promise.all(
+        Array.from({ length: workerCount }, async () => {
+            while (nextIndex < terms.length) {
+                const index = nextIndex++;
+                await runTerm(index);
+            }
+        })
+    ));
+    for (const row of rows) {
+        console.log(`YAHOO_BENCHMARK_TERM ${JSON.stringify(row)}`);
+    }
 
     const summary = {
         generatedAt: new Date().toISOString(),
