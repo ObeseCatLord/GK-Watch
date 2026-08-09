@@ -985,26 +985,11 @@ function mergeUniqueResults(...groups) {
     return merged;
 }
 
-async function search(query, strictEnabled = true, filters = [], onProgress = null, signal = null) {
-
-    throwIfAborted(signal);
-
-    if (isDisabled) {
-        console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
-        return [];
+async function searchNativeWithDeadline(query, strictEnabled, filters, signal) {
+    if (directCircuitIsOpen()) {
+        console.log('[Mercari] Direct API rate-limit circuit breaker active. Using Doorzo fallback.');
+        return { results: null, fallbackReason: 'rate-limit circuit open' };
     }
-
-    // Doorzo is fast but broad searches can omit valid older listings. Run a
-    // bounded newest-first native pass alongside it and merge by canonical URL.
-    const doorzoPromise = (async () => {
-        try {
-            return await searchDoorzo(query, strictEnabled, filters, signal, onProgress);
-        } catch (err) {
-            if (isAborted(signal, err)) throw abortError();
-            console.warn(`[Mercari] Doorzo error: ${err.message}.`);
-            return null;
-        }
-    })();
 
     const freshnessController = new AbortController();
     let freshnessTimedOut = false;
@@ -1016,59 +1001,97 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
     }, FRESHNESS_DEADLINE_MS);
     freshnessDeadline.unref?.();
 
-    const directPromise = mercariFreshnessPool.run(async () => {
-        const directAttempt = beginDirectSearch();
-        if (!directAttempt.allowed) {
-            console.log('[Mercari] Direct API rate-limit circuit breaker active. Skipping freshness pass.');
-            return null;
-        }
-
-        try {
-            return await searchAxios(query, strictEnabled, filters, null, freshnessController.signal, {
-                sort: 'SORT_CREATED_TIME',
-                maxPages: 2,
-                timeoutMs: 3000
-            });
-        } catch (err) {
-            if (signal?.aborted) throw abortError();
-            if (freshnessController.signal.aborted) return null;
-            if (isAborted(null, err)) throw abortError();
-            if (err instanceof MercariRateLimitError) {
-                const cooldownSeconds = Math.ceil(err.cooldownMs / 1000);
-                console.warn(`[Mercari] Direct API rate-limit circuit breaker opened for ${cooldownSeconds} seconds.`);
-            } else {
-                console.warn(`[Mercari] Axios critical error: ${err.message}.`);
+    try {
+        return await mercariFreshnessPool.run(async () => {
+            const directAttempt = beginDirectSearch();
+            if (!directAttempt.allowed) {
+                console.log('[Mercari] Direct API rate-limit circuit breaker active. Using Doorzo fallback.');
+                return { results: null, fallbackReason: 'rate-limit circuit open' };
             }
-            return null;
-        } finally {
-            completeDirectSearch(directAttempt.probe);
-        }
-    }, { signal: freshnessController.signal }).catch(err => {
+
+            try {
+                const results = await searchAxios(query, strictEnabled, filters, null, freshnessController.signal, {
+                    sort: 'SORT_CREATED_TIME',
+                    maxPages: 2,
+                    timeoutMs: 3000
+                });
+                return {
+                    results,
+                    fallbackReason: directCircuitIsOpen() ? 'rate-limit circuit opened during search' : null
+                };
+            } catch (err) {
+                if (signal?.aborted) throw abortError();
+                if (freshnessController.signal.aborted) {
+                    return { results: null, fallbackReason: 'freshness deadline exceeded' };
+                }
+                if (isAborted(null, err)) throw abortError();
+                if (err instanceof MercariRateLimitError) {
+                    const cooldownSeconds = Math.ceil(err.cooldownMs / 1000);
+                    console.warn(`[Mercari] Direct API rate-limit circuit breaker opened for ${cooldownSeconds} seconds.`);
+                    return { results: null, fallbackReason: 'rate limited' };
+                }
+                console.warn(`[Mercari] Axios critical error: ${err.message}.`);
+                return { results: null, fallbackReason: 'native request failed' };
+            } finally {
+                completeDirectSearch(directAttempt.probe);
+            }
+        }, { signal: freshnessController.signal });
+    } catch (err) {
         if (signal?.aborted) throw abortError();
-        if (freshnessController.signal.aborted) return null;
+        if (freshnessController.signal.aborted) {
+            return { results: null, fallbackReason: 'freshness deadline exceeded' };
+        }
         if (isAborted(null, err)) throw abortError();
         console.warn(`[Mercari] Freshness admission failed: ${err.message}.`);
-        return null;
-    }).finally(() => {
+        return { results: null, fallbackReason: 'freshness admission failed' };
+    } finally {
         clearTimeout(freshnessDeadline);
         signal?.removeEventListener('abort', onSearchAbort);
-        if (freshnessTimedOut) console.warn(`[Mercari] Freshness pass exceeded ${FRESHNESS_DEADLINE_MS}ms; using proxy results.`);
-    });
+        if (freshnessTimedOut) console.warn(`[Mercari] Freshness pass exceeded ${FRESHNESS_DEADLINE_MS}ms; using Doorzo fallback.`);
+    }
+}
 
-    const [doorzoResults, directResults] = await Promise.all([doorzoPromise, directPromise]);
+async function search(query, strictEnabled = true, filters = [], onProgress = null, signal = null) {
+
     throwIfAborted(signal);
 
-    if (doorzoResults !== null || directResults !== null) {
-        const uniqueDirectResults = mergeUniqueResults(directResults);
-        const merged = mergeUniqueResults(uniqueDirectResults, doorzoResults);
+    if (isDisabled) {
+        console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
+        return [];
+    }
 
+    const directOutcome = await searchNativeWithDeadline(query, strictEnabled, filters, signal);
+
+    throwIfAborted(signal);
+    const directResults = directOutcome.results;
+    const uniqueDirectResults = mergeUniqueResults(directResults);
+
+    if (directResults !== null && !directOutcome.fallbackReason) {
+        if (onProgress && uniqueDirectResults.length > 0) {
+            onProgress({ items: uniqueDirectResults, partial: true });
+        }
+        console.log(`[Mercari] Native search successful (${uniqueDirectResults.length} items).`);
+        return uniqueDirectResults;
+    }
+
+    console.warn(`[Mercari] Native search unavailable (${directOutcome.fallbackReason || 'no completion result'}); falling back to Doorzo...`);
+    let doorzoResults = null;
+    try {
+        doorzoResults = await searchDoorzo(query, strictEnabled, filters, signal, onProgress);
+    } catch (err) {
+        if (isAborted(signal, err)) throw abortError();
+        console.warn(`[Mercari] Doorzo error: ${err.message}.`);
+    }
+
+    if (doorzoResults !== null || directResults !== null) {
+        const merged = mergeUniqueResults(uniqueDirectResults, doorzoResults);
         if (onProgress && uniqueDirectResults.length > 0) {
             const doorzoKeys = new Set((doorzoResults || []).map(resultKey));
             const nativeOnly = uniqueDirectResults.filter(item => !doorzoKeys.has(resultKey(item)));
             if (nativeOnly.length > 0) onProgress({ items: nativeOnly, partial: true });
         }
 
-        console.log(`[Mercari] Freshness merge successful (native=${uniqueDirectResults.length}, Doorzo=${doorzoResults?.length ?? 0}, merged=${merged.length}).`);
+        console.log(`[Mercari] Doorzo fallback successful (native=${uniqueDirectResults.length}, Doorzo=${doorzoResults?.length ?? 0}, merged=${merged.length}).`);
         return merged;
     }
 
