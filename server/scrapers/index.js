@@ -353,6 +353,7 @@ function getAdmissionStats() {
         searches: searchPool.stats(),
         httpScrapers: httpPool.stats(),
         mercariFreshness: mercariFreshnessPool.stats(),
+        mercariNativeRate: mercari.getNativeRateLimitStats?.(),
         browserScrapers: browserPool.stats()
     };
 }

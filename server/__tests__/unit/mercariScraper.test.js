@@ -79,6 +79,69 @@ describe('Mercari Scraper Retry Logic', () => {
         errorSpy.mockRestore();
     });
 
+    test('honors an explicit Retry-After without sending a doomed retry', async () => {
+        mock.onGet('https://sig.doorzo.com/').reply(200, {
+            code: 0,
+            data: { items: [], nextPageToken: null }
+        });
+        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(
+            429,
+            {},
+            { 'retry-after': '163' }
+        );
+
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
+
+        const startedAt = Date.now();
+        await expect(search('test query')).resolves.toEqual([]);
+
+        expect(mock.history.post).toHaveLength(1);
+        expect(mercariScraper.getNativeRateLimitStats(startedAt)).toMatchObject({
+            circuitState: 'open',
+            circuitRemainingMs: expect.any(Number)
+        });
+        expect(mercariScraper.getNativeRateLimitStats(startedAt).circuitRemainingMs)
+            .toBeGreaterThanOrEqual(163000);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('opened for 163 seconds'));
+        expect(mercariScraper.getNativeRateLimitStats(startedAt + 164000).circuitState).toBe('ready');
+
+        await expect(search('second query')).resolves.toEqual([]);
+        expect(mock.history.post).toHaveLength(1);
+
+        logSpy.mockRestore();
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
+
+    test('preserves an HTTP-date Retry-After longer than one hour', async () => {
+        const startedAt = Date.now();
+        const retryAt = new Date(startedAt + (2 * 60 * 60 * 1000)).toUTCString();
+        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(
+            429,
+            {},
+            { 'retry-after': retryAt }
+        );
+
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
+
+        await expect(mercariScraper.searchAxios('test query', false, [], null, null, {
+            maxPages: 1,
+            timeoutMs: 3000
+        })).rejects.toMatchObject({ code: 'MERCARI_RATE_LIMITED' });
+
+        expect(mock.history.post).toHaveLength(1);
+        expect(mercariScraper.getNativeRateLimitStats(startedAt).circuitRemainingMs)
+            .toBeGreaterThan(7198000);
+
+        logSpy.mockRestore();
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
+
     test('uses a newest-first native pass when Doorzo returns no items', async () => {
         mock.onGet('https://sig.doorzo.com/').reply(200, {
             code: 200,
@@ -379,7 +442,7 @@ describe('Mercari Scraper Retry Logic', () => {
         await search('opens circuit');
         expect(mock.history.post).toHaveLength(2);
 
-        const future = Date.now() + 16 * 60 * 1000;
+        const future = Date.now() + 6 * 60 * 1000;
         const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(future);
         mock.resetHandlers();
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
@@ -452,7 +515,7 @@ describe('Mercari Scraper Retry Logic', () => {
         const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => { });
 
         await search('opens circuit');
-        const future = Date.now() + 16 * 60 * 1000;
+        const future = Date.now() + 6 * 60 * 1000;
         const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(future);
 
         let releaseProbe;

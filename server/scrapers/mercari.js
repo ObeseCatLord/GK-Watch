@@ -11,6 +11,7 @@ const { subtle } = webcrypto;
 const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery, getSearchTerms } = require('../utils/queryMatcher');
 const { resolveBrowserExecutable } = require('../utils/browserExecutable');
 const { browserPool, mercariFreshnessPool } = require('../utils/admissionControl');
+const { RequestPacer } = require('../utils/requestPacer');
 
 function abortError() {
     const error = new Error('Mercari search aborted');
@@ -69,15 +70,51 @@ function withAbort(promise, signal) {
     });
 }
 
-const DIRECT_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
+function envInteger(name, fallback, min, max) {
+    const value = Number(process.env[name]);
+    return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+}
+
+const DIRECT_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
 const DIRECT_RATE_LIMIT_RETRY_MS = 500;
-const FRESHNESS_DEADLINE_MS = 4000;
+const MERCARI_NATIVE_MIN_TIME_MS = envInteger(
+    'GKWATCH_MERCARI_NATIVE_MIN_TIME_MS',
+    process.env.NODE_ENV === 'test' ? 0 : 1500,
+    process.env.NODE_ENV === 'test' ? 0 : 1000,
+    10000
+);
+const FRESHNESS_DEADLINE_MS = envInteger(
+    'GKWATCH_MERCARI_FRESHNESS_DEADLINE_MS',
+    process.env.NODE_ENV === 'test' ? 4000 : 20000,
+    1000,
+    120000
+);
+const MERCARI_SEARCH_URL = 'https://api.mercari.jp/v2/entities:search';
+
+// Mercari permits roughly 60 native requests per rolling minute. Keep a
+// process-wide 25% safety margin and pace each HTTP request, including pages
+// and retries, rather than pacing only logical searches.
+const mercariNativeLimiter = new RequestPacer({
+    name: 'Mercari native API',
+    minTimeMs: MERCARI_NATIVE_MIN_TIME_MS,
+    maxQueue: 4
+});
 
 class MercariRateLimitError extends Error {
-    constructor() {
+    constructor(retryAfterMs = DIRECT_RATE_LIMIT_COOLDOWN_MS) {
         super('Mercari direct API remained rate limited');
         this.name = 'MercariRateLimitError';
         this.code = 'MERCARI_RATE_LIMITED';
+        this.retryAfterMs = retryAfterMs;
+        this.cooldownMs = retryAfterMs;
+    }
+}
+
+class MercariCircuitOpenError extends Error {
+    constructor() {
+        super('Mercari direct API circuit is open');
+        this.name = 'MercariCircuitOpenError';
+        this.code = 'MERCARI_CIRCUIT_OPEN';
     }
 }
 
@@ -95,15 +132,57 @@ function beginDirectSearch(now = Date.now()) {
     return { allowed: true, probe: false };
 }
 
-function openDirectCircuit(now = Date.now()) {
+function normalizeCooldownMs(value) {
+    if (!Number.isFinite(value) || value < 0) return DIRECT_RATE_LIMIT_COOLDOWN_MS;
+    return Math.min(Math.max(Math.ceil(value), 1000), Number.MAX_SAFE_INTEGER);
+}
+
+function parseRetryAfterMs(value, now = Date.now()) {
+    if (value === undefined || value === null || value === '') return null;
+    const seconds = Number(value);
+    if (Number.isFinite(seconds) && seconds >= 0) return normalizeCooldownMs(seconds * 1000);
+
+    const retryAt = Date.parse(String(value));
+    if (!Number.isFinite(retryAt)) return null;
+    return normalizeCooldownMs(Math.max(retryAt - now, 0));
+}
+
+function openDirectCircuit(now = Date.now(), cooldownMs = DIRECT_RATE_LIMIT_COOLDOWN_MS) {
+    const normalizedCooldownMs = normalizeCooldownMs(cooldownMs);
     directCircuitState = 'open';
-    directCircuitOpenUntil = now + DIRECT_RATE_LIMIT_COOLDOWN_MS;
+    const requestedOpenUntil = Math.min(Number.MAX_SAFE_INTEGER, now + normalizedCooldownMs);
+    directCircuitOpenUntil = Math.max(directCircuitOpenUntil, requestedOpenUntil);
+    return directCircuitOpenUntil - now;
 }
 
 function completeDirectSearch(probe) {
     if (!probe || directCircuitState !== 'half-open') return;
     directCircuitState = 'closed';
     directCircuitOpenUntil = 0;
+}
+
+function directCircuitIsOpen(now = Date.now()) {
+    return directCircuitState === 'open' && now < directCircuitOpenUntil;
+}
+
+async function postNativeSearch(searchPayload, config, signal) {
+    return mercariNativeLimiter.schedule(async () => {
+        throwIfAborted(signal);
+        if (directCircuitIsOpen()) throw new MercariCircuitOpenError();
+        return axios.post(MERCARI_SEARCH_URL, searchPayload, config);
+    }, { signal });
+}
+
+function getNativeRateLimitStats(now = Date.now()) {
+    return {
+        minTimeMs: MERCARI_NATIVE_MIN_TIME_MS,
+        freshnessDeadlineMs: FRESHNESS_DEADLINE_MS,
+        circuitState: directCircuitState === 'open' && !directCircuitIsOpen(now)
+            ? 'ready'
+            : directCircuitState,
+        circuitRemainingMs: directCircuitIsOpen(now) ? directCircuitOpenUntil - now : 0,
+        jobs: mercariNativeLimiter.stats()
+    };
 }
 
 // --- DPoP Utils ---
@@ -199,7 +278,7 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null, sig
         ["sign", "verify"]
     );
 
-    const targetUrl = "https://api.mercari.jp/v2/entities:search";
+    const targetUrl = MERCARI_SEARCH_URL;
     const method = "POST";
     let allResults = [];
 
@@ -241,7 +320,7 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null, sig
                 throwIfAborted(signal);
 
                 try {
-                    response = await axios.post(targetUrl, searchPayload, {
+                    response = await postNativeSearch(searchPayload, {
                         headers: {
                             "X-Platform": "web",
                             "Content-Type": "application/json",
@@ -252,16 +331,18 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null, sig
                         },
                         timeout: timeoutMs,
                         signal
-                    });
+                    }, signal);
                     break; // Success
                 } catch (err) {
                     if (isAborted(signal, err)) throw abortError();
+                    if (err instanceof MercariCircuitOpenError) throw err;
+                    if (err.response && err.response.status === 429) {
+                        const retryAfterMs = parseRetryAfterMs(err.response.headers?.['retry-after']);
+                        if (retryAfterMs !== null) throw new MercariRateLimitError(retryAfterMs);
+                    }
                     if (err.response && err.response.status === 429 && retries < MAX_RETRIES) {
                         retries++;
-                        const retryAfterSeconds = Number(err.response.headers?.['retry-after']);
-                        const retryDelay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
-                            ? Math.min(retryAfterSeconds * 1000, 2000)
-                            : DIRECT_RATE_LIMIT_RETRY_MS;
+                        const retryDelay = DIRECT_RATE_LIMIT_RETRY_MS;
                         console.log(`[Mercari Axios] Rate limited (429) on page ${page + 1}. Retrying in ${retryDelay}ms...`);
                         await delay(retryDelay, signal);
                         // Retry loop will regenerate DPoP
@@ -331,8 +412,12 @@ async function searchAxios(query, strictEnabled, filters, onProgress = null, sig
 
         } catch (err) {
             if (isAborted(signal, err)) throw abortError();
+            if (err instanceof MercariCircuitOpenError) {
+                if (allResults.length === 0) return null;
+                break;
+            }
             if (err instanceof MercariRateLimitError) {
-                openDirectCircuit();
+                err.cooldownMs = openDirectCircuit(Date.now(), err.retryAfterMs);
                 if (allResults.length === 0) throw err;
                 console.warn(`[Mercari Axios] Rate limited after page ${page}; returning ${allResults.length} item(s) already fetched.`);
                 break;
@@ -949,8 +1034,8 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
             if (freshnessController.signal.aborted) return null;
             if (isAborted(null, err)) throw abortError();
             if (err instanceof MercariRateLimitError) {
-                openDirectCircuit();
-                console.warn('[Mercari] Direct API rate-limit circuit breaker opened for 15 minutes.');
+                const cooldownSeconds = Math.ceil(err.cooldownMs / 1000);
+                console.warn(`[Mercari] Direct API rate-limit circuit breaker opened for ${cooldownSeconds} seconds.`);
             } else {
                 console.warn(`[Mercari] Axios critical error: ${err.message}.`);
             }
@@ -1037,4 +1122,4 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
 }
 
 
-module.exports = { search, reset, searchAxios, searchDoorzo, searchNeokyo };
+module.exports = { search, reset, searchAxios, searchDoorzo, searchNeokyo, getNativeRateLimitStats };
