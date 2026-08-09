@@ -103,12 +103,13 @@ axiosRetry(client, {
     }
 });
 
-// Yahoo tolerated high serial volume in testing but began challenge-blocking Foundry
-// under concurrent bursts. Keep native requests single-flight process-wide.
-const nativeMinTimeMs = envInteger('GKWATCH_YAHOO_NATIVE_MIN_TIME_MS', 750, 250, 10000);
+// Keep request starts wall-paced even when several searches are waiting on Yahoo.
+// The concurrency cap absorbs response latency without allowing unpaced bursts.
+const nativeMinTimeMs = envInteger('GKWATCH_YAHOO_NATIVE_MIN_TIME_MS', 500, 250, 10000);
+const nativeMaxConcurrent = envInteger('GKWATCH_YAHOO_NATIVE_CONCURRENCY', 4, 1, 4);
 const limiter = new Bottleneck({
     minTime: nativeMinTimeMs,
-    maxConcurrent: 1
+    maxConcurrent: nativeMaxConcurrent
 });
 
 const nativeBlockCooldownMs = envInteger('GKWATCH_YAHOO_NATIVE_BLOCK_COOLDOWN_MS', 15 * 60 * 1000, 60000, 60 * 60 * 1000);
@@ -231,7 +232,7 @@ function getNativeState() {
         cooldownUntil: cooldown ? nativeCooldownUntil : null,
         cooldownReason: cooldown ? nativeCooldownReason : null,
         minTimeMs: nativeMinTimeMs,
-        maxConcurrent: 1
+        maxConcurrent: nativeMaxConcurrent
     };
 }
 
@@ -539,12 +540,10 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         if (strictEnabled || hasQuoted) {
             const strictResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
             console.log(`Yahoo (Axios) found ${results.length} items, ${strictResults.length} after strict filtering.`);
-            resetNativeState();
             return strictResults;
         }
 
         console.log(`Yahoo (Axios) found ${results.length} items (Strict filtering disabled).`);
-        resetNativeState();
         return results;
 
     } catch (axiosError) {

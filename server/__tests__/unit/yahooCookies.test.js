@@ -168,7 +168,7 @@ describe('Yahoo live/watch provider routing', () => {
         expect(yahoo.getNativeState()).toMatchObject({
             cooldown: false,
             cooldownReason: null,
-            maxConcurrent: 1
+            maxConcurrent: 4
         });
     });
 
@@ -188,26 +188,40 @@ describe('Yahoo live/watch provider routing', () => {
         expect(yahoo.getNativeState()).toMatchObject({ cooldown: true });
     });
 
-    test('stops already-queued native searches when the active request is blocked', async () => {
-        let releaseFirstRequest;
-        const firstResponse = new Promise(resolve => { releaseFirstRequest = resolve; });
-        const nativeGet = jest.fn().mockImplementation(() => firstResponse);
+    test('stops queued native searches when one concurrent request is blocked', async () => {
+        const releases = [];
+        const nativeGet = jest.fn().mockImplementation(() => new Promise(resolve => {
+            releases.push(resolve);
+        }));
         const doorzoPost = jest.fn().mockResolvedValue({ data: { data: { list: [] } } });
         const { yahoo } = loadYahoo({ nativeGet, doorzoPost, realBottleneck: true });
 
-        const first = yahoo.search('first', false, false, 'yahoo', [], null, { mode: 'live' });
-        const second = yahoo.search('second', false, false, 'yahoo', [], null, { mode: 'live' });
-        await new Promise(resolve => setImmediate(resolve));
-        releaseFirstRequest({
+        const searches = Array.from({ length: 5 }, (_, index) =>
+            yahoo.search(`term-${index}`, false, false, 'yahoo', [], null, { mode: 'live' })
+        );
+        while (nativeGet.mock.calls.length < 4) {
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+
+        releases[0]({
             status: 500,
             data: '<html>しばらく時間をおいてから再度お試しください</html>'
         });
+        const product = '<ul class="Products__items"><li class="Product"><a class="Product__titleLink" href="https://auctions.yahoo.co.jp/jp/auction/concurrent1">item</a><span class="Product__priceValue">100円</span></li></ul>';
+        for (const release of releases.slice(1)) release({ status: 200, data: product });
 
-        await expect(Promise.all([first, second])).resolves.toEqual([[], []]);
-        expect(nativeGet).toHaveBeenCalledTimes(1);
+        const results = await Promise.all(searches);
+        expect(results[0]).toEqual([]);
+        expect(results.slice(1, 4)).toEqual([
+            [expect.objectContaining({ title: 'item' })],
+            [expect.objectContaining({ title: 'item' })],
+            [expect.objectContaining({ title: 'item' })]
+        ]);
+        expect(results[4]).toEqual([]);
+        expect(nativeGet).toHaveBeenCalledTimes(4);
         expect(doorzoPost).toHaveBeenCalledTimes(2);
-        expect(yahoo.getNativeState()).toMatchObject({ cooldown: true, maxConcurrent: 1 });
-    });
+        expect(yahoo.getNativeState()).toMatchObject({ cooldown: true, maxConcurrent: 4 });
+    }, 10000);
 });
 
 describe('Yahoo authenticated search routing', () => {

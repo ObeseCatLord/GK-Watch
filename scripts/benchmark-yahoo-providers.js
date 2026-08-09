@@ -5,6 +5,8 @@ const yahoo = require('../server/scrapers/yahoo');
 
 const MAX_TERMS = 50;
 const MAX_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_PARALLEL = 4;
+const PROVIDERS = new Set(['both', 'native', 'doorzo']);
 
 function positiveInteger(value, fallback) {
     const parsed = Number(value);
@@ -18,6 +20,8 @@ function parseArgs(argv) {
         query: null,
         acknowledgeLiveTraffic: false,
         authenticated: false,
+        provider: 'both',
+        parallel: 1,
         showTerms: false,
         verbose: false
     };
@@ -28,6 +32,8 @@ function parseArgs(argv) {
         else if (arg === '--query') options.query = argv[++index] || null;
         else if (arg === '--acknowledge-live-traffic') options.acknowledgeLiveTraffic = true;
         else if (arg === '--authenticated') options.authenticated = true;
+        else if (arg === '--provider') options.provider = argv[++index] || '';
+        else if (arg === '--parallel') options.parallel = positiveInteger(argv[++index], Infinity);
         else if (arg === '--show-terms') options.showTerms = true;
         else if (arg === '--verbose') options.verbose = true;
         else if (arg === '--help') options.help = true;
@@ -110,7 +116,7 @@ async function runProvider(provider, query, options) {
 }
 
 function providerSummary(rows, provider) {
-    const samples = rows.map(row => row[provider]);
+    const samples = rows.map(row => row[provider]).filter(Boolean);
     const successful = samples.filter(sample => sample.ok);
     const durations = successful.map(sample => sample.durationMs);
     return {
@@ -127,7 +133,7 @@ function providerSummary(rows, provider) {
 async function main() {
     const options = parseArgs(process.argv.slice(2));
     if (options.help) {
-        console.log('Usage: node scripts/benchmark-yahoo-providers.js --acknowledge-live-traffic (--limit N | --query TERM) [--timeout-ms N] [--authenticated] [--show-terms] [--verbose]');
+        console.log('Usage: node scripts/benchmark-yahoo-providers.js --acknowledge-live-traffic (--limit N | --query TERM) [--provider both|native|doorzo] [--parallel 1-4] [--timeout-ms N] [--authenticated] [--show-terms] [--verbose]');
         return;
     }
     if (!options.acknowledgeLiveTraffic) {
@@ -142,6 +148,12 @@ async function main() {
     if (options.timeoutMs > MAX_TIMEOUT_MS) {
         throw new Error(`--timeout-ms cannot exceed ${MAX_TIMEOUT_MS}`);
     }
+    if (!PROVIDERS.has(options.provider)) {
+        throw new Error('--provider must be both, native, or doorzo');
+    }
+    if (options.parallel > MAX_PARALLEL) {
+        throw new Error(`--parallel cannot exceed ${MAX_PARALLEL}`);
+    }
     if (options.verbose && !options.showTerms) {
         throw new Error('--verbose requires --show-terms because scraper logs contain raw queries');
     }
@@ -152,55 +164,72 @@ async function main() {
     const terms = await scheduledYahooTerms(options.query, options.query ? 1 : options.limit);
     if (terms.length === 0) throw new Error('No active Yahoo watch terms found');
 
-    const rows = [];
-    for (let index = 0; index < terms.length; index++) {
+    const rows = new Array(terms.length);
+    const batchStarted = performance.now();
+    let nextIndex = 0;
+    async function runTerm(index) {
         const query = terms[index];
-        const order = index % 2 === 0 ? ['native', 'doorzo'] : ['doorzo', 'native'];
+        const order = options.provider === 'both'
+            ? (index % 2 === 0 ? ['native', 'doorzo'] : ['doorzo', 'native'])
+            : [options.provider];
         const samples = {};
         for (const provider of order) {
             samples[provider] = await runProvider(provider, query, options);
         }
 
-        const nativeLinks = links(samples.native.results);
-        const doorzoLinks = links(samples.doorzo.results);
-        const overlap = [...nativeLinks].filter(link => doorzoLinks.has(link)).length;
+        const nativeLinks = links(samples.native?.results);
+        const doorzoLinks = links(samples.doorzo?.results);
+        const overlap = samples.native && samples.doorzo
+            ? [...nativeLinks].filter(link => doorzoLinks.has(link)).length
+            : 0;
         const row = {
             index: index + 1,
             ...(options.showTerms
                 ? { query }
                 : { termHash: crypto.createHash('sha256').update(query).digest('hex').slice(0, 12) }),
-            native: {
+            ...(samples.native ? { native: {
                 ok: samples.native.ok,
                 durationMs: samples.native.durationMs,
                 count: nativeLinks.size,
                 errorCode: samples.native.errorCode || null,
                 error: samples.native.error || null
-            },
-            doorzo: {
+            } } : {}),
+            ...(samples.doorzo ? { doorzo: {
                 ok: samples.doorzo.ok,
                 durationMs: samples.doorzo.durationMs,
                 count: doorzoLinks.size,
                 errorCode: samples.doorzo.errorCode || null,
                 error: samples.doorzo.error || null
-            },
+            } } : {}),
             overlap,
             nativeOnly: nativeLinks.size - overlap,
             doorzoOnly: doorzoLinks.size - overlap
         };
-        rows.push(row);
+        rows[index] = row;
         console.log(`YAHOO_BENCHMARK_TERM ${JSON.stringify(row)}`);
     }
+
+    const workerCount = Math.min(options.parallel, terms.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (nextIndex < terms.length) {
+            const index = nextIndex++;
+            await runTerm(index);
+        }
+    }));
 
     const summary = {
         generatedAt: new Date().toISOString(),
         termCount: rows.length,
-        native: providerSummary(rows, 'native'),
-        doorzo: providerSummary(rows, 'doorzo'),
-        overlap: {
+        provider: options.provider,
+        parallel: options.parallel,
+        batchDurationMs: Math.round(performance.now() - batchStarted),
+        ...(options.provider !== 'doorzo' ? { native: providerSummary(rows, 'native') } : {}),
+        ...(options.provider !== 'native' ? { doorzo: providerSummary(rows, 'doorzo') } : {}),
+        ...(options.provider === 'both' ? { overlap: {
             common: rows.reduce((sum, row) => sum + row.overlap, 0),
             nativeOnly: rows.reduce((sum, row) => sum + row.nativeOnly, 0),
             doorzoOnly: rows.reduce((sum, row) => sum + row.doorzoOnly, 0)
-        },
+        } } : {}),
         nativeState: yahoo.getNativeState()
     };
     console.log(`YAHOO_BENCHMARK_SUMMARY ${JSON.stringify(summary)}`);
