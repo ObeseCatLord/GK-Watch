@@ -56,7 +56,7 @@ function extractQuotedTerms(query) {
     return matches;
 }
 
-async function runSearch(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}, signal = null) {
+async function runSearch(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}, signal = null, executionContext = {}) {
     console.log(`Starting search for: ${query}`);
     throwIfAborted(signal);
     const settings = Settings.get();
@@ -213,7 +213,16 @@ async function runSearch(query, enabledOverride = null, strictOverride = null, f
     }
 
     if (enabled.yahoo !== false) {
-        scraperTasks.push({ name: 'Yahoo', promise: scheduleScraper('Yahoo', () => yahoo.search(query, strict.yahoo ?? true, settings.allowYahooInternationalShipping ?? false, 'yahoo', filters, signal)) });
+        const yahooMode = executionContext.kind === 'live' ? 'live' : 'watch';
+        scraperTasks.push({ name: 'Yahoo', promise: scheduleScraper('Yahoo', () => yahoo.search(
+            query,
+            strict.yahoo ?? true,
+            settings.allowYahooInternationalShipping ?? false,
+            'yahoo',
+            filters,
+            signal,
+            { mode: yahooMode }
+        )) });
     }
 
     if (enabled.paypay !== false) {
@@ -335,8 +344,17 @@ async function runSearch(query, enabledOverride = null, strictOverride = null, f
     });
 }
 
-function searchAll(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}, signal = null) {
-    return searchPool.run(() => runSearch(query, enabledOverride, strictOverride, filters, onProgress, siteOptions, signal), { signal });
+function searchAll(query, enabledOverride = null, strictOverride = null, filters = [], onProgress = null, siteOptions = {}, signal = null, executionContext = {}) {
+    return searchPool.run(() => runSearch(
+        query,
+        enabledOverride,
+        strictOverride,
+        filters,
+        onProgress,
+        siteOptions,
+        signal,
+        executionContext
+    ), { signal });
 }
 
 function reset() {

@@ -62,8 +62,24 @@ describe('search aggregator admission and cancellation', () => {
         expect(mockBrowserPoolRun).toHaveBeenCalledTimes(2);
         expect(mockMercariSearch).toHaveBeenCalledTimes(1);
         expect(mockYahooSearch).toHaveBeenCalledTimes(1);
+        expect(mockYahooSearch).toHaveBeenCalledWith('kit', true, false, 'yahoo', [], null, { mode: 'watch' });
         expect(mockTaobaoSearch).toHaveBeenCalledTimes(1);
         expect(mockGoofishSearch).toHaveBeenCalledTimes(1);
+    });
+
+    test('propagates live search context to Yahoo provider selection', async () => {
+        await searchAggregator.searchAll('kit', {
+            mercari: false,
+            yahoo: true,
+            paypay: false,
+            fril: false,
+            surugaya: false,
+            taobao: false,
+            goofish: false,
+            mandarake: false
+        }, true, [], null, {}, null, { kind: 'live' });
+
+        expect(mockYahooSearch).toHaveBeenCalledWith('kit', true, false, 'yahoo', [], null, { mode: 'live' });
     });
 
     test('does not emit a terminal scraper result after the search is aborted', async () => {

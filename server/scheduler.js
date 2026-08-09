@@ -468,7 +468,9 @@ const Scheduler = {
                                 item.strict !== false,
                                 item.filters || [],
                                 sourceOutcomes.onProgress,
-                                item.siteOptions || {}
+                                item.siteOptions || {},
+                                null,
+                                { kind: 'watch', runType: type }
                             );
                             if (results && results.length > 0) {
                                 for (const res of results) {

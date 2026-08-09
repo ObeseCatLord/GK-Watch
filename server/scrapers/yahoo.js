@@ -15,6 +15,15 @@ const COOKIES_FILE = path.join(__dirname, '../data/yahoo_cookies.json');
 const YAHOO_AUTH_COOKIE_NAMES = new Set(['A', 'T', 'Y', 'XA']);
 const YAHOO_SEARCH_HOST = 'auctions.yahoo.co.jp';
 const YAHOO_SEARCH_PATH = '/search/search';
+const YAHOO_BLOCK_MARKERS = [
+    'captcha',
+    'unusual traffic',
+    'access denied',
+    'security check',
+    'ロボットではない',
+    'アクセスが集中',
+    'しばらく時間をおいて'
+];
 
 function abortError() {
     const error = new Error('Yahoo search aborted');
@@ -52,7 +61,7 @@ function envInteger(name, fallback, min, max) {
 // 2. Create Axios Instance with default headers and agents
 const client = axios.create({
     baseURL: 'https://auctions.yahoo.co.jp',
-    timeout: 30000, // 30s timeout per request
+    timeout: envInteger('GKWATCH_YAHOO_NATIVE_TIMEOUT_MS', 30000, 5000, 120000),
     httpAgent,
     httpsAgent,
     validateStatus: status => status < 400 || status === 404,
@@ -66,31 +75,64 @@ const client = axios.create({
     }
 });
 
-// 3. Resilience: Exponential Backoff for 5xx errors
+function responseContainsBlockPage(response) {
+    const body = typeof response?.data === 'string' ? response.data.toLowerCase() : '';
+    return YAHOO_BLOCK_MARKERS.some(marker => body.includes(marker));
+}
+
+function isYahooBlockingResponse(response) {
+    const status = Number(response?.status);
+    return status === 403 || status === 429 || responseContainsBlockPage(response);
+}
+
+// Retry transient transport/upstream errors with a fresh timeout budget on every
+// attempt. Definite blocking responses are handled by the provider cooldown and
+// must not be amplified by immediate retries.
 axiosRetry(client, {
-    retries: 3,
+    retries: 2,
+    shouldResetTimeout: true,
     retryDelay: (retryCount) => {
         console.log(`[Yahoo Native] Request failed. Retrying attempt #${retryCount}...`);
-        return axiosRetry.exponentialDelay(retryCount);
+        return Math.max(2000, axiosRetry.exponentialDelay(retryCount));
     },
     retryCondition: (error) => {
         if (error.config?.signal?.aborted) return false;
-        // Retry on network errors, rate limiting, or 5xx status codes.
+        if (isYahooBlockingResponse(error.response)) return false;
         return axiosRetry.isNetworkOrIdempotentRequestError(error) ||
-            error.response?.status === 429 ||
             (error.response && error.response.status >= 500 && error.response.status <= 599);
     }
 });
 
-// 4. Conservative defaults, with bounded overrides for controlled benchmarking/tuning.
+// Yahoo tolerated high serial volume in testing but began challenge-blocking Foundry
+// under concurrent bursts. Keep native requests single-flight process-wide.
+const nativeMinTimeMs = envInteger('GKWATCH_YAHOO_NATIVE_MIN_TIME_MS', 750, 250, 10000);
 const limiter = new Bottleneck({
-    minTime: envInteger('GKWATCH_YAHOO_NATIVE_MIN_TIME_MS', 2000, 100, 10000),
-    maxConcurrent: envInteger('GKWATCH_YAHOO_NATIVE_CONCURRENCY', 1, 1, 6)
+    minTime: nativeMinTimeMs,
+    maxConcurrent: 1
 });
+
+const nativeBlockCooldownMs = envInteger('GKWATCH_YAHOO_NATIVE_BLOCK_COOLDOWN_MS', 15 * 60 * 1000, 60000, 60 * 60 * 1000);
+let nativeCooldownUntil = 0;
+let nativeCooldownReason = null;
 
 // Wrap the Axios GET method with rate limiting
 const scheduledGet = limiter.wrap(async (url, config) => {
-    return await client.get(url, config);
+    // Searches can queue while another request discovers a block. Recheck at
+    // execution time so already-queued terms cannot extend the block or clear it.
+    if (nativeCooldownUntil > Date.now()) throw nativeCooldownError();
+    try {
+        const response = await client.get(url, config);
+        if (isYahooBlockingResponse(response)) {
+            const error = new Error(`Yahoo returned a challenge page (HTTP ${response.status})`);
+            error.code = 'YAHOO_BLOCKED';
+            error.response = response;
+            throw error;
+        }
+        return response;
+    } catch (error) {
+        recordNativeFailure(error);
+        throw error;
+    }
 });
 
 // --- HELPER FUNCTIONS ---
@@ -150,8 +192,47 @@ function hasValidCookies(cookies = loadCookies()) {
     );
 }
 
-function getSearchStrategy(cookies) {
-    return hasValidCookies(cookies) ? 'authenticated-native' : 'doorzo-first';
+function getSearchStrategy(cookies, { mode = 'watch' } = {}) {
+    if (hasValidCookies(cookies)) return 'authenticated-native';
+    return mode === 'live' ? 'native-first' : 'doorzo-first';
+}
+
+function nativeCooldownError() {
+    const remainingMs = Math.max(0, nativeCooldownUntil - Date.now());
+    const error = new Error(`Yahoo native temporarily unavailable (${nativeCooldownReason || 'cooldown'}, ${Math.ceil(remainingMs / 1000)}s remaining)`);
+    error.code = 'YAHOO_NATIVE_COOLDOWN';
+    return error;
+}
+
+function openNativeCooldown(reason, durationMs) {
+    const nextUntil = Date.now() + durationMs;
+    if (nextUntil > nativeCooldownUntil) {
+        nativeCooldownUntil = nextUntil;
+        nativeCooldownReason = reason;
+        console.warn(`[Yahoo Native] Opening ${Math.ceil(durationMs / 1000)}s cooldown after ${reason}.`);
+    }
+}
+
+function recordNativeFailure(error) {
+    if (isYahooBlockingResponse(error?.response)) {
+        openNativeCooldown(`HTTP ${error.response?.status || 'challenge'} block`, nativeBlockCooldownMs);
+    }
+}
+
+function resetNativeState() {
+    nativeCooldownUntil = 0;
+    nativeCooldownReason = null;
+}
+
+function getNativeState() {
+    const cooldown = nativeCooldownUntil > Date.now();
+    return {
+        cooldown,
+        cooldownUntil: cooldown ? nativeCooldownUntil : null,
+        cooldownReason: cooldown ? nativeCooldownReason : null,
+        minTimeMs: nativeMinTimeMs,
+        maxConcurrent: 1
+    };
 }
 
 function stripCookieOnUnsafeRedirect(options) {
@@ -231,32 +312,49 @@ function sleep(ms, signal) {
 
 // --- SEARCH FUNCTIONS ---
 
-async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = [], signal = null) {
+async function search(query, strictEnabled = true, allowInternationalShipping = false, targetSource = 'all', filters = [], signal = null, options = {}) {
     console.log(`Searching Yahoo Auctions for ${query} (Target: ${targetSource})...`);
     throwIfAborted(signal);
     const cookies = loadCookies();
-    const searchStrategy = getSearchStrategy(cookies);
-    const cookieHeader = searchStrategy === 'authenticated-native' ? cookiesToHeader(cookies) : '';
+    const fallbackEnabled = options.fallback !== false;
+    const searchStrategy = options.provider === 'native'
+        ? 'native-first'
+        : options.provider === 'doorzo'
+            ? 'doorzo-first'
+            : getSearchStrategy(cookies, options);
+    const cookieHeader = options.useCookies !== false &&
+        (searchStrategy === 'authenticated-native' || options.provider === 'native') && hasValidCookies(cookies)
+        ? cookiesToHeader(cookies)
+        : '';
+    let doorzoAttempted = false;
+    let lastProviderError = null;
 
-    // Doorzo remains the anonymous fast path. A configured Yahoo session uses
-    // Yahoo directly so login-gated inventory cannot be hidden by proxy results.
+    // Watch runs remain on Doorzo unless authenticated. Live searches use native
+    // Yahoo first and fall back to Doorzo when native is unavailable.
     if (searchStrategy === 'doorzo-first') {
+        doorzoAttempted = true;
         try {
             const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters, signal);
             if (doorzoResults !== null) {
                 console.log(`[Yahoo] Doorzo API successful (${doorzoResults.length} items). Skipping Native.`);
                 return doorzoResults;
             }
+            lastProviderError = new Error('Doorzo returned no completion result');
         } catch (doorzoError) {
             if (isAborted(signal, doorzoError)) throw abortError();
+            lastProviderError = doorzoError;
             console.warn(`[Yahoo] Doorzo API failed (${doorzoError.message}), falling back to Native Axios...`);
         }
+        if (!fallbackEnabled) throw lastProviderError;
     } else {
-        console.log('[Yahoo] Valid login cookies found. Using authenticated Native search instead of Doorzo.');
+        console.log(searchStrategy === 'authenticated-native'
+            ? '[Yahoo] Valid login cookies found. Using authenticated Native search first.'
+            : '[Yahoo] Live search using Native Yahoo first.');
     }
 
     // Chain 2: Robust Native Axios Scraper (Fallback - Deep Search)
     try {
+        if (nativeCooldownUntil > Date.now()) throw nativeCooldownError();
         let results = [];
         const MAX_PAGES = 200;
         const seenLinks = new Set();
@@ -269,6 +367,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
             : [{ name: 'standard', querySuffix: '' }];
         let completedScopeCount = 0;
         let lastScopeError = null;
+        let terminalNativeError = null;
 
         console.log(`[Yahoo Fallback] Starting Native Axios Scraper for ${query}...`);
 
@@ -292,11 +391,21 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                             beforeRedirect: stripCookieOnUnsafeRedirect
                         } : {})
                     });
+                    if (isYahooBlockingResponse(response)) {
+                        const error = new Error(`Yahoo returned a challenge page (HTTP ${response.status})`);
+                        error.code = 'YAHOO_BLOCKED';
+                        error.response = response;
+                        throw error;
+                    }
                     const data = response.data;
 
                     // Check for "Page Not Found" or "Invalid Page"
                     if (data.includes('お探しのページは見つかりませんでした') || data.includes('ご指定のページが見つかりません')) {
-                        if (page === 0) throw new Error(`Yahoo ${scope.name} search page invalid/404`);
+                        if (page === 0) {
+                            const error = new Error(`Yahoo ${scope.name} search page invalid/404`);
+                            error.code = 'YAHOO_INVALID_PAGE';
+                            throw error;
+                        }
                         break; // Stop pagination if page is empty/404
                     }
                     scopeCompleted = true;
@@ -393,13 +502,23 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                     if (isAborted(signal, err)) throw abortError();
                     lastScopeError = err;
                     console.warn(`[Yahoo Native] [${query}] ${scope.name} error on page ${page + 1} (${err.message}). Continuing with ${results.length} items found so far.`);
+                    // An unauthenticated/expired adult scope may return Yahoo's normal
+                    // 404 page. Continue to standard search, but treat all transport,
+                    // timeout, block, and later-page failures as incomplete native runs.
+                    const harmlessMissingScope = page === 0 && err.code === 'YAHOO_INVALID_PAGE' &&
+                        (scope.name === 'adult' || results.length > 0);
+                    if (!harmlessMissingScope) {
+                        terminalNativeError = err;
+                    }
                     break;
                 }
             }
 
             if (scopeCompleted) completedScopeCount++;
+            if (terminalNativeError) break;
         }
 
+        if (terminalNativeError) throw terminalNativeError;
         if (completedScopeCount === 0 && lastScopeError) throw lastScopeError;
 
         // Apply negative filtering (server-side)
@@ -420,15 +539,35 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         if (strictEnabled || hasQuoted) {
             const strictResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
             console.log(`Yahoo (Axios) found ${results.length} items, ${strictResults.length} after strict filtering.`);
+            resetNativeState();
             return strictResults;
         }
 
         console.log(`Yahoo (Axios) found ${results.length} items (Strict filtering disabled).`);
+        resetNativeState();
         return results;
 
     } catch (axiosError) {
         if (isAborted(signal, axiosError)) throw abortError();
-        console.warn(`[Yahoo] Native Axios failed (${axiosError.message}), switching to Neokyo fallback...`);
+        recordNativeFailure(axiosError);
+        lastProviderError = axiosError;
+        console.warn(`[Yahoo] Native Axios failed (${axiosError.message}).`);
+
+        if (!doorzoAttempted && fallbackEnabled) {
+            doorzoAttempted = true;
+            console.warn('[Yahoo] Falling back from Native Yahoo to Doorzo...');
+            try {
+                const doorzoResults = await searchDoorzo(query, strictEnabled, allowInternationalShipping, targetSource, filters, signal);
+                if (doorzoResults !== null) return doorzoResults;
+                lastProviderError = new Error('Doorzo returned no completion result');
+            } catch (doorzoError) {
+                if (isAborted(signal, doorzoError)) throw abortError();
+                lastProviderError = doorzoError;
+            }
+        }
+
+        if (!fallbackEnabled) throw lastProviderError;
+        console.warn(`[Yahoo] Primary providers failed (${lastProviderError.message}), switching to Neokyo fallback...`);
     }
 
     // Chain 3: Neokyo (Puppeteer)
@@ -730,6 +869,7 @@ async function searchJauce(query, signal = null) {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             },
+            timeout: 30000,
             signal
         });
 
@@ -795,5 +935,8 @@ module.exports = {
     cookiesToHeader,
     isUsableYahooCookie,
     getSearchStrategy,
-    stripCookieOnUnsafeRedirect
+    stripCookieOnUnsafeRedirect,
+    isYahooBlockingResponse,
+    getNativeState,
+    resetNativeState
 };

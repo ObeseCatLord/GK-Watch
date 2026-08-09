@@ -156,14 +156,16 @@ describe('Live Search Filters API', () => {
 
         expect(response.status).toBe(200);
         // Verify searchAll was called with filters=['foo', 'bar']
-        // searchAll(query, enabledOverride, strict, filters, onProgress, siteOptions)
+        // searchAll(query, enabledOverride, strict, filters, onProgress, siteOptions, signal, context)
         expect(mockSearchAll).toHaveBeenCalledWith(
             'test',
             null,
             true,
             expect.arrayContaining(['foo', 'bar']),
             null,
-            {}
+            {},
+            null,
+            { kind: 'live' }
         );
     });
 
@@ -181,7 +183,9 @@ describe('Live Search Filters API', () => {
             true,
             expect.arrayContaining(['foo', 'bar']),
             null,
-            {}
+            {},
+            null,
+            { kind: 'live' }
         );
     });
 
@@ -193,7 +197,9 @@ describe('Live Search Filters API', () => {
             true,
             ['foo'],
             null,
-            {}
+            {},
+            null,
+            { kind: 'live' }
         );
     });
 
@@ -205,7 +211,9 @@ describe('Live Search Filters API', () => {
             true,
             expect.arrayContaining(['foo', 'bar']),
             null,
-            {}
+            {},
+            null,
+            { kind: 'live' }
         );
         // Should not contain empty string
         const calls = mockSearchAll.mock.calls[0];
@@ -223,7 +231,9 @@ describe('Live Search Filters API', () => {
             true,
             [],
             null,
-            { mandarake: { mode: 'garageKit' } }
+            { mandarake: { mode: 'garageKit' } },
+            null,
+            { kind: 'live' }
         );
     });
 
@@ -237,6 +247,7 @@ describe('Live Search Filters API', () => {
         expect(signal).toBeDefined();
         expect(typeof signal.addEventListener).toBe('function');
         expect(signal.aborted).toBe(false);
+        expect(mockSearchAll.mock.calls[0][7]).toEqual({ kind: 'live' });
     });
 
     test('records raw blocking-search sightings before filtering blocked items', async () => {
@@ -299,6 +310,7 @@ describe('Live Search Filters API', () => {
             'Tracked Watch',
             { successfulSources: new Set(['mercari']) }
         );
+        expect(mockSearchAll.mock.calls[0][7]).toEqual({ kind: 'watch', runType: 'manual-single' });
         expect(response.body.resultCount).toBe(1);
     });
 });

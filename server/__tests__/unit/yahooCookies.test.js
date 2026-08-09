@@ -19,6 +19,10 @@ describe('Yahoo cookie handling', () => {
             { name: 'B', value: 'analytics-value', domain: '.yahoo.co.jp', expirationDate: futureExpiry }
         ])).toBe('doorzo-first');
         expect(getSearchStrategy(null)).toBe('doorzo-first');
+        expect(getSearchStrategy(null, { mode: 'live' })).toBe('native-first');
+        expect(getSearchStrategy([
+            { name: 'A', value: 'session-value', domain: '.yahoo.co.jp', expirationDate: futureExpiry }
+        ], { mode: 'live' })).toBe('authenticated-native');
     });
 
     test('accepts Yahoo session cookies and rejects expired or foreign cookies', () => {
@@ -77,6 +81,132 @@ describe('Yahoo cookie handling', () => {
         const sameHost = { hostname: 'auctions.yahoo.co.jp', protocol: 'https:', headers: { Cookie: 'A=auth-value' } };
         stripCookieOnUnsafeRedirect(sameHost);
         expect(sameHost.headers.Cookie).toBe('A=auth-value');
+    });
+});
+
+describe('Yahoo live/watch provider routing', () => {
+    function loadYahoo({ nativeGet, doorzoPost, cookies = null, realBottleneck = false }) {
+        const retry = jest.fn();
+        retry.exponentialDelay = jest.fn(() => 100);
+        retry.isNetworkOrIdempotentRequestError = jest.fn(() => false);
+
+        jest.resetModules();
+        jest.doMock('axios', () => ({
+            create: jest.fn(() => ({ get: nativeGet })),
+            post: doorzoPost,
+            get: jest.fn()
+        }));
+        jest.doMock('axios-retry', () => ({ default: retry }));
+        if (realBottleneck) {
+            jest.dontMock('bottleneck');
+        } else {
+            jest.doMock('bottleneck', () => class {
+                wrap(task) { return task; }
+            });
+        }
+        jest.doMock('puppeteer', () => ({ launch: jest.fn() }));
+        jest.doMock('fs', () => ({
+            ...jest.requireActual('fs'),
+            accessSync: jest.fn(() => {
+                if (cookies) return;
+                const error = new Error('missing');
+                error.code = 'ENOENT';
+                throw error;
+            }),
+            readFileSync: jest.fn(() => JSON.stringify(cookies || []))
+        }));
+
+        return { yahoo: require('../../scrapers/yahoo'), retry };
+    }
+
+    test('keeps cookie-free watch searches on Doorzo', async () => {
+        const nativeGet = jest.fn();
+        const doorzoPost = jest.fn().mockResolvedValue({ data: { data: { list: [] } } });
+        const { yahoo } = loadYahoo({ nativeGet, doorzoPost });
+
+        await expect(yahoo.search('test', false, false, 'yahoo', [], null, { mode: 'watch' })).resolves.toEqual([]);
+
+        expect(doorzoPost).toHaveBeenCalledTimes(1);
+        expect(nativeGet).not.toHaveBeenCalled();
+    });
+
+    test('uses native Yahoo first for cookie-free live searches', async () => {
+        const nativeGet = jest.fn().mockResolvedValue({
+            status: 200,
+            data: '<ul class="Products__items"><li class="Product"><a class="Product__titleLink" href="https://auctions.yahoo.co.jp/jp/auction/live1">live item</a><span class="Product__priceValue">500円</span></li></ul>'
+        });
+        const doorzoPost = jest.fn();
+        const { yahoo, retry } = loadYahoo({ nativeGet, doorzoPost });
+
+        await expect(yahoo.search('test', false, false, 'yahoo', [], null, { mode: 'live' })).resolves.toEqual([
+            expect.objectContaining({ title: 'live item', price: '¥500' })
+        ]);
+
+        expect(nativeGet).toHaveBeenCalledTimes(1);
+        expect(doorzoPost).not.toHaveBeenCalled();
+        expect(retry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+            retries: 2,
+            shouldResetTimeout: true
+        }));
+    });
+
+    test('keeps authenticated watch searches native after another term times out', async () => {
+        const timeout = Object.assign(new Error('timeout of 30000ms exceeded'), { code: 'ECONNABORTED' });
+        const nativeGet = jest.fn().mockRejectedValue(timeout);
+        const doorzoPost = jest.fn().mockResolvedValue({ data: { data: { list: [] } } });
+        const cookies = [{ name: 'A', value: 'auth-value', domain: '.yahoo.co.jp', expirationDate: futureExpiry }];
+        const { yahoo } = loadYahoo({ nativeGet, doorzoPost, cookies });
+
+        await expect(yahoo.search('first', false, false, 'yahoo', [], null, { mode: 'watch' })).resolves.toEqual([]);
+        await expect(yahoo.search('second', false, false, 'yahoo', [], null, { mode: 'watch' })).resolves.toEqual([]);
+
+        expect(nativeGet).toHaveBeenCalledTimes(2);
+        expect(nativeGet).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+            headers: { Cookie: 'A=auth-value' }
+        }));
+        expect(doorzoPost).toHaveBeenCalledTimes(2);
+        expect(yahoo.getNativeState()).toMatchObject({
+            cooldown: false,
+            cooldownReason: null,
+            maxConcurrent: 1
+        });
+    });
+
+    test('opens native cooldown only for a definite Yahoo challenge response', async () => {
+        const blocked = Object.assign(new Error('Request failed with status code 500'), {
+            response: { status: 500, data: '<html>しばらく時間をおいてから再度お試しください</html>' }
+        });
+        const nativeGet = jest.fn().mockRejectedValue(blocked);
+        const doorzoPost = jest.fn().mockResolvedValue({ data: { data: { list: [] } } });
+        const { yahoo } = loadYahoo({ nativeGet, doorzoPost });
+
+        await expect(yahoo.search('first', false, false, 'yahoo', [], null, { mode: 'live' })).resolves.toEqual([]);
+        await expect(yahoo.search('second', false, false, 'yahoo', [], null, { mode: 'live' })).resolves.toEqual([]);
+
+        expect(nativeGet).toHaveBeenCalledTimes(1);
+        expect(doorzoPost).toHaveBeenCalledTimes(2);
+        expect(yahoo.getNativeState()).toMatchObject({ cooldown: true });
+    });
+
+    test('stops already-queued native searches when the active request is blocked', async () => {
+        let releaseFirstRequest;
+        const firstResponse = new Promise(resolve => { releaseFirstRequest = resolve; });
+        const nativeGet = jest.fn().mockImplementation(() => firstResponse);
+        const doorzoPost = jest.fn().mockResolvedValue({ data: { data: { list: [] } } });
+        const { yahoo } = loadYahoo({ nativeGet, doorzoPost, realBottleneck: true });
+
+        const first = yahoo.search('first', false, false, 'yahoo', [], null, { mode: 'live' });
+        const second = yahoo.search('second', false, false, 'yahoo', [], null, { mode: 'live' });
+        await new Promise(resolve => setImmediate(resolve));
+        releaseFirstRequest({
+            status: 500,
+            data: '<html>しばらく時間をおいてから再度お試しください</html>'
+        });
+
+        await expect(Promise.all([first, second])).resolves.toEqual([[], []]);
+        expect(nativeGet).toHaveBeenCalledTimes(1);
+        expect(doorzoPost).toHaveBeenCalledTimes(2);
+        expect(yahoo.getNativeState()).toMatchObject({ cooldown: true, maxConcurrent: 1 });
     });
 });
 

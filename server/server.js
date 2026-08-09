@@ -336,7 +336,16 @@ app.get('/api/search', requireAuth, async (req, res) => {
             };
 
             try {
-                await searchAggregator.searchAll(query, enabledOverride, strict, filters, onProgress, siteOptions, abortController.signal);
+                await searchAggregator.searchAll(
+                    query,
+                    enabledOverride,
+                    strict,
+                    filters,
+                    onProgress,
+                    siteOptions,
+                    abortController.signal,
+                    { kind: 'live' }
+                );
                 if (!clientDisconnected && !res.writableEnded && !res.destroyed) {
                     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
                 }
@@ -357,7 +366,16 @@ app.get('/api/search', requireAuth, async (req, res) => {
         }
 
         // Legacy blocking behavior
-        const results = await searchAggregator.searchAll(query, enabledOverride, strict, filters, null, siteOptions);
+        const results = await searchAggregator.searchAll(
+            query,
+            enabledOverride,
+            strict,
+            filters,
+            null,
+            siteOptions,
+            null,
+            { kind: 'live' }
+        );
         BlockedItems.recordSeen(results);
         let filteredResults = BlockedItems.filterResults(results);
         filteredResults = Blacklist.filterResults(filteredResults);
@@ -1009,7 +1027,9 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
                 item.strict !== false,
                 filters,
                 sourceOutcomes.onProgress,
-                item.siteOptions || {}
+                item.siteOptions || {},
+                null,
+                { kind: 'watch', runType: 'manual-single' }
             )
         ));
 
