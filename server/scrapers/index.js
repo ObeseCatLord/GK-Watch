@@ -12,7 +12,7 @@ let payPayFailed = false;
 
 const Settings = require('../models/settings');
 const queryMatcher = require('../utils/queryMatcher');
-const { searchPool, httpPool, browserPool } = require('../utils/admissionControl');
+const { searchPool, httpPool, mercariFreshnessPool, browserPool } = require('../utils/admissionControl');
 
 const BROWSER_SCRAPERS = new Set(['Taobao', 'Goofish']);
 
@@ -352,6 +352,7 @@ function getAdmissionStats() {
     return {
         searches: searchPool.stats(),
         httpScrapers: httpPool.stats(),
+        mercariFreshness: mercariFreshnessPool.stats(),
         browserScrapers: browserPool.stats()
     };
 }

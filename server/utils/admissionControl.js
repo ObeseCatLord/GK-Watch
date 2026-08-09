@@ -134,6 +134,12 @@ const httpPool = new AdmissionController({
     maxQueue: envInteger('GKWATCH_HTTP_QUEUE', 64, 0, 500)
 });
 
+const mercariFreshnessPool = new AdmissionController({
+    name: 'Mercari freshness',
+    maxConcurrent: envInteger('GKWATCH_MERCARI_FRESHNESS_CONCURRENCY', 2, 1, 4),
+    maxQueue: envInteger('GKWATCH_MERCARI_FRESHNESS_QUEUE', 24, 0, 100)
+});
+
 const browserPool = new AdmissionController({
     name: 'Browser scraper',
     maxConcurrent: envInteger('GKWATCH_BROWSER_CONCURRENCY', 2, 1, 6),
@@ -146,5 +152,6 @@ module.exports = {
     AdmissionAbortError,
     searchPool,
     httpPool,
+    mercariFreshnessPool,
     browserPool
 };

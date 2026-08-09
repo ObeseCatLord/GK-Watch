@@ -14,6 +14,7 @@ const mockMandarakeSearch = jest.fn();
 jest.mock('../../utils/admissionControl', () => ({
     searchPool: { run: mockSearchPoolRun, stats: () => ({}) },
     httpPool: { run: mockHttpPoolRun, stats: () => ({}) },
+    mercariFreshnessPool: { stats: () => ({}) },
     browserPool: { run: mockBrowserPoolRun, stats: () => ({}) }
 }));
 

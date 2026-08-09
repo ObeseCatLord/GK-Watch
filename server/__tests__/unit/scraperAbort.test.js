@@ -6,7 +6,7 @@ describe('Mercari and Yahoo cancellation', () => {
         jest.clearAllMocks();
     });
 
-    test('Mercari passes the supplied signal to its Axios request', async () => {
+    test('Mercari passes a deadline-bound signal to its Axios request', async () => {
         const mock = new MockAdapter(axios);
         const signal = new AbortController().signal;
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
@@ -18,7 +18,9 @@ describe('Mercari and Yahoo cancellation', () => {
         await mercari.search('test', false, [], null, signal);
 
         expect(mock.history.post).toHaveLength(1);
-        expect(mock.history.post[0].signal).toBe(signal);
+        expect(Object.is(mock.history.post[0].signal, signal)).toBe(false);
+        expect(mock.history.post[0].signal).toBeInstanceOf(AbortSignal);
+        expect(mock.history.post[0].signal.aborted).toBe(false);
         mock.restore();
     });
 
@@ -92,7 +94,10 @@ describe('Mercari and Yahoo cancellation', () => {
         jest.resetModules();
         jest.doMock('axios', () => mockAxios);
         jest.doMock('puppeteer', () => ({ launch: jest.fn(async () => mockBrowser) }));
-        jest.doMock('../../utils/admissionControl', () => ({ browserPool: { run: mockBrowserPoolRun } }));
+        jest.doMock('../../utils/admissionControl', () => ({
+            browserPool: { run: mockBrowserPoolRun },
+            mercariFreshnessPool: { run: (task, options) => task(options?.signal) }
+        }));
         jest.doMock('../../utils/browserExecutable', () => ({ resolveBrowserExecutable: jest.fn(() => undefined) }));
         jest.doMock('../../scrapers/doorzo', () => ({ search: jest.fn(async () => null) }));
         jest.doMock('../../scrapers/dejapan', () => ({ search: jest.fn(async () => null) }));
@@ -158,7 +163,10 @@ describe('Mercari and Yahoo cancellation', () => {
         jest.resetModules();
         jest.doMock('axios', () => mockAxios);
         jest.doMock('puppeteer', () => ({ launch: jest.fn(async () => mockBrowser) }));
-        jest.doMock('../../utils/admissionControl', () => ({ browserPool: { run: mockBrowserPoolRun } }));
+        jest.doMock('../../utils/admissionControl', () => ({
+            browserPool: { run: mockBrowserPoolRun },
+            mercariFreshnessPool: { run: (task, options) => task(options?.signal) }
+        }));
         jest.doMock('../../utils/browserExecutable', () => ({ resolveBrowserExecutable: jest.fn(() => undefined) }));
         jest.doMock('../../scrapers/doorzo', () => ({ search: jest.fn(async () => null) }));
         jest.doMock('../../scrapers/dejapan', () => ({ search: jest.fn(async () => null) }));
