@@ -49,6 +49,12 @@ function sourceKey(source) {
     return normalized;
 }
 
+function titleSourceKey(title, source) {
+    // Direct Fril searches and proxy results may use either marketplace name.
+    const identitySource = sourceKey(source) === 'fril' ? 'fril' : source;
+    return `${String(title).trim()}|${identitySource}`;
+}
+
 function createSourceOutcomeTracker() {
     const successful = new Set();
     const failed = new Set();
@@ -326,12 +332,12 @@ const Scheduler = {
     },
 
     start: () => {
-        console.log('Scheduler started. Checking every 30 minutes based on JST schedule.');
+        console.log('Scheduler started. Checking configured JST schedule slots.');
 
         // Check for resume state on startup
         Scheduler.resume();
 
-        cron.schedule('0,30 * * * *', async () => {
+        cron.schedule('0,15,20,30,40,45 * * * *', async () => {
             if (Scheduler.isRunning) {
                 console.log('[Scheduler] Search already running, skipping scheduled run.');
                 return;
@@ -591,7 +597,7 @@ const Scheduler = {
             const existingByTitleSource = new Map();
             existingItems.forEach(item => {
                 if (!blockedUrls.has(item.link) && item.title && item.source) {
-                    const key = `${item.title.trim()}|${item.source}`;
+                    const key = titleSourceKey(item.title, item.source);
                     existingByTitleSource.set(key, item);
                 }
             });
@@ -631,12 +637,11 @@ const Scheduler = {
                 const source = result.source ? result.source.toLowerCase() : '';
                 const isTimedSource = source.includes('yahoo') || source.includes('suruga') ||
                     source.includes('mercari') || source.includes('paypay') ||
-                    source === 'taobao' || source === 'goofish' || source === 'mandarake';
+                    source === 'taobao' || source === 'goofish' || source === 'mandarake' || sourceKey(source) === 'fril';
 
                 let duplicateInfo = null;
                 if (!isBlocked && result.title && result.source) {
-                    const titleStr = String(result.title).trim();
-                    const duplicateKey = `${titleStr}|${result.source}`;
+                    const duplicateKey = titleSourceKey(result.title, result.source);
                     duplicateInfo = existingByTitleSource.get(duplicateKey);
                 }
 
@@ -756,7 +761,11 @@ const Scheduler = {
                     item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
                 const ageMs = nowMs - lastSeenTime;
 
-                if (source.includes('yahoo')) {
+                if (sourceKey(source) === 'fril') {
+                    // Keep hidden listing history so gaps in search results and
+                    // relists with a new URL don't turn seen listings into new ones.
+                    preserve = true;
+                } else if (source.includes('yahoo')) {
                     if (ageMs < YAHOO_GRACE_PERIOD_MS) {
                         if (!item.title || !newTitlesBySource.yahoo.has(item.title.trim())) {
                             preserve = true;

@@ -15,7 +15,8 @@ const DEFAULT_SCHEDULE = {
 let cachedSchedule = null;
 
 function normalizeInterval(intervalMinutes) {
-    return Number(intervalMinutes) === 30 ? 30 : 60;
+    const interval = Number(intervalMinutes);
+    return [15, 20, 30, 60].includes(interval) ? interval : 60;
 }
 
 function normalizeHour(hour) {
@@ -24,10 +25,12 @@ function normalizeHour(hour) {
     return parsed;
 }
 
-function normalizeSlot(slot, intervalMinutes = 30) {
+function normalizeSlot(slot, intervalMinutes) {
     const parsed = Number(slot);
     if (!Number.isInteger(parsed) || parsed < 0 || parsed >= 24 * 60) return null;
-    if (parsed % intervalMinutes !== 0) return null;
+    if (intervalMinutes !== undefined) {
+        if (parsed % intervalMinutes !== 0) return null;
+    } else if (parsed % 15 !== 0 && parsed % 20 !== 0) return null;
     return parsed;
 }
 
@@ -63,7 +66,7 @@ function getJstSlot(date = new Date()) {
 }
 
 function formatSlot(slot) {
-    const normalized = normalizeSlot(slot, 30);
+    const normalized = normalizeSlot(slot);
     if (normalized === null) return '';
     const hour = Math.floor(normalized / 60);
     const minute = normalized % 60;
@@ -81,7 +84,7 @@ const ScheduleSettings = {
 
             const slotsRow = getSetting.get('enabledSlots');
             if (slotsRow) {
-                schedule.enabledSlots = normalizeSlots(JSON.parse(slotsRow.value), 30);
+                schedule.enabledSlots = normalizeSlots(JSON.parse(slotsRow.value));
             }
 
             const disabledHalfHoursRow = getSetting.get('disabledHalfHourSlots');
@@ -124,7 +127,7 @@ const ScheduleSettings = {
         const settings = ScheduleSettings.get();
         settings.intervalMinutes = normalizeInterval(intervalMinutes ?? settings.intervalMinutes);
         const sourceSlots = Array.isArray(enabledSlots) ? enabledSlots : hoursToSlots(enabledHours);
-        settings.enabledSlots = normalizeSlots(sourceSlots, 30);
+        settings.enabledSlots = normalizeSlots(sourceSlots);
         settings.disabledHalfHourSlots = normalizeHalfHourSlots(disabledHalfHourSlots ?? settings.disabledHalfHourSlots);
         settings.enabledHours = slotsToHours(settings.enabledSlots);
 

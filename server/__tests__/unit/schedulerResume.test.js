@@ -6,14 +6,19 @@ jest.mock('../../scrapers', () => ({
 const fs = require('fs');
 const Watchlist = require('../../models/watchlist');
 const searchAggregator = require('../../scrapers');
+const cron = require('node-cron');
 const { getTestDb, closeTestDb } = require('../testSetup');
 
 describe('scheduler resume state', () => {
     let Scheduler;
+    let ScheduleSettings;
+    let Cleanup;
 
     beforeAll(() => {
         getTestDb();
         Scheduler = require('../../scheduler');
+        ScheduleSettings = require('../../models/schedule');
+        Cleanup = require('../../utils/cleanup');
     });
 
     afterAll(() => {
@@ -62,5 +67,31 @@ describe('scheduler resume state', () => {
         expect(Scheduler.completionVersion).toBe(previousVersion + 1);
         expect(Scheduler.isRunning).toBe(false);
         expect(Scheduler.progress).toBeNull();
+    });
+
+    test.each([15, 20, 40, 45])('runs an enabled JST slot at minute %i', async minute => {
+        // Capture the actual cron registration without starting background jobs.
+        const schedule = jest.spyOn(cron, 'schedule').mockImplementation(() => ({}));
+        jest.spyOn(Scheduler, 'resume').mockResolvedValue();
+        jest.spyOn(Cleanup, 'runFullCleanup').mockReturnValue({});
+        jest.spyOn(Watchlist, 'getAll').mockResolvedValue([{ id: 'active-watch', active: true }, { id: 'disabled-watch', active: false }]);
+        const runBatch = jest.spyOn(Scheduler, 'runBatch').mockResolvedValue();
+        ScheduleSettings._resetCache();
+        ScheduleSettings.setSchedule({ intervalMinutes: minute % 20 === 0 ? 20 : 15, enabledSlots: [minute] });
+
+        Scheduler.start();
+        const [expression, tick] = schedule.mock.calls[0];
+        expect(expression.split(' ')[0].split(',').map(Number)).toContain(minute);
+        jest.useFakeTimers({ now: new Date(Date.UTC(2026, 0, 1, 15, minute)) });
+        try {
+            await tick();
+            expect(runBatch).toHaveBeenCalledWith([{ id: 'active-watch', active: true }], 'scheduled');
+            runBatch.mockClear();
+            jest.setSystemTime(new Date(Date.UTC(2026, 0, 1, 15, minute + 1)));
+            await tick();
+            expect(runBatch).not.toHaveBeenCalled();
+        } finally {
+            jest.useRealTimers();
+        }
     });
 });

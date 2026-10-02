@@ -699,8 +699,8 @@ app.get('/api/schedule', requireAuth, (req, res) => {
 
 app.post('/api/schedule', requireAuth, (req, res) => {
     const { enabledHours, enabledSlots, disabledHalfHourSlots, intervalMinutes } = req.body;
-    if (intervalMinutes !== undefined && ![30, 60].includes(Number(intervalMinutes))) {
-        return res.status(400).json({ error: 'intervalMinutes must be 30 or 60' });
+    if (intervalMinutes !== undefined && ![15, 20, 30, 60].includes(Number(intervalMinutes))) {
+        return res.status(400).json({ error: 'intervalMinutes must be 15, 20, 30 or 60' });
     }
     if (enabledSlots !== undefined && !Array.isArray(enabledSlots)) {
         return res.status(400).json({ error: 'enabledSlots must be an array' });

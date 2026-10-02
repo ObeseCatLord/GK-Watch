@@ -15,6 +15,7 @@ let Scheduler;
 let Watchlist;
 let FavoriteItems;
 let BlockedItems;
+let Cleanup;
 let db;
 
 beforeAll(() => {
@@ -23,6 +24,7 @@ beforeAll(() => {
     Watchlist = require('../../models/watchlist');
     FavoriteItems = require('../../models/favorite_items');
     BlockedItems = require('../../models/blocked_items');
+    Cleanup = require('../../utils/cleanup');
 });
 
 afterAll(() => {
@@ -36,6 +38,47 @@ beforeEach(() => {
 });
 
 describe('Scheduler.saveResults', () => {
+    test.each(['same-link', 'relisted-link'])('remembers Fril listings after they disappear and return as %s', async returningLink => {
+        const watch = await Watchlist.add({ term: 'fril-history', strict: false });
+        const original = { link: 'same-link', title: 'Garage Kit', source: 'Rakuma', price: '¥1,000' };
+        const initial = Scheduler.saveResults(watch.id, [original]);
+        expect(initial.newItems).toHaveLength(1);
+        Scheduler.clearNewFlags(watch.id);
+
+        // Simulate a long absence, including the normal scheduled cleanup pass.
+        const oldTimestamp = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        db.prepare('UPDATE results SET first_seen = ?, last_seen = ? WHERE watch_id = ?')
+            .run(oldTimestamp, oldTimestamp, watch.id);
+        expect(Scheduler.saveResults(watch.id, [], '', { successfulSources: new Set(['fril']) }).totalCount).toBe(0);
+        expect(db.prepare('SELECT hidden, is_new FROM results WHERE watch_id = ?').get(watch.id))
+            .toEqual({ hidden: 1, is_new: 0 });
+        Cleanup.cleanupExpiredResults();
+
+        const returned = { ...original, link: returningLink, source: 'Fril', price: '¥900' };
+        const result = Scheduler.saveResults(watch.id, [returned]);
+        expect(result.newItems).toHaveLength(0);
+        expect(result.totalCount).toBe(1);
+        const apiResults = await Scheduler.getResults(watch.id, { hidden: false });
+        expect(apiResults.newCount).toBe(0);
+        expect(apiResults.items).toHaveLength(1);
+        expect(apiResults.items[0]).toMatchObject({ link: returningLink, firstSeen: oldTimestamp, isNew: false });
+    });
+
+    test('a Fril relist preserves unread status and a distinct listing is still new', async () => {
+        const watch = await Watchlist.add({ term: 'fril-relist', strict: false });
+        Scheduler.saveResults(watch.id, [{ link: 'old-link', title: 'Garage Kit', source: 'Rakuma' }]);
+
+        const result = Scheduler.saveResults(watch.id, [
+            { link: 'new-link', title: 'Garage Kit', source: 'Rakuma' },
+            { link: 'distinct-link', title: 'Another Garage Kit', source: 'Rakuma' }
+        ]);
+        expect(result.newItems.map(item => item.link)).toEqual(['distinct-link']);
+        expect(result.totalCount).toBe(2);
+        const apiResults = await Scheduler.getResults(watch.id);
+        expect(apiResults.newCount).toBe(2);
+        expect(apiResults.items.find(item => item.link === 'new-link').isNew).toBe(true);
+    });
+
     test('preserves isNew flag on repeated runs and accurately counts new items', async () => {
         // Create a watch item
         const watch = await Watchlist.add({ term: 'test', strict: false });

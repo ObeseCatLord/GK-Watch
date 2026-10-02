@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-const normalizeScheduleInterval = (interval) => Number(interval) === 30 ? 30 : 60;
+const SUPPORTED_SCHEDULE_INTERVALS = [60, 30, 20, 15];
+const normalizeScheduleInterval = (interval) => {
+    const normalizedInterval = Number(interval);
+    return SUPPORTED_SCHEDULE_INTERVALS.includes(normalizedInterval) ? normalizedInterval : 60;
+};
 const normalizeSlots = (slots) => [...new Set((slots || [])
     .map(slot => Number(slot))
-    .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 24 * 60 && slot % 30 === 0))]
+    .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 24 * 60 && (slot % 15 === 0 || slot % 20 === 0)))]
     .sort((a, b) => a - b);
 const normalizeHalfHourSlots = (slots) => normalizeSlots(slots).filter(slot => slot % 60 === 30);
 const getLocalTimeZoneName = () => {
@@ -111,6 +115,22 @@ const OptionsManager = ({ authenticatedFetch }) => {
         return Array.from(slotSet).sort((a, b) => a - b);
     };
 
+    const populateIntermediateSlots = (slots, interval, disabledSlots) => {
+        const slotSet = new Set(normalizeSlots(slots));
+        const disabledSet = new Set(normalizeHalfHourSlots(disabledSlots));
+
+        for (const slot of Array.from(slotSet)) {
+            if (slot % 60 !== 0) continue;
+            for (let minute = interval; minute < 60; minute += interval) {
+                const intermediateSlot = slot + minute;
+                if (intermediateSlot % 60 === 30 && disabledSet.has(intermediateSlot)) continue;
+                slotSet.add(intermediateSlot);
+            }
+        }
+
+        return Array.from(slotSet).sort((a, b) => a - b);
+    };
+
     const saveSchedule = async (slots, interval = scheduleInterval, disabledSlots = disabledHalfHourSlots, applyDefaults = interval === 30) => {
         const normalizedInterval = normalizeScheduleInterval(interval);
         const normalizedDisabledSlots = normalizeHalfHourSlots(disabledSlots);
@@ -154,7 +174,11 @@ const OptionsManager = ({ authenticatedFetch }) => {
     };
 
     const changeScheduleInterval = async (interval) => {
-        await saveSchedule(enabledSlots, interval, disabledHalfHourSlots, interval === 30);
+        const normalizedInterval = normalizeScheduleInterval(interval);
+        const slots = normalizedInterval !== scheduleInterval && (normalizedInterval === 20 || normalizedInterval === 15)
+            ? populateIntermediateSlots(enabledSlots, normalizedInterval, disabledHalfHourSlots)
+            : enabledSlots;
+        await saveSchedule(slots, normalizedInterval, disabledHalfHourSlots, normalizedInterval === 30);
     };
 
     const formatSlot = (slot) => {
@@ -637,9 +661,23 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         >
                             30 min
                         </button>
+                        <button
+                            type="button"
+                            className={`segment-btn ${scheduleInterval === 20 ? 'active' : ''}`}
+                            onClick={() => changeScheduleInterval(20)}
+                        >
+                            20 min
+                        </button>
+                        <button
+                            type="button"
+                            className={`segment-btn ${scheduleInterval === 15 ? 'active' : ''}`}
+                            onClick={() => changeScheduleInterval(15)}
+                        >
+                            15 min
+                        </button>
                     </div>
                 </div>
-                <div className={`hour-grid ${scheduleInterval === 30 ? 'half-hour-grid' : ''}`}>
+                <div className={`hour-grid ${scheduleInterval === 30 ? 'half-hour-grid' : ''} ${scheduleInterval === 20 || scheduleInterval === 15 ? 'minute-grid' : ''}`}>
                     {Array.from({ length: (24 * 60) / scheduleInterval }, (_, i) => i * scheduleInterval).map(slot => (
                         <button
                             key={slot}

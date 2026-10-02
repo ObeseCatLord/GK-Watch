@@ -113,13 +113,31 @@ describe('ScheduleSettings', () => {
             expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T16:30:00.000Z'))).toBe(true);
             expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:15:00.000Z'))).toBe(false);
         });
+
+        test.each([15, 20])('persists and executes %i-minute slots across JST midnight', interval => {
+            ScheduleSettings.setSchedule({
+                intervalMinutes: interval,
+                enabledSlots: [0, interval, 1440 - interval]
+            });
+            ScheduleSettings._resetCache();
+
+            expect(ScheduleSettings.get().intervalMinutes).toBe(interval);
+            expect(ScheduleSettings.get().enabledSlots).toEqual([0, interval, 1440 - interval]);
+            for (const slot of [0, interval, 1440 - interval]) {
+                const date = new Date(Date.UTC(2026, 0, 1, -9, slot));
+                expect(ScheduleSettings.isScheduledNow(date)).toBe(true);
+                expect(ScheduleSettings.isScheduledNow(new Date(date.getTime() + 60000))).toBe(false);
+                expect(ScheduleSettings.formatSlot(slot)).toBe(`${Math.floor(slot / 60)}:${String(slot % 60).padStart(2, '0')}`);
+            }
+            expect(ScheduleSettings.isScheduledNow(new Date(Date.UTC(2026, 0, 1, -9, interval * 2)))).toBe(false);
+        });
     });
 
     describe('setSchedule', () => {
         test('normalizes half-hour slots and keeps whole-hour compatibility', () => {
             ScheduleSettings.setSchedule({
                 intervalMinutes: 30,
-                enabledSlots: [30, 0, 30, 60, 75, 1440, -30],
+                enabledSlots: [30, 0, 30, 60, 77, 1440, -30],
                 disabledHalfHourSlots: [30, 60, 90, 75]
             });
 
@@ -156,6 +174,18 @@ describe('ScheduleSettings', () => {
             });
 
             expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:30:00.000Z'))).toBe(true);
+        });
+
+        test('preserves mixed interval preferences while only running the selected interval', () => {
+            ScheduleSettings.setSchedule({ intervalMinutes: 15, enabledSlots: [0, 15, 20, 30, 40, 45, 60, 7] });
+            ScheduleSettings.setSchedule({ intervalMinutes: 20, enabledSlots: ScheduleSettings.get().enabledSlots });
+            ScheduleSettings._resetCache();
+
+            expect(ScheduleSettings.get().enabledSlots).toEqual([0, 15, 20, 30, 40, 45, 60]);
+            expect(ScheduleSettings.get().enabledHours).toEqual([0, 1]);
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:20:00.000Z'))).toBe(true);
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:15:00.000Z'))).toBe(false);
+            expect(ScheduleSettings.isScheduledNow(new Date('2026-01-01T15:30:00.000Z'))).toBe(false);
         });
     });
 });

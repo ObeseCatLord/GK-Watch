@@ -509,7 +509,7 @@ h1 {
   margin-bottom: 0.5rem;
   padding: 1rem;
   padding-left: 0.5rem;
-  border-radius: 8px;
+  border-radius: 0;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
@@ -517,6 +517,10 @@ h1 {
   transition: all 0.5s ease-in-out;
   /* Smooth transition for reordering */
   position: relative;
+}
+
+.watchlist-results .result-card {
+  border-radius: 0;
 }
 
 .watchlist-item.moving-up {
@@ -890,7 +894,8 @@ h1 {
   gap: 0.5rem;
 }
 
-.hour-grid.half-hour-grid {
+.hour-grid.half-hour-grid,
+.hour-grid.minute-grid {
   grid-template-columns: repeat(8, minmax(0, 1fr));
 }
 
@@ -1923,7 +1928,8 @@ h1 {
     grid-template-columns: repeat(4, 1fr);
   }
 
-  .hour-grid.half-hour-grid {
+  .hour-grid.half-hour-grid,
+  .hour-grid.minute-grid {
     grid-template-columns: repeat(4, 1fr);
   }
 
@@ -2008,7 +2014,8 @@ h1 {
     grid-template-columns: repeat(3, 1fr);
   }
 
-  .hour-grid.half-hour-grid {
+  .hour-grid.half-hour-grid,
+  .hour-grid.minute-grid {
     grid-template-columns: repeat(3, 1fr);
   }
 
@@ -2053,5 +2060,19 @@ h1 {
     flex-grow: 1;
     font-size: 1rem;
     /* Slightly smaller text prevents zoom on some mobiles but keeps it readable */
+  }
+}
+
+@media (max-width: 480px) {
+  .schedule-interval-toggle {
+    display: flex;
+    width: 100%;
+  }
+
+  .segment-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.5rem 0.25rem;
+    font-size: 0.8rem;
   }
 }

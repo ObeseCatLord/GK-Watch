@@ -108,10 +108,13 @@ function cleanupExpiredResults({ dryRun = false } = {}) {
         stats.originalSize = beforeCount;
 
         // Keep items that have no timestamps (legacy) or have been seen recently.
+        // Fril/Rakuma rows also serve as relist history, including hidden rows.
         // Count first so dry runs can return a useful, non-mutating preview.
         const expiredWhere = `
             COALESCE(last_seen, first_seen) IS NOT NULL
             AND COALESCE(last_seen, first_seen) < ?
+            AND LOWER(COALESCE(source, '')) NOT LIKE '%fril%'
+            AND LOWER(COALESCE(source, '')) NOT LIKE '%rakuma%'
         `;
         stats.wouldRemove = db.prepare(`SELECT COUNT(*) AS count FROM results WHERE ${expiredWhere}`).get(cutoffIso).count;
 
