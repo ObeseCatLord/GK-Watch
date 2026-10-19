@@ -17,7 +17,7 @@ The server runs on port 3000 and is started automatically when you run the clien
 
 ## Operations
 
-Use Node 20 (`.nvmrc`) and immutable installs:
+Use Node 24 LTS (`.nvmrc`; supported range: Node 22.12.0 through 26.x) and immutable installs:
 
 ```bash
 cd server && npm ci
@@ -26,7 +26,9 @@ cd ../client && npm ci && npm run build
 
 Browser-backed scrapers require Chrome, Chromium, or Microsoft Edge on the host. Set `PUPPETEER_EXECUTABLE_PATH` when it is not installed in a standard location; Puppeteer browser downloads are intentionally disabled for reproducible deployments.
 
-Puppeteer remains on 24.x for Node 20 compatibility. The production dependency audit still reports its `extract-zip` and `basic-ftp` browser-download dependency chains. The configured scrapers launch an existing system browser and do not use these download paths. Removing those dependencies through the supported Puppeteer 25 upgrade requires Node 22.12 or newer; it is a separate runtime migration. These findings remain visible in the audit rather than being suppressed.
+Puppeteer 25 is supported with this Node runtime. On Linux deployments, install a project-specific Node runtime at `.runtime/node/bin/node`. PM2 uses `GKWATCH_NODE_PATH` when set, otherwise this project runtime when it exists, and finally the system `node`; `deploy_remote.sh` adds the selected runtime's `bin` directory to `PATH` before running npm, setup, and PM2 commands.
+
+Run `npm --prefix server run test:browser` to check real browser launches, cookies, request interception, and listing extraction for the scraper launch modes. This smoke test uses a local fixture and temporary browser profiles.
 
 Ntfy defaults to `https://ntfy.sh`. Self-hosted public endpoints must be explicitly listed in `NTFY_ALLOWED_ORIGINS` as a comma-separated set of HTTPS origins.
 

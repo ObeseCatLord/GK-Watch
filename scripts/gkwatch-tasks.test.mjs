@@ -5,14 +5,14 @@ import test from 'node:test';
 import { browserCandidates, isSupportedNodeVersion } from './gkwatch-tasks.mjs';
 
 test('accepts the supported Node range', () => {
-    assert.equal(isSupportedNodeVersion('20.18.1'), true);
-    assert.equal(isSupportedNodeVersion('20.20.2'), true);
+    assert.equal(isSupportedNodeVersion('22.12.0'), true);
+    assert.equal(isSupportedNodeVersion('24.0.0'), true);
     assert.equal(isSupportedNodeVersion('26.9.0'), true);
 });
 
 test('rejects unsupported or malformed Node versions', () => {
-    assert.equal(isSupportedNodeVersion('20.18.0'), false);
-    assert.equal(isSupportedNodeVersion('19.9.0'), false);
+    assert.equal(isSupportedNodeVersion('22.11.9'), false);
+    assert.equal(isSupportedNodeVersion('20.20.2'), false);
     assert.equal(isSupportedNodeVersion('27.0.0'), false);
     assert.equal(isSupportedNodeVersion('invalid'), false);
 });

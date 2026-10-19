@@ -1,6 +1,20 @@
 const axios = require('axios');
 const MockAdapter = require('axios-mock-adapter');
 
+async function waitForNavigation(started) {
+    let timeout;
+    try {
+        await Promise.race([
+            started,
+            new Promise((_resolve, reject) => {
+                timeout = setTimeout(() => reject(new Error('Browser navigation did not start')), 5000);
+            })
+        ]);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 describe('Mercari and Yahoo cancellation', () => {
     afterEach(() => {
         jest.clearAllMocks();
@@ -67,6 +81,8 @@ describe('Mercari and Yahoo cancellation', () => {
 
     test('Mercari admits its native fallback to browserPool and closes only its search context on abort', async () => {
         const mockBrowserPoolRun = jest.fn((task, options) => task(options.signal));
+        let navigationStarted;
+        const started = new Promise(resolve => { navigationStarted = resolve; });
         let rejectGoto;
         const mockPage = {
             close: jest.fn(async () => { rejectGoto(new Error('page closed')); }),
@@ -75,7 +91,7 @@ describe('Mercari and Yahoo cancellation', () => {
             setUserAgent: jest.fn(async () => {}),
             setExtraHTTPHeaders: jest.fn(async () => {}),
             evaluateOnNewDocument: jest.fn(async () => {}),
-            goto: jest.fn(() => new Promise((resolve, reject) => { rejectGoto = reject; }))
+            goto: jest.fn(() => new Promise((_resolve, reject) => { rejectGoto = reject; navigationStarted(); }))
         };
         const mockContext = {
             close: jest.fn(async () => {}),
@@ -106,17 +122,22 @@ describe('Mercari and Yahoo cancellation', () => {
         const controller = new AbortController();
         const search = mercari.search('test', false, [], null, controller.signal);
 
-        for (let attempt = 0; !mockPage.goto.mock.calls.length && attempt < 10; attempt++) {
-            await new Promise(resolve => setImmediate(resolve));
-        }
-        expect(mockPage.goto).toHaveBeenCalled();
-        controller.abort();
+        try {
+            // Wait for the actual event: crypto work can take more than a fixed
+            // number of event-loop turns on a different Node version or host.
+            await waitForNavigation(started);
+            expect(mockPage.goto).toHaveBeenCalled();
+            controller.abort();
 
-        await expect(search).rejects.toMatchObject({ code: 'ABORT_ERR' });
-        expect(mockBrowserPoolRun).toHaveBeenCalledWith(expect.any(Function), { signal: controller.signal });
-        expect(mockPage.close).toHaveBeenCalled();
-        expect(mockContext.close).toHaveBeenCalled();
-        expect(mockBrowser.close).not.toHaveBeenCalled();
+            await expect(search).rejects.toMatchObject({ code: 'ABORT_ERR' });
+            expect(mockBrowserPoolRun).toHaveBeenCalledWith(expect.any(Function), { signal: controller.signal });
+            expect(mockPage.close).toHaveBeenCalled();
+            expect(mockContext.close).toHaveBeenCalled();
+            expect(mockBrowser.close).not.toHaveBeenCalled();
+        } finally {
+            controller.abort();
+            await search.catch(() => {});
+        }
     });
 
     test('Mercari native fallback returns extracted results when HTTP providers fail', async () => {

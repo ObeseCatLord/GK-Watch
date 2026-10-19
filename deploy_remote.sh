@@ -24,6 +24,19 @@ umask 077
 REMOTE_DIR=$1
 cd "$REMOTE_DIR"
 
+if [ -n "${GKWATCH_NODE_PATH:-}" ]; then
+    RUNTIME_NODE="$GKWATCH_NODE_PATH"
+elif [ -x "$REMOTE_DIR/.runtime/node/bin/node" ]; then
+    RUNTIME_NODE="$REMOTE_DIR/.runtime/node/bin/node"
+else
+    RUNTIME_NODE=""
+fi
+
+if [ -n "$RUNTIME_NODE" ]; then
+    export GKWATCH_NODE_PATH="$RUNTIME_NODE"
+    export PATH="$(dirname "$RUNTIME_NODE"):$PATH"
+fi
+
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "[ERROR] Refusing to deploy over uncommitted remote changes." >&2
     exit 1

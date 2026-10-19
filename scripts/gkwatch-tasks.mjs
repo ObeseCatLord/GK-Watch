@@ -13,9 +13,12 @@ const CLIENT_BUILD = path.join(CLIENT_DIR, 'dist', 'index.html');
 const IS_WINDOWS = process.platform === 'win32';
 
 export function isSupportedNodeVersion(version = process.versions.node) {
-    const [major, minor, patch] = String(version).split('.').map(Number);
-    if (![major, minor, patch].every(Number.isFinite)) return false;
-    return (major === 20 && (minor > 18 || (minor === 18 && patch >= 1))) || (major > 20 && major < 27);
+    const parts = String(version).split('.');
+    if (parts.length !== 3 || !parts.every(part => /^\d+$/.test(part))) return false;
+
+    const [major, minor, patch] = parts.map(Number);
+    return major >= 23 && major < 27 ||
+        (major === 22 && (minor > 12 || (minor === 12 && patch >= 0)));
 }
 
 export function browserCandidates(env = process.env, platform = process.platform) {
@@ -84,7 +87,7 @@ function runChecked(command, args, options = {}) {
 
 function checkNode() {
     if (!isSupportedNodeVersion()) {
-        throw new Error(`Node.js 20.18.1 through 26.x is required. Found ${process.version}.`);
+        throw new Error(`Node.js 22.12.0 through 26.x is required. Found ${process.version}.`);
     }
 }
 

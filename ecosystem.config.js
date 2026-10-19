@@ -1,8 +1,14 @@
+const fs = require('fs');
+const path = require('path');
+
+const projectNode = path.join(__dirname, '.runtime', 'node', 'bin', 'node');
+const interpreter = process.env.GKWATCH_NODE_PATH || (fs.existsSync(projectNode) ? projectNode : 'node');
+
 module.exports = {
     apps: [{
         name: "gkwatch",
         script: "./server/server.js",
-        interpreter: "node",
+        interpreter,
         cwd: __dirname,
         instances: 1,
         exec_mode: "fork",
@@ -20,7 +26,7 @@ module.exports = {
     }, {
         name: "gkwatch-backup",
         script: "./server/utils/backup.js",
-        interpreter: "node",
+        interpreter,
         cwd: __dirname,
         instances: 1,
         exec_mode: "fork",

@@ -1,5 +1,6 @@
 module.exports = {
     testEnvironment: 'node',
+    setupFiles: ['<rootDir>/__tests__/setupPuppeteer.js'],
     testMatch: ['<rootDir>/__tests__/**/*.test.js'],
     // Detect open handles for debugging
     detectOpenHandles: true,
