@@ -58,6 +58,12 @@ function validateSiteMap(value, key) {
     return normalized;
 }
 
+function normalizeLegacySmtpPort(value) {
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) return value;
+    const port = Number(value);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : value;
+}
+
 function hashPassword(password) {
     const cost = 16384;
     const salt = crypto.randomBytes(16);
@@ -175,6 +181,7 @@ const Settings = {
             enabledSites: { ...DEFAULT_SETTINGS.enabledSites, ...(isPlainObject(stored.enabledSites) ? stored.enabledSites : {}) },
             strictFiltering: { ...DEFAULT_SETTINGS.strictFiltering, ...(isPlainObject(stored.strictFiltering) ? stored.strictFiltering : {}) }
         };
+        parsed.smtpPort = normalizeLegacySmtpPort(parsed.smtpPort);
         for (const secret of ['smtpPass', 'loginPassword']) {
             if (parsed[secret] && !(secret === 'loginPassword' && isPasswordHash(parsed[secret]))) {
                 try { parsed[secret] = Encryption.decrypt(parsed[secret]); }

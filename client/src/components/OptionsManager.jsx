@@ -33,12 +33,16 @@ const OptionsManager = ({ authenticatedFetch }) => {
         loginPassword: ''
     });
     const [saved, setSaved] = useState(false);
+    const [settingsError, setSettingsError] = useState('');
     const [testStatus, setTestStatus] = useState('');
     const [ntfyTestStatus, setNtfyTestStatus] = useState('');
     const [enabledSlots, setEnabledSlots] = useState([]);
     const [disabledHalfHourSlots, setDisabledHalfHourSlots] = useState([]);
     const [scheduleInterval, setScheduleInterval] = useState(60);
     const saveTimeoutRef = React.useRef(null);
+    const pendingSettingsRef = React.useRef({});
+    const savePromiseRef = React.useRef(Promise.resolve());
+    const savedTimeoutRef = React.useRef(null);
 
     const [timeZoneName] = useState(getLocalTimeZoneName);
 
@@ -99,6 +103,10 @@ const OptionsManager = ({ authenticatedFetch }) => {
         }, 0);
         return () => clearTimeout(timer);
     }, [fetchSettings, fetchSchedule]);
+
+    useEffect(() => () => {
+        clearTimeout(savedTimeoutRef.current);
+    }, []);
 
     const applyHalfHourDefaults = (slots, disabledSlots) => {
         const disabledSet = new Set(normalizeHalfHourSlots(disabledSlots));
@@ -205,6 +213,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
         }
 
         try {
+            await flushSettings();
             const res = await authenticatedFetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -218,8 +227,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
             setPasswordSaved(true);
             setTimeout(() => setPasswordSaved(false), 3000);
 
-            // Refresh settings to reflect loginEnabled status
-            fetchSettings();
+            setSettings(current => ({ ...current, hasLoginPassword: data.hasLoginPassword, loginEnabled: data.loginEnabled }));
         } catch (err) {
             console.error('Error saving password:', err);
             setPasswordError(err.message || 'Failed to save password');
@@ -231,36 +239,56 @@ const OptionsManager = ({ authenticatedFetch }) => {
         const { name, value, type, checked } = e.target;
         const newSettings = {
             ...settings,
-            [name]: type === 'checkbox' ? checked : value
+            [name]: type === 'checkbox' ? checked : type === 'number' && value !== '' ? Number(value) : value
         };
         setSettings(newSettings);
-        triggerAutoSave(newSettings);
+        triggerAutoSave({ [name]: newSettings[name] });
     };
 
     const handleNestedChange = (category, key, value) => {
         const newCategory = { ...settings[category] || {}, [key]: value };
         const newSettings = { ...settings, [category]: newCategory };
         setSettings(newSettings);
-        triggerAutoSave(newSettings);
+        triggerAutoSave({ [category]: newCategory });
     };
 
-    const triggerAutoSave = (newSettings) => {
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-        }
-        saveTimeoutRef.current = setTimeout(async () => {
+    const flushSettings = () => {
+        clearTimeout(saveTimeoutRef.current);
+        // Serialize saves so an older request cannot overwrite newer edits.
+        const save = savePromiseRef.current.catch(() => {}).then(async () => {
+            const changes = pendingSettingsRef.current;
+            if (Object.keys(changes).length === 0) return;
+            pendingSettingsRef.current = {};
             try {
-                await authenticatedFetch('/api/settings', {
+                const res = await authenticatedFetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newSettings)
+                    body: JSON.stringify(changes)
                 });
-                setSaved(true);
-                setTimeout(() => setSaved(false), 2000);
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Failed to save settings');
+                setSettingsError('');
+                setSaved(Object.keys(pendingSettingsRef.current).length === 0);
+                clearTimeout(savedTimeoutRef.current);
+                savedTimeoutRef.current = setTimeout(() => setSaved(false), 2000);
             } catch (err) {
+                pendingSettingsRef.current = { ...changes, ...pendingSettingsRef.current };
+                setSaved(false);
+                setSettingsError(err.message);
                 console.error('Error auto-saving settings:', err);
+                throw err;
             }
-        }, 500);
+        });
+        savePromiseRef.current = save;
+        return save;
+    };
+
+    const triggerAutoSave = (changes) => {
+        pendingSettingsRef.current = { ...pendingSettingsRef.current, ...changes };
+        setSaved(false);
+        setSettingsError('');
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => { flushSettings().catch(() => {}); }, 500);
     };
 
     const handleCookieSave = async () => {
@@ -312,6 +340,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
         setTestStatus('sending');
         try {
+            await flushSettings();
             const res = await authenticatedFetch('/api/settings/test-email', {
                 method: 'POST'
             });
@@ -347,6 +376,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
         setNtfyTestStatus('sending');
         try {
+            await flushSettings();
             const res = await authenticatedFetch('/api/settings/test-ntfy', {
                 method: 'POST'
             });
@@ -978,6 +1008,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                         return;
                                     }
                                     try {
+                                        await flushSettings();
                                         const res = await authenticatedFetch('/api/settings', {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
@@ -990,7 +1021,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                         setSmtpPassError('');
                                         setSmtpPassSaved(true);
                                         setTimeout(() => setSmtpPassSaved(false), 3000);
-                                        fetchSettings();
+                                        setSettings(current => ({ ...current, hasSmtpPass: data.hasSmtpPass }));
                                     } catch (err) {
                                         console.error('Error saving SMTP password:', err);
                                         setSmtpPassError(err.message || 'Failed to save');
@@ -1178,6 +1209,11 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 </div>
             </div>
 
+            {settingsError && (
+                <div role="alert" style={{ color: '#ff6b6b', marginTop: '1rem' }}>
+                    Settings could not be saved: {settingsError}
+                </div>
+            )}
             {saved && (
                 <div className="auto-save-indicator">✓ Settings saved</div>
             )}

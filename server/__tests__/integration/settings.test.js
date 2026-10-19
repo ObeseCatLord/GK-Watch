@@ -6,10 +6,11 @@
 
 const { getTestDb, closeTestDb, clearTestDb } = require('../testSetup');
 
+let db;
 let Settings;
 
 beforeAll(() => {
-    getTestDb();
+    db = getTestDb();
     Settings = require('../../models/settings');
 });
 
@@ -54,6 +55,43 @@ describe('Settings', () => {
             const s2 = Settings.get();
             s1.emailEnabled = true;
             expect(s2.emailEnabled).toBe(false);
+        });
+
+        test('normalizes a legacy numeric smtp port string without mutating it on read', async () => {
+            await Settings.update({
+                smtpPass: 'legacy-mail-secret',
+                smtpUser: 'mailer',
+                emailEnabled: true,
+                enabledSites: { mercari: false },
+                strictFiltering: { yahoo: false }
+            });
+            db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('smtpPort', JSON.stringify('2525'));
+            Settings._resetCache();
+
+            const legacy = Settings.get();
+            expect(legacy.smtpPort).toBe(2525);
+            expect(legacy.smtpPass).toBe('legacy-mail-secret');
+            expect(legacy.enabledSites.mercari).toBe(false);
+            expect(legacy.strictFiltering.yahoo).toBe(false);
+            expect(db.prepare('SELECT value FROM settings WHERE key = ?').get('smtpPort').value).toBe(JSON.stringify('2525'));
+
+            await Settings.update({ ...legacy, email: 'legacy@example.com', smtpHost: 'smtp.example.com' });
+            Settings._resetCache();
+
+            const reloaded = Settings.get();
+            expect(reloaded.smtpPort).toBe(2525);
+            expect(reloaded.email).toBe('legacy@example.com');
+            expect(reloaded.smtpHost).toBe('smtp.example.com');
+            expect(reloaded.smtpPass).toBe('legacy-mail-secret');
+            expect(reloaded.enabledSites.mercari).toBe(false);
+            expect(reloaded.strictFiltering.yahoo).toBe(false);
+        });
+
+        test.each(['0', '65536', '587.0', '-587', 'not-a-port'])('leaves invalid stored smtp port %p unchanged', (smtpPort) => {
+            db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('smtpPort', JSON.stringify(smtpPort));
+            Settings._resetCache();
+
+            expect(Settings.get().smtpPort).toBe(smtpPort);
         });
     });
 
@@ -135,6 +173,10 @@ describe('Settings', () => {
             await expect(Settings.update({ unexpected: true })).rejects.toThrow('Unknown setting');
             await expect(Settings.update({ concurrency: 6 })).rejects.toThrow('concurrency');
             await expect(Settings.update({ concurrency: 1.5 })).rejects.toThrow('concurrency');
+        });
+
+        test.each(['587', '0', '65536', '587.0'])('rejects string smtp port %p in updates', async (smtpPort) => {
+            await expect(Settings.update({ smtpPort })).rejects.toThrow('smtpPort must be an integer from 1 to 65535');
         });
 
         test('rejects non-HTTPS and non-allowlisted ntfy origins', async () => {
