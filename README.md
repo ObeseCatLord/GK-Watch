@@ -26,6 +26,8 @@ cd ../client && npm ci && npm run build
 
 Browser-backed scrapers require Chrome, Chromium, or Microsoft Edge on the host. Set `PUPPETEER_EXECUTABLE_PATH` when it is not installed in a standard location; Puppeteer browser downloads are intentionally disabled for reproducible deployments.
 
+Puppeteer remains on 24.x for Node 20 compatibility. The production dependency audit still reports its `extract-zip` and `basic-ftp` browser-download dependency chains. The configured scrapers launch an existing system browser and do not use these download paths. Removing those dependencies through the supported Puppeteer 25 upgrade requires Node 22.12 or newer; it is a separate runtime migration. These findings remain visible in the audit rather than being suppressed.
+
 Ntfy defaults to `https://ntfy.sh`. Self-hosted public endpoints must be explicitly listed in `NTFY_ALLOWED_ORIGINS` as a comma-separated set of HTTPS origins.
 
 `GET /api/health` is the deployment readiness endpoint. PM2 runs the application and an online SQLite backup at 03:00 daily through `ecosystem.config.js`.
