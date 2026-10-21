@@ -14,6 +14,7 @@ const db = require('./models/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const LISTEN_HOST = process.env.GKWATCH_LISTEN_HOST || '127.0.0.1';
 const DATA_DIR = path.join(__dirname, 'data');
 const COOKIE_FILES = ['taobao_cookies.json', 'goofish_cookies.json', 'mandarake_cookies.json', 'yahoo_cookies.json'];
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
@@ -1109,8 +1110,8 @@ if (fs.existsSync(clientBuildPath)) {
 }
 
 if (require.main === module) {
-    app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`);
+    app.listen(PORT, LISTEN_HOST, () => {
+        console.log(`Server running on http://${LISTEN_HOST}:${PORT}`);
     });
 }
 
