@@ -185,6 +185,28 @@ describe('Scheduler.saveResults', () => {
         expect(meta.new_count).toBe(0);
     });
 
+    test.each(['firstSeen', 'title', 'price', 'favorite'])('keeps unread favorite price updates ahead of seen results before pagination with %s sorting', async sortBy => {
+        const watch = await Watchlist.add({ term: 'updated-order', strict: false });
+        const favorite = { link: 'updated-favorite', title: 'Z Favorite', source: 'mercari', price: '1000' };
+        const seen = { link: 'seen-result', title: 'A Seen', source: 'mercari', price: '100' };
+        Scheduler.saveResults(watch.id, [favorite, seen]);
+        Scheduler.clearNewFlags(watch.id);
+        db.prepare('UPDATE results SET first_seen = ? WHERE link = ?').run('2000-01-01T00:00:00.000Z', favorite.link);
+        FavoriteItems.add(favorite.link, favorite.title, '', favorite.price, favorite.source);
+        Scheduler.saveResults(watch.id, [{ ...favorite, price: '1500' }, seen]);
+
+        const options = { page: 1, pageSize: 1, sortBy, sortDirection: sortBy === 'firstSeen' ? 'desc' : 'asc', hidden: false };
+        const firstPage = await Scheduler.getResults(watch.id, options);
+        expect(firstPage.totalPages).toBe(2);
+        expect(firstPage.items[0]).toMatchObject({ link: favorite.link, isNew: true, isUpdated: true });
+        expect((await Scheduler.getResults(watch.id, { ...options, page: 2 })).items[0].link).toBe(seen.link);
+        expect((await Scheduler.getResults(watch.id)).items[0].link).toBe(favorite.link);
+
+        Scheduler.clearNewFlags(watch.id);
+        const cleared = await Scheduler.getResults(watch.id, options);
+        expect(cleared.items[0]).toMatchObject({ link: seen.link, isNew: false, isUpdated: false });
+    });
+
     test('skips scraper error and missing-link results before saving', async () => {
         const watch = await Watchlist.add({ term: 'bad-results', strict: false });
 

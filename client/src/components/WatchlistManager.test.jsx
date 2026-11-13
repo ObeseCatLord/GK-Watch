@@ -132,7 +132,7 @@ describe('WatchlistManager', () => {
         });
     });
 
-    it('opens a watch with new items and marks its results as seen', async () => {
+    it('marks an opened watch as seen only when leaving the watchlist', async () => {
         mockAuthenticatedFetch.mockImplementation((url, options = {}) => {
             if (url === '/api/watchlist') {
                 return Promise.resolve({
@@ -168,17 +168,21 @@ describe('WatchlistManager', () => {
             return Promise.resolve({ ok: true, json: async () => ({}) });
         });
 
-        render(<WatchlistManager authenticatedFetch={mockAuthenticatedFetch} />);
+        const { unmount } = render(<WatchlistManager authenticatedFetch={mockAuthenticatedFetch} />);
 
         fireEvent.click(await screen.findByText('New Watch'));
 
+        expect(await screen.findByTestId('ResultCard')).toBeInTheDocument();
+        expect(mockAuthenticatedFetch).not.toHaveBeenCalledWith(
+            '/api/results/watch-new/seen', expect.anything()
+        );
+        unmount();
         await waitFor(() => {
             expect(mockAuthenticatedFetch).toHaveBeenCalledWith(
                 '/api/results/watch-new/seen',
                 expect.objectContaining({ method: 'POST' })
             );
         });
-        expect(await screen.findByTestId('ResultCard')).toBeInTheDocument();
     });
 
     it('loads malformed paginated results response using client-side pagination', async () => {

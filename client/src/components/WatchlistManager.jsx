@@ -71,7 +71,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         totalPages: 1,
         useServerPagination: false
     });
-    const markResultsAsSeenRef = React.useRef(null);
+    const viewedWatchRef = React.useRef(null);
+    const pendingSeenRequestsRef = React.useRef(new Map());
+    const resultsRequestVersionRef = React.useRef(0);
     const lastResultsRequest = React.useRef('');
     const [schedulerProgress, setSchedulerProgress] = useState(null);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -176,18 +178,38 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         return { sort: 'firstSeen', order: 'desc' };
     }, []);
 
-    const fetchWatchResults = React.useCallback(async (id, page = 1) => {
-        const markSeen = async () => {
-            if (markResultsAsSeenRef.current !== id || newCounts[id] <= 0) {
-                return;
-            }
+    const acknowledgeWatch = React.useCallback((watch) => {
+        if (!watch?.loaded) return;
+        const { id } = watch;
+        if (pendingSeenRequestsRef.current.has(id)) return;
 
-            await authenticatedFetch(`/api/results/${id}/seen`, { method: 'POST' });
-            setNewCounts(prev => ({ ...prev, [id]: 0 }));
-            markResultsAsSeenRef.current = null;
-        };
+        const request = (async () => {
+            try {
+                const res = await authenticatedFetch(`/api/results/${id}/seen`, { method: 'POST' });
+                if (!res.ok) throw new Error(`Failed to mark watch as seen: ${res.status}`);
+                setNewCounts(prev => ({ ...prev, [id]: 0 }));
+            } catch (err) {
+                console.error('Error marking watch as seen:', err);
+            } finally {
+                pendingSeenRequestsRef.current.delete(id);
+            }
+        })();
+        pendingSeenRequestsRef.current.set(id, request);
+    }, [authenticatedFetch]);
+
+    // Leaving the watchlist for another app view also acknowledges the open watch.
+    useEffect(() => () => {
+        acknowledgeWatch(viewedWatchRef.current);
+        viewedWatchRef.current = null;
+        resultsRequestVersionRef.current += 1;
+    }, [acknowledgeWatch]);
+
+    const fetchWatchResults = React.useCallback(async (id, page = 1, { filter = resultFilter, source = sourceFilter } = {}) => {
+        const requestVersion = ++resultsRequestVersionRef.current;
 
         try {
+            // A quick return to a watch must wait for its previous acknowledgement.
+            await pendingSeenRequestsRef.current.get(id);
             const params = new URLSearchParams();
             params.set('page', String(page || 1));
             params.set('pageSize', String(ITEMS_PER_PAGE));
@@ -195,17 +217,20 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             params.set('sort', sort);
             params.set('order', order);
 
-            const normalizedFilter = resultFilter.trim();
+            const normalizedFilter = filter.trim();
             if (normalizedFilter) {
                 params.set('filter', normalizedFilter);
             }
 
-            if (sourceFilter !== 'All') {
-                params.set('source', sourceFilter);
+            if (source !== 'All') {
+                params.set('source', source);
             }
 
             const res = await authenticatedFetch(`/api/results/${id}?${params.toString()}`);
+            if (!res.ok) throw new Error(`Failed to fetch results: ${res.status}`);
             const data = await res.json();
+            if (viewedWatchRef.current?.id !== id || resultsRequestVersionRef.current !== requestVersion) return;
+            viewedWatchRef.current.loaded = true;
             if (hasServerPaginationResponse(data)) {
                 const serverMeta = {
                     total: Number(data.total) || 0,
@@ -218,7 +243,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 setSelectedResults(Array.isArray(data.items) ? data.items : []);
                 setAvailableSources(Array.isArray(data.sources) ? data.sources : []);
                 setCurrentPage(serverMeta.page || page);
-                await markSeen();
                 return;
             }
 
@@ -234,13 +258,16 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             setAvailableSources([...new Set(fallbackItems.map(item => item.source).filter(Boolean))].sort());
             setCurrentPage(Math.max(1, page));
 
-            await markSeen();
         } catch (err) {
             console.error('Error fetching stored results', err);
         }
-    }, [authenticatedFetch, getSortParams, markResultsAsSeenRef, newCounts, resultFilter, sourceFilter, sortBy]);
+    }, [authenticatedFetch, getSortParams, resultFilter, sourceFilter, sortBy]);
 
     const viewResults = React.useCallback(async (id, term) => {
+        if (viewedWatchRef.current?.id !== id) {
+            acknowledgeWatch(viewedWatchRef.current);
+            viewedWatchRef.current = { id, loaded: false };
+        }
         setSelectedId(id);
         setSelectedTerm(term);
         setResultFilter('');
@@ -249,10 +276,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         setAvailableSources([]);
         setCurrentPage(1);
         setSelectedResultsMeta(prev => ({ ...prev, useServerPagination: false }));
-        markResultsAsSeenRef.current = id;
-        lastResultsRequest.current = `${id}|1|${sortBy}| |All`;
-        await fetchWatchResults(id, 1);
-    }, [fetchWatchResults, sortBy]);
+        lastResultsRequest.current = `${id}|1|${sortBy}||All`;
+        await fetchWatchResults(id, 1, { filter: '', source: 'All' });
+    }, [acknowledgeWatch, fetchWatchResults, sortBy]);
 
     const refreshSelectedResults = React.useCallback(async () => {
         if (!selectedId) return;
@@ -537,7 +563,11 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 method: 'DELETE'
             });
             fetchWatchlist();
-            if (selectedResults && selectedResults.id === id) {
+            if (selectedId === id) {
+                viewedWatchRef.current = null;
+                resultsRequestVersionRef.current += 1;
+                setSelectedId(null);
+                setSelectedTerm('');
                 setSelectedResults(null);
             }
         } catch (err) {
@@ -760,6 +790,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             filteredResults.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
         }
 
+        // Keep unread discoveries and favorite price updates ahead of seen items.
+        filteredResults.sort((a, b) => Number(!!(b.isNew || b.isUpdated)) - Number(!!(a.isNew || a.isUpdated)));
         return filteredResults;
     }, [selectedResults, resultFilter, sourceFilter, sortBy, watchlist, selectedId, selectedResultsMeta.useServerPagination]);
 

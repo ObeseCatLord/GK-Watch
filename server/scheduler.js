@@ -925,7 +925,7 @@ const Scheduler = {
                    is_new as isNew, new_type as newType, hidden
             FROM results
             WHERE ${whereSql}
-            ORDER BY ${sortColumn} ${sortDirection}, link ASC
+            ORDER BY is_new DESC, ${sortColumn} ${sortDirection}, link ASC
             LIMIT ? OFFSET ?
         `).all(...params, pageSize, offset);
         const sources = db.prepare(`
