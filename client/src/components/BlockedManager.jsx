@@ -133,8 +133,8 @@ const BlockedManager = ({ authenticatedFetch }) => {
             <div className="blocked-grid">
                 {/* Favorite Items Section */}
                 <div className="blocked-section">
-                    <h2>⭐ Favorited Items</h2>
-                    <p style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#888' }}>
+                    <h2>Favorited items</h2>
+                    <p className="options-description">
                         Favorited items are tracked for price changes in scheduled email digests.
                     </p>
 
@@ -150,24 +150,15 @@ const BlockedManager = ({ authenticatedFetch }) => {
                     </div>
 
                     <ul className="watchlist-items" style={{ margin: '0' }}>
-                        {favoriteItems.length === 0 && <p style={{ textAlign: 'center' }}>No favorited items.</p>}
+                        {favoriteItems.length === 0 && <p className="rail-empty">No favorited items.</p>}
 
                         {favoriteItems.map(item => (
-                            <li key={item.id} className="watchlist-item" style={{ cursor: 'default' }}>
+                            <li key={item.id} className="watchlist-item">
                                 {item.image && (
-                                    <div style={{
-                                        width: '50px',
-                                        height: '50px',
-                                        minWidth: '50px',
-                                        borderRadius: '4px',
-                                        overflow: 'hidden',
-                                        marginRight: '12px',
-                                        background: '#333'
-                                    }}>
+                                    <div className="list-thumbnail">
                                         <img
                                             src={item.image}
                                             alt=""
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                         />
                                     </div>
                                 )}
@@ -177,7 +168,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
                                         {item.price || item.bidPrice || item.binPrice || 'No price saved'}
                                         {item.source && ` • ${item.source}`}
                                     </span>
-                                    <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" style={{ textDecoration: 'none', color: '#646cff' }}>
+                                    <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" >
                                         {item.url.substring(0, 50)}...
                                     </a>
                                 </div>
@@ -191,8 +182,8 @@ const BlockedManager = ({ authenticatedFetch }) => {
 
                 {/* Universal Blacklist Section */}
                 <div className="blocked-section">
-                    <h2>🚫 Universal Blacklist</h2>
-                    <p style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#888' }}>
+                    <h2>Universal blacklist</h2>
+                    <p className="options-description">
                         Items containing these terms will be hidden from <strong>all</strong> search results.<br />
                         <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>One term per line.</span>
                     </p>
@@ -203,6 +194,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
                             onChange={(e) => setNewTerm(e.target.value)}
                             placeholder="Enter terms to block (one per line)..."
                             className="settings-input"
+                            aria-label="Terms to block"
                             rows={10}
                             style={{
                                 width: '100%',
@@ -217,13 +209,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
                             <button
                                 onClick={saveBulkBlacklist}
                                 className="save-btn"
-                                style={{
-                                    padding: '8px 24px',
-                                    borderRadius: '4px',
-                                    fontSize: '0.9rem',
-                                    fontWeight: 'bold',
-                                    background: '#e53935' // Red to indicate blocking
-                                }}
+
                             >
                                 Save Blacklist
                             </button>
@@ -233,8 +219,8 @@ const BlockedManager = ({ authenticatedFetch }) => {
 
                 {/* Blocked Items Section */}
                 <div className="blocked-section">
-                    <h2>🔗 Blocked Items</h2>
-                    <p style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#888' }}>
+                    <h2>Blocked items</h2>
+                    <p className="options-description">
                         These specific items (by URL) will be permanently hidden from future search results.
                     </p>
 
@@ -250,35 +236,26 @@ const BlockedManager = ({ authenticatedFetch }) => {
                     </div>
 
                     <ul className="watchlist-items" style={{ margin: '0' }}>
-                        {blockedItems.length === 0 && <p style={{ textAlign: 'center' }}>No blocked items.</p>}
+                        {blockedItems.length === 0 && <p className="rail-empty">No blocked items.</p>}
 
                         {blockedItems.map(item => (
-                            <li key={item.id} className="watchlist-item" style={{ cursor: 'default' }}>
+                            <li key={item.id} className="watchlist-item">
                                 {item.image && (
-                                    <div style={{
-                                        width: '50px',
-                                        height: '50px',
-                                        minWidth: '50px',
-                                        borderRadius: '4px',
-                                        overflow: 'hidden',
-                                        marginRight: '12px',
-                                        background: '#333'
-                                    }}>
+                                    <div className="list-thumbnail">
                                         <img
                                             src={item.image}
                                             alt=""
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                         />
                                     </div>
                                 )}
                                 <div className="watch-info">
                                     <span className="watch-term" style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{item.title}</span>
-                                    <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" style={{ textDecoration: 'none', color: '#646cff' }}>
+                                    <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" >
                                         {item.url.substring(0, 50)}...
                                     </a>
                                 </div>
                                 <button className="delete-btn" onClick={() => unblockItem(item.id)} title="Unblock">
-                                    ↩️
+                                    Unblock
                                 </button>
                             </li>
                         ))}

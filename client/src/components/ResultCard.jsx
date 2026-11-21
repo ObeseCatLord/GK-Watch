@@ -1,7 +1,9 @@
 import React from 'react';
 
 const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
-    const { title, link, image, price, source, endTime } = item;
+    const { title, image, price, source, endTime } = item;
+    const link = item.link || item.url;
+    const [failedImage, setFailedImage] = React.useState(null);
     const [timeLeft, setTimeLeft] = React.useState('');
     const isUpdated = item.isUpdated || item.newType === 'updated';
     const showStatusRibbon = isNew || isUpdated;
@@ -59,7 +61,7 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
             // Other sites (Mercari, PayPay, Fril, etc.)
             fjUrl = `https://www.fromjapan.co.jp/japan/en/special/order/confirm/${encodeURIComponent(link)}/13_1/`;
         }
-        window.open(fjUrl, '_blank');
+        window.open(fjUrl, '_blank', 'noopener,noreferrer');
     };
 
     const handleFavoriteToggle = (e) => {
@@ -70,64 +72,60 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
         }
     };
 
-    const safelyGetSource = () => {
-        return (source || 'Unknown').toString();
-    };
-
     return (
-        <a href={link} target="_blank" rel="noopener noreferrer" className={`result-card ${showStatusRibbon ? 'is-new' : ''} ${isUpdated ? 'is-updated' : ''}`}>
-            {showStatusRibbon && (
-                <span className={`new-ribbon ${isUpdated ? 'updated-ribbon' : ''}`}>
-                    {isUpdated ? 'UPDATED' : 'NEW'}
-                </span>
-            )}
-            {onBlock && (
-                <button className="block-btn" onClick={handleBlock} title="Permanently Block">🚫</button>
-            )}
-            {onFavoriteToggle && (
-                <button
-                    className={`favorite-btn ${item.isFavorite ? 'active' : ''}`}
-                    onClick={handleFavoriteToggle}
-                    title={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
-                >
-                    {item.isFavorite ? '★' : '☆'}
-                </button>
-            )}
-            <button className="fj-btn" onClick={handleFromJapan} title="Open in FromJapan">🛒</button>
-            <div className="card-image-container">
-                {image ? (
-                    <img src={image} alt={title} className="card-image" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
-                ) : (
-                    <div className="no-image">No Image</div>
-                )}
-                <span className={`source-badge ${safelyGetSource().toLowerCase().replace(/\s+/g, '-')}`}>
-                    {safelyGetSource()}
-                </span>
-                {timeLeft && (
-                    <span className="time-badge" title="Time Remaining">
-                        ⏱ {timeLeft}
-                    </span>
-                )}
-            </div>
-            <div className="card-content">
-                <h3 className="card-title" title={title}>{title}</h3>
-                <div className="card-price">
-                    {item.bidPrice && item.binPrice ? (
-                        // Yahoo item with both auction and buy-it-now prices
-                        <>
-                            <span className="price-bid" title="Current Bid">{item.bidPrice} 🔨</span>
-                            <span className="price-bin" title="Buy It Now">{item.binPrice} 🛒</span>
-                        </>
-                    ) : source && source.toLowerCase().includes('yahoo') ? (
-                        // Yahoo item - show gavel for auction price
-                        <span className="price-bid" title="Current Bid">{price} 🔨</span>
+        <article className="listing">
+            <a href={link} target="_blank" rel="noopener noreferrer" className={`result-card ${showStatusRibbon ? 'is-new' : ''} ${isUpdated ? 'is-updated' : ''}`}>
+                <div className="card-image-container">
+                    {image && image !== failedImage ? (
+                        <img src={image} alt="" className="card-image" loading="lazy" decoding="async"
+                            referrerPolicy="no-referrer" onError={() => setFailedImage(image)} />
                     ) : (
-                        // Other sources - simple price
-                        <span>{price}</span>
+                        <span className="no-image">No image</span>
+                    )}
+                    {showStatusRibbon && (
+                        <span className={`new-ribbon ${isUpdated ? 'updated-ribbon' : ''}`}>
+                            {isUpdated ? 'Updated' : 'New'}
+                        </span>
                     )}
                 </div>
+                <div className="card-content">
+                    <div className="card-meta">
+                        <span>{source || 'Unknown source'}</span>
+                        {timeLeft && <span title="Time remaining">{timeLeft}</span>}
+                    </div>
+                    <h3 className="card-title" title={title}>{title}</h3>
+                    <div className="card-price">
+                        {item.bidPrice && item.binPrice ? (
+                            <>
+                                <span>{item.bidPrice} <small>bid</small></span>
+                                <span>{item.binPrice} <small>buy</small></span>
+                            </>
+                        ) : (
+                            <span>{price}</span>
+                        )}
+                    </div>
+                </div>
+            </a>
+            <div className="listing-actions">
+                {onFavoriteToggle && (
+                    <button type="button" className={`favorite-btn ${item.isFavorite ? 'active' : ''}`}
+                        onClick={handleFavoriteToggle} aria-pressed={Boolean(item.isFavorite)}
+                        title={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
+                        aria-label={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
+                    >
+                        {item.isFavorite ? '★' : '☆'}
+                    </button>
+                )}
+                {link && (
+                    <button type="button" className="fj-btn" onClick={handleFromJapan}
+                        title="Open in FromJapan" aria-label="Open in FromJapan">FJ</button>
+                )}
+                {onBlock && (
+                    <button type="button" className="block-btn" onClick={handleBlock}
+                        title="Permanently block" aria-label="Permanently block">×</button>
+                )}
             </div>
-        </a>
+        </article>
     );
 };
 

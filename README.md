@@ -15,6 +15,14 @@ Use `update.sh` or `update.bat` from a Git checkout to pull and verify the newes
 
 The server runs on port 3000 and is started automatically when you run the client.
 
+## Interface credits
+
+The browser theme follows [Nobara Dotfiles](https://github.com/slashedzer0/nobara-dotfiles)
+and the [Catppuccin Macchiato](https://github.com/catppuccin/catppuccin) palette.
+Terminal text uses [Iosevka Term](https://github.com/be5invis/Iosevka), clock numerals
+use [VCR OSD Mono by Riciery Leal](https://www.dafont.com/vcr-osd-mono.font), and
+the ASCII headings use FIGlet's Standard font.
+
 ## Operations
 
 Use Node 24 LTS (`.nvmrc`; supported range: Node 22.12.0 through 26.x) and immutable installs:

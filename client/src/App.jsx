@@ -4,10 +4,17 @@ import WatchlistManager from './components/WatchlistManager';
 import BlockedManager from './components/BlockedManager';
 import OptionsManager from './components/OptionsManager';
 import Clock from './components/Clock';
+import AsciiHeading from './components/AsciiHeading';
 import { buildExportHtml, downloadExportHtml, makeExportFilename } from './utils/exportHelpers';
 
 const MAX_HISTORY = 10;
 const ITEMS_PER_PAGE = 24;
+const VIEWS = {
+  watchlist: 'Watchlist',
+  search: 'Live Search',
+  blocked: 'Lists',
+  options: 'Options'
+};
 
 const loadSearchHistory = () => {
   if (typeof localStorage === 'undefined') return [];
@@ -323,15 +330,13 @@ function App() {
 
       const batch = pendingItems;
       pendingItems = [];
-      setResults(prev => {
-        const seenLinks = liveSearchSeenLinksRef.current;
-        const uniqueItems = batch.filter(item => {
-          if (!item.link || seenLinks.has(item.link)) return false;
-          seenLinks.add(item.link);
-          return true;
-        });
-        return uniqueItems.length > 0 ? [...prev, ...uniqueItems] : prev;
+      const seenLinks = liveSearchSeenLinksRef.current;
+      const uniqueItems = batch.filter(item => {
+        if (!item.link || seenLinks.has(item.link)) return false;
+        seenLinks.add(item.link);
+        return true;
       });
+      if (uniqueItems.length > 0) setResults(previous => [...previous, ...uniqueItems]);
     };
 
     const queueItems = (items) => {
@@ -374,7 +379,9 @@ function App() {
                   }));
                 }
               } else if (data.type === 'error') {
-                console.error(`Scraper error from ${data.source}: ${data.error}`);
+                if (!options.signal?.aborted) {
+                  setSiteErrors(previous => [...previous, { source: data.source, error: data.error }]);
+                }
                 setProgress(prev => ({
                   ...prev,
                   completed: prev.completed + 1,
@@ -412,7 +419,9 @@ function App() {
 
     const searchPromise = fetchStream(`/api/search?q=${encodeURIComponent(trimmedTerm)}${sitesParam}`, { signal })
       .catch((err) => {
-        if (err?.name !== 'AbortError') console.error(`Error searching ${trimmedTerm}:`, err);
+        if (!signal.aborted && err?.name !== 'AbortError') {
+          setSiteErrors(previous => [...previous, { source: trimmedTerm, error: err.message }]);
+        }
       })
       .finally(() => {
         if (inFlightSearchesRef.current.get(key) === searchPromise) {
@@ -633,20 +642,22 @@ function App() {
     return (
       <div className="App login-screen">
         <div className="login-container">
-          <h1>🔐 GK Watcher</h1>
-          <p>Enter password to access</p>
+          <img src="/mamizou.svg" alt="" width="56" height="56" />
+          <AsciiHeading label="GK Watcher" />
           <form onSubmit={handleLogin}>
             <input
               type="password"
               value={loginPassword}
               onChange={(e) => setLoginPassword(e.target.value)}
               placeholder="Password"
+              aria-label="Password"
+              autoComplete="current-password"
               className="login-input"
               autoFocus
             />
             <button type="submit" className="login-btn">Login</button>
           </form>
-          {loginError && <p className="login-error">{loginError}</p>}
+          {loginError && <p className="login-error" role="alert">{loginError}</p>}
         </div>
       </div>
     );
@@ -654,391 +665,354 @@ function App() {
 
   return (
     <div className="App">
-      <nav className="main-nav">
-        <button
-          className={view === 'search' ? 'active' : ''}
-          onClick={() => setView('search')}
-        >
-          Live Search
-        </button>
-        <button
-          className={view === 'watchlist' ? 'active' : ''}
-          onClick={() => setView('watchlist')}
-        >
-          Watchlist
-        </button>
-        <button
-          className={view === 'blocked' ? 'active' : ''}
-          onClick={() => setView('blocked')}
-        >
-          Lists
-        </button>
-        <button
-          className={view === 'options' ? 'active' : ''}
-          onClick={() => setView('options')}
-        >
-          ⚙️ Options
-        </button>
-        <Clock authenticatedFetch={authenticatedFetch} />
-      </nav>
-
-      {view === 'search' && (
-        <>
-          <div className="search-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem', marginTop: '1rem' }}>
-            <form onSubmit={search} style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%', maxWidth: '800px' }}>
-              <input
-                type="text"
-                className="search-input"
-                placeholder="Search for resin crack..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap', color: '#ccc', marginRight: '5px' }} title="Enable Strict Filtering (Exact Match)">
-                <input
-                  type="checkbox"
-                  checked={strictMode}
-                  onChange={e => setStrictMode(e.target.checked)}
-                  style={{ marginRight: '5px' }}
-                />
-                Strict
-              </label>
-              <button type="submit" className="add-btn">
-                <span className="desktop-label">Search</span>
-                <span className="mobile-label">🔍</span>
-              </button>
-              <button
-                type="button"
-                className="add-btn gk-btn"
-                onClick={searchGK}
-                title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
-              >
-                <span className="desktop-label">Search GK</span>
-                <span className="mobile-label">GK</span>
-              </button>
-              <button
-                type="button"
-                className="add-btn taobao-btn"
-                onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Search Disabled: Cookies missing for both sites (check Options)') : searchCN(e, null)}
-                title={(!taobaoEnabled && !goofishEnabled) ? "CN Search Disabled (Cookies Missing)" : "Search Taobao & Goofish"}
-                disabled={!taobaoEnabled && !goofishEnabled}
-                style={{
-                  backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
-                  marginLeft: '5px',
-                  cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
-                  opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
-                }}
-              >
-                <span className="desktop-label">Search CN</span>
-                <span className="mobile-label">CN</span>
-              </button>
-            </form>
-            {/* Discreet Site Error Message */}
-            {siteErrors.length > 0 && (
-              <div style={{
-                marginTop: '10px',
-                padding: '8px 16px',
-                backgroundColor: 'rgba(211, 47, 47, 0.1)',
-                border: '1px solid #ef5350',
-                borderRadius: '8px',
-                color: '#ef5350',
-                fontSize: '0.9rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <span>
-                  ⚠️ <strong>Search Incomplete:</strong>{' '}
-                  {siteErrors.map((err, i) => (
-                    <span key={err.source}>
-                      <strong>{err.source}</strong> ({err.error})
-                      {i < siteErrors.length - 1 ? ', ' : ''}
-                    </span>
-                  ))}
-                </span>
-              </div>
-            )}
-
-            {/* Progress Bar */}
-            {loading && progress.total > 0 && (
-              <div style={{ width: '100%', maxWidth: '800px', marginBottom: '1rem', marginTop: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', fontSize: '0.9rem', color: '#666' }}>
-                  <span>Creating Resin Dust... {progress.current ? `(${progress.current})` : ''}</span>
-                  <span>{Math.round((progress.completed / progress.total) * 100)}%</span>
-                </div>
-                <div style={{ width: '100%', height: '8px', backgroundColor: '#e0e0e0', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      width: `${(progress.completed / progress.total) * 100}%`,
-                      height: '100%',
-                      backgroundColor: '#ff5000',
-                      transition: 'width 0.3s ease'
-                    }}
-                  />
-                </div>
-              </div>
-            )}
+      <header className="desktop-bar">
+        <div className="desktop-bar-inner">
+          <div className="wordmark">
+            <img src="/mamizou.svg" alt="" width="36" height="36" />
+            <span>GK Watcher</span>
           </div>
+          <nav className="main-nav" aria-label="Main navigation"
+            style={{ '--workspace-index': Object.keys(VIEWS).indexOf(view) }}
+          >
+            {Object.entries(VIEWS).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={view === id ? 'page' : undefined}
+                className={view === id ? 'active' : ''}
+                onClick={() => setView(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <Clock authenticatedFetch={authenticatedFetch} />
+        </div>
+      </header>
+      <main className="workspace">
+        <div className="workspace-heading" key={view}>
+          <AsciiHeading label={VIEWS[view]} />
+        </div>
 
-          {/* Search History */}
-          {
-            searchHistory.length > 0 && (
-              <div className="search-history">
-                <div className="search-history-header">
-                  <span>Recent:</span>
-                  <button className="clear-history-btn" onClick={clearHistory}>Clear</button>
-                </div>
-                <div className="search-history-chips">
-                  {searchHistory.map((item, i) => {
-                    // Handle legacy string items
-                    const term = typeof item === 'string' ? item : item.term;
-                    const type = typeof item === 'string' ? 'normal' : item.type;
-
-                    return (
-                      <button
-                        key={i}
-                        className={`history-chip ${type === 'gk' ? 'gk-history' : (type === 'taobao' || type === 'cn') ? 'taobao-history' : ''}`}
-                        onClick={() => {
-                          if (type === 'gk') searchGK(null, term);
-                          else if (type === 'taobao') searchCN(null, term); // Legacy support
-                          else if (type === 'cn') searchCN(null, term);
-                          else search(null, term);
-                        }}
-                        title={type === 'gk' ? "Re-run GK Search" : (type === 'taobao' || type === 'cn') ? "Re-run CN Search" : "Re-run Search"}
-                      >
-                        {term}
-                        {type === 'gk' && <span className="gk-badge">GK</span>}
-                        {(type === 'taobao' || type === 'cn') && <span className="gk-badge taobao-badge-chip">CN</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )
-          }
-
-          {loading && <div className="loading">Searching...</div>}
-
-          {error && <div className="error">{error}</div>}
-
-          {/* Results Count & Source Filter */}
-          {
-            results.length > 0 && (
-              <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontWeight: '500', color: '#888' }}>
-                  {results.length} result{results.length !== 1 ? 's' : ''} found
-                </span>
-                <span style={{ color: '#555' }}>|</span>
-
+        {view === 'search' && (
+          <>
+            <div className="search-container">
+              <form onSubmit={search} className="add-watch-form">
                 <input
                   type="text"
-                  placeholder="Filter by title..."
-                  value={resultFilter}
-                  onChange={(e) => { setResultFilter(e.target.value); setCurrentPage(1); }}
                   className="search-input"
-                  style={{ maxWidth: '250px', fontSize: '0.9rem', padding: '0.5rem' }}
+                  placeholder="Search for resin crack..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  aria-label="Search term"
                 />
-
-                {resultFilter && (
-                  <button
-                    className="clear-filter-btn"
-                    onClick={() => { setResultFilter(''); setCurrentPage(1); }}
-                    style={{ marginRight: '5px' }}
-                  >
-                    ✕
-                  </button>
-                )}
-
-                <span style={{ color: '#555' }}>|</span>
-                <select
-                  value={sourceFilter}
-                  onChange={(e) => { setSourceFilter(e.target.value); setCurrentPage(1); }}
-                  className="search-input"
-                  style={{ maxWidth: '200px', fontSize: '0.9rem', padding: '0.5rem' }}
+                <label className="watch-strict-toggle" title="Enable Strict Filtering (Exact Match)">
+                  <input
+                    type="checkbox"
+                    checked={strictMode}
+                    onChange={e => setStrictMode(e.target.checked)}
+                  />
+                  Strict
+                </label>
+                <button type="submit" className="add-btn">
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="add-btn gk-btn"
+                  onClick={searchGK}
+                  title="Search for Garage Kit, Resin Kit, and Resin Cast Kit"
                 >
-                  <option value="All">All Websites</option>
-                  {liveSources.map(source => (
-                    <option key={source} value={source}>{source}</option>
-                  ))}
-                </select>
-                {sourceFilter !== 'All' && (
-                  <button
-                    className="clear-filter-btn"
-                    onClick={() => { setSourceFilter('All'); setCurrentPage(1); }}
-                  >
-                    ✕ Clear
-                  </button>
-                )}
-                <span style={{ color: '#555' }}>|</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
-                  className="search-input"
-                  style={{ maxWidth: '180px', fontSize: '0.9rem', padding: '0.5rem' }}
-                >
-                  <option value="time">Sort: Time Scraped</option>
-                  <option value="relevance">Sort: Relevance</option>
-                  <option value="name">Sort: Name</option>
-                  <option value="priceHigh">Sort: Price High→Low</option>
-                  <option value="priceLow">Sort: Price Low→High</option>
-                </select>
-              </div>
-            )
-          }
+                  Search GK
+                </button>
+                <button
+                  type="button"
+                  className="add-btn taobao-btn"
+                  onClick={(e) => (!taobaoEnabled && !goofishEnabled) ? alert('CN Search Disabled: Cookies missing for both sites (check Options)') : searchCN(e, null)}
+                  title={(!taobaoEnabled && !goofishEnabled) ? "CN Search Disabled (Cookies Missing)" : "Search Taobao & Goofish"}
+                  disabled={!taobaoEnabled && !goofishEnabled}
 
-          {
-                <>
-                  <div className="results-grid">
-                    {visibleLiveResults.map(item => (
-                        <ResultCard
-                          key={item.link || item.url}
-                          item={item}
-                          onBlock={handleBlock}
-                          onFavoriteToggle={handleFavoriteToggle}
-                        />
-                      ))}
+                >
+                  Search CN
+                </button>
+              </form>
+              {siteErrors.length > 0 && (
+                <div className="site-errors" role="status">
+                  <strong>Search incomplete.</strong>{' '}
+                  {siteErrors.map(({ source, error }) => `${source} (${error})`).join(', ')}
+                </div>
+              )}
+
+              {loading && (
+                <div className="search-progress" role="status">
+                  <span>{progress.current || 'Searching…'}</span>
+                  <progress aria-label="Search progress" max={progress.total || 1} value={progress.total > 0 ? progress.completed : undefined} />
+                </div>
+              )}
+            </div>
+
+            {/* Search History */}
+            {
+              searchHistory.length > 0 && (
+                <div className="search-history">
+                  <div className="search-history-header">
+                    <span>Recent:</span>
+                    <button className="clear-history-btn" onClick={clearHistory}>Clear</button>
                   </div>
+                  <div className="search-history-chips">
+                    {searchHistory.map((item, i) => {
+                      // Handle legacy string items
+                      const term = typeof item === 'string' ? item : item.term;
+                      const type = typeof item === 'string' ? 'normal' : item.type;
 
-                  {/* Pagination Controls */}
-                  {filteredResults.length > ITEMS_PER_PAGE && (
-                    <div className="pagination">
-                      <button
-                        className="page-btn"
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                      >
-                        ← Prev
-                      </button>
-
-                      <div className="page-numbers">
-                        {(() => {
-                          const pages = [];
-                          const start = Math.max(1, currentPage - 2);
-                          const end = Math.min(liveTotalPages, start + 4);
-                          const adjustedStart = Math.max(1, Math.min(start, liveTotalPages - 4));
-
-                          for (let i = adjustedStart; i <= end; i++) {
-                            pages.push(
-                              <button
-                                key={i}
-                                className={`page-number-btn ${currentPage === i ? 'active' : ''}`}
-                                onClick={() => setCurrentPage(i)}
-                              >
-                                {i}
-                              </button>
-                            );
-                          }
-                          return pages;
-                        })()}
-                      </div>
-
-                      <div className="page-jump">
-                        <input
-                          type="number"
-                          min="1"
-                          max={liveTotalPages}
-                          placeholder="#"
-                          className="page-input"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              const val = parseInt(e.target.value);
-                              if (val >= 1 && val <= liveTotalPages) {
-                                setCurrentPage(val);
-                                e.target.value = '';
-                              }
-                            }
+                      return (
+                        <button
+                          key={i}
+                          className={`history-chip ${type === 'gk' ? 'gk-history' : (type === 'taobao' || type === 'cn') ? 'taobao-history' : ''}`}
+                          onClick={() => {
+                            if (type === 'gk') searchGK(null, term);
+                            else if (type === 'taobao') searchCN(null, term); // Legacy support
+                            else if (type === 'cn') searchCN(null, term);
+                            else search(null, term);
                           }}
-                        />
-                        <span className="total-pages">/ {liveTotalPages}</span>
-                      </div>
+                          title={type === 'gk' ? "Re-run GK Search" : (type === 'taobao' || type === 'cn') ? "Re-run CN Search" : "Re-run Search"}
+                        >
+                          {term}
+                          {type === 'gk' && <span className="gk-badge">GK</span>}
+                          {(type === 'taobao' || type === 'cn') && <span className="gk-badge taobao-badge-chip">CN</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
+            }
 
-                      <button
-                        className="page-btn"
-                        onClick={() => setCurrentPage(p => Math.min(liveTotalPages, p + 1))}
-                        disabled={currentPage >= liveTotalPages}
+            {error && <div className="error" role="alert">{error}</div>}
+
+            {/* Results Count & Source Filter */}
+            {
+              results.length > 0 && (
+                <div className="results-filter live-results-filter">
+                  <span className="result-count">
+                    {results.length} result{results.length !== 1 ? 's' : ''} found
+                  </span>
+
+                  <input
+                    type="text"
+                    placeholder="Filter by title..."
+                    aria-label="Filter results by title"
+                    value={resultFilter}
+                    onChange={(e) => { setResultFilter(e.target.value); setCurrentPage(1); }}
+                    className="search-input"
+
+                  />
+
+                  {resultFilter && (
+                    <button
+                      className="clear-filter-btn"
+                      aria-label="Clear title filter"
+                      onClick={() => { setResultFilter(''); setCurrentPage(1); }}
                       >
-                        Next →
-                      </button>
-
-                      <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
-                        <button
-                          className="page-btn"
-                          onClick={() => handleExportClipboard(filteredResults)}
-                          style={{ backgroundColor: '#333', border: '1px solid #555' }}
-                          title="Copy Name - Link to Clipboard"
-                        >
-                          📋 Copy
-                        </button>
-                        <button
-                          className="page-btn"
-                          onClick={() => exportToHtml(filteredResults, query || 'search_results')}
-                          style={{ backgroundColor: '#333', border: '1px solid #555' }}
-                        >
-                          📥 HTML
-                        </button>
-                      </div>
-                    </div>
+                      ✕
+                    </button>
                   )}
-                </>
-          }
 
-          {/* Export Button (shown when no pagination) */}
-          {
-            results.length > 0 && results.length <= ITEMS_PER_PAGE && (
-              <div style={{ textAlign: 'right', marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
-                <button
-                  className="page-btn"
-                  onClick={() => handleExportClipboard(results)}
-                  style={{ backgroundColor: '#333', border: '1px solid #555' }}
-                  title="Copy Name - Link to Clipboard"
-                >
-                  📋 Copy ({results.length})
-                </button>
-                <button
-                  className="page-btn"
-                  onClick={() => exportToHtml(results, query || 'search_results')}
-                  style={{ backgroundColor: '#333', border: '1px solid #555' }}
-                >
-                  📥 HTML ({results.length})
-                </button>
-              </div>
-            )
-          }
+                  <select
+                    aria-label="Filter by marketplace"
+                    value={sourceFilter}
+                    onChange={(e) => { setSourceFilter(e.target.value); setCurrentPage(1); }}
+                    className="search-input"
 
-          {
-            !loading && results.length === 0 && query && !error && (
-              <p style={{ marginTop: '2rem', color: '#666' }}>No results found or search not started.</p>
-            )
-          }
-        </>
-      )
-      }
+                  >
+                    <option value="All">All Websites</option>
+                    {liveSources.map(source => (
+                      <option key={source} value={source}>{source}</option>
+                    ))}
+                  </select>
+                  {sourceFilter !== 'All' && (
+                    <button
+                      className="clear-filter-btn"
+                      onClick={() => { setSourceFilter('All'); setCurrentPage(1); }}
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                  <select
+                    aria-label="Sort results"
+                    value={sortBy}
+                    onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+                    className="search-input"
 
-      {
-        view === 'watchlist' && (
-          <WatchlistManager
-            authenticatedFetch={authenticatedFetch}
-            onBlock={handleBlock}
-            onFavoriteToggle={handleFavoriteToggle}
-            taobaoEnabled={taobaoEnabled}
-            goofishEnabled={goofishEnabled}
-            handleExportClipboard={handleExportClipboard}
-          />
+                  >
+                    <option value="time">Sort: Time Scraped</option>
+                    <option value="relevance">Sort: Relevance</option>
+                    <option value="name">Sort: Name</option>
+                    <option value="priceHigh">Sort: Price High→Low</option>
+                    <option value="priceLow">Sort: Price Low→High</option>
+                  </select>
+                </div>
+              )
+            }
+
+            {
+                  <>
+                    <div className="results-grid">
+                      {visibleLiveResults.map(item => (
+                          <ResultCard
+                            key={item.link || item.url}
+                            item={item}
+                            onBlock={handleBlock}
+                            onFavoriteToggle={handleFavoriteToggle}
+                          />
+                        ))}
+                    </div>
+                    {results.length > 0 && filteredResults.length === 0 && (
+                      <p className="empty-results-message">No results match your filters.</p>
+                    )}
+
+                    {/* Pagination Controls */}
+                    {filteredResults.length > ITEMS_PER_PAGE && (
+                      <div className="pagination">
+                        <button
+                          className="page-btn"
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          ← Prev
+                        </button>
+
+                        <div className="page-numbers">
+                          {(() => {
+                            const pages = [];
+                            const start = Math.max(1, currentPage - 2);
+                            const end = Math.min(liveTotalPages, start + 4);
+                            const adjustedStart = Math.max(1, Math.min(start, liveTotalPages - 4));
+
+                            for (let i = adjustedStart; i <= end; i++) {
+                              pages.push(
+                                <button
+                                  key={i}
+                                  className={`page-number-btn ${currentPage === i ? 'active' : ''}`}
+                                  onClick={() => setCurrentPage(i)}
+                                >
+                                  {i}
+                                </button>
+                              );
+                            }
+                            return pages;
+                          })()}
+                        </div>
+
+                        <div className="page-jump">
+                          <input
+                            type="number"
+                            min="1"
+                            max={liveTotalPages}
+                            placeholder="#"
+                            aria-label="Jump to results page"
+                            className="page-input"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const val = parseInt(e.target.value);
+                                if (val >= 1 && val <= liveTotalPages) {
+                                  setCurrentPage(val);
+                                  e.target.value = '';
+                                }
+                              }
+                            }}
+                          />
+                          <span className="total-pages">/ {liveTotalPages}</span>
+                        </div>
+
+                        <button
+                          className="page-btn"
+                          onClick={() => setCurrentPage(p => Math.min(liveTotalPages, p + 1))}
+                          disabled={currentPage >= liveTotalPages}
+                        >
+                          Next →
+                        </button>
+
+                        <div className="export-actions">
+                          <button
+                            className="page-btn"
+                            onClick={() => handleExportClipboard(filteredResults)}
+
+                            title="Copy Name - Link to Clipboard"
+                          >
+                            Copy
+                          </button>
+                          <button
+                            className="page-btn"
+                            onClick={() => exportToHtml(filteredResults, query || 'search_results')}
+
+                          >
+                            Export HTML
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+            }
+
+            {/* Export Button (shown when no pagination) */}
+            {
+              results.length > 0 && results.length <= ITEMS_PER_PAGE && (
+                <div className="export-actions standalone">
+                  <button
+                    className="page-btn"
+                    onClick={() => handleExportClipboard(results)}
+
+                    title="Copy Name - Link to Clipboard"
+                  >
+                    Copy ({results.length})
+                  </button>
+                  <button
+                    className="page-btn"
+                    onClick={() => exportToHtml(results, query || 'search_results')}
+
+                  >
+                    Export HTML ({results.length})
+                  </button>
+                </div>
+              )
+            }
+
+            {
+              !loading && results.length === 0 && executedQuery && !error && siteErrors.length === 0 && (
+                <p className="empty-results-message">{`No results for “${executedQuery}”.`}</p>
+              )
+            }
+          </>
         )
-      }
+        }
 
-      {
-        view === 'blocked' && (
-          <BlockedManager authenticatedFetch={authenticatedFetch} />
-        )
-      }
+        {
+          view === 'watchlist' && (
+            <WatchlistManager
+              authenticatedFetch={authenticatedFetch}
+              onBlock={handleBlock}
+              onFavoriteToggle={handleFavoriteToggle}
+              taobaoEnabled={taobaoEnabled}
+              goofishEnabled={goofishEnabled}
+              handleExportClipboard={handleExportClipboard}
+            />
+          )
+        }
 
-      {
-        view === 'options' && (
-          <OptionsManager authenticatedFetch={authenticatedFetch} />
-        )
-      }
-    </div >
+        {
+          view === 'blocked' && (
+            <BlockedManager authenticatedFetch={authenticatedFetch} />
+          )
+        }
+
+        {
+          view === 'options' && (
+            <OptionsManager authenticatedFetch={authenticatedFetch} />
+          )
+        }
+      </main>
+    </div>
   );
 }
 

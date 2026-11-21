@@ -60,7 +60,7 @@ describe('watch unread lifecycle', () => {
         api.completeSearch();
         fireEvent(document, new Event('visibilitychange'));
         await waitFor(() => expect(api.resultCalls().length).toBeGreaterThan(beforeRefresh));
-        fireEvent.click(screen.getByText('First watch'));
+        fireEvent.click(screen.getByRole('button', { name: /^First watch/ }));
         await screen.findByText('Updated favorite');
 
         fireEvent.click(screen.getByText('Next →'));
@@ -74,10 +74,10 @@ describe('watch unread lifecycle', () => {
         expect(screen.getByText('New item 1').closest('a')).toHaveClass('is-new');
         expect(api.fetch.mock.calls.some(([url]) => url.endsWith('/seen'))).toBe(false);
 
-        fireEvent.click(screen.getByText('Other watch'));
+        fireEvent.click(screen.getByRole('button', { name: /^Other watch/ }));
         await screen.findByText('Other result');
         expect(api.fetch).toHaveBeenCalledWith('/api/results/a/seen', { method: 'POST' });
-        fireEvent.click(screen.getByText('First watch'));
+        fireEvent.click(screen.getByRole('button', { name: /^First watch/ }));
         expect((await screen.findByText('New item 1')).closest('a')).not.toHaveClass('is-new');
         expect(screen.getByText('Updated favorite').closest('a')).not.toHaveClass('is-updated');
         const lastRequest = api.resultCalls().at(-1)[0];
@@ -89,10 +89,10 @@ describe('watch unread lifecycle', () => {
         render(<WatchlistManager authenticatedFetch={api.fetch} />);
         fireEvent.click(await screen.findByText('First watch'));
         await screen.findByText('New item 1');
-        fireEvent.click(screen.getByText('Other watch'));
+        fireEvent.click(screen.getByRole('button', { name: /^Other watch/ }));
         await screen.findByText('Other result');
         const before = api.resultCalls().length;
-        fireEvent.click(screen.getByText('First watch'));
+        fireEvent.click(screen.getByRole('button', { name: /^First watch/ }));
         expect(api.resultCalls()).toHaveLength(before);
         await act(async () => api.finishSeen());
         expect((await screen.findByText('New item 1')).closest('a')).not.toHaveClass('is-new');
@@ -107,7 +107,7 @@ describe('watch unread lifecycle', () => {
         render(<WatchlistManager authenticatedFetch={api.fetch} />);
         fireEvent.click(await screen.findByText('First watch'));
         await waitFor(() => expect(resolveFirst).toBeTypeOf('function'));
-        fireEvent.click(screen.getByText('Other watch'));
+        fireEvent.click(screen.getByRole('button', { name: /^Other watch/ }));
         await screen.findByText('Other result');
         await act(async () => resolveFirst({ ok: true, json: async () => [makeItem('Late result', { isNew: true })] }));
         expect(screen.queryByText('Late result')).not.toBeInTheDocument();
@@ -125,9 +125,9 @@ describe('watch unread lifecycle', () => {
             render(<WatchlistManager authenticatedFetch={api.fetch} />);
             fireEvent.click(await screen.findByText('First watch'));
             await screen.findByText('New item 1');
-            fireEvent.click(screen.getByText('Other watch'));
+            fireEvent.click(screen.getByRole('button', { name: /^Other watch/ }));
             await screen.findByText('Other result');
-            fireEvent.click(screen.getByText('First watch'));
+            fireEvent.click(screen.getByRole('button', { name: /^First watch/ }));
             expect((await screen.findByText('New item 1')).closest('a')).toHaveClass('is-new');
             expect(screen.getByText('25 NEW')).toBeInTheDocument();
         } finally {

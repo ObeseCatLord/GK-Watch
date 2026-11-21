@@ -24,18 +24,32 @@ const getLocalTimeZoneName = () => {
     }
 };
 
-const Clock = ({ authenticatedFetch }) => {
-    const [time, setTime] = useState(new Date());
-    const [countdown, setCountdown] = useState(null);
-    const [isRunning, setIsRunning] = useState(false);
+function useClockTime() {
+    const [time, setTime] = useState(() => new Date());
 
     useEffect(() => {
-        const timer = setInterval(() => {
-            setTime(new Date());
-        }, 1000);
-
+        const timer = setInterval(() => setTime(new Date()), 1000);
         return () => clearInterval(timer);
     }, []);
+
+    return time;
+}
+
+export function TokyoClock() {
+    const time = useClockTime();
+
+    return (
+        <div className="tokyo-clock">
+            <time dateTime={time.toISOString()}>{JST_TIME_FORMATTER.format(time)}</time>
+            <span>Tokyo · JST</span>
+        </div>
+    );
+}
+
+const Clock = ({ authenticatedFetch }) => {
+    const time = useClockTime();
+    const [countdown, setCountdown] = useState(null);
+    const [isRunning, setIsRunning] = useState(false);
 
     // Fetch status for countdown and running state
     useEffect(() => {
@@ -82,17 +96,17 @@ const Clock = ({ authenticatedFetch }) => {
                 <span className="clock-label">JST</span>
                 <span className="clock-time">{jstTime}</span>
             </div>
-            <div className="clock-divider">|</div>
+            <div className="clock-divider" aria-hidden="true" />
             <div className="clock-item">
                 <span className="clock-label">{timeZoneName}</span>
                 <span className="clock-time">{localTime}</span>
             </div>
-            {countdown !== null && countdown !== undefined && (
+            {(isRunning || countdown != null) && (
                 <>
-                    <div className="clock-divider">|</div>
+                    <div className="clock-divider" aria-hidden="true" />
                     <div className="clock-item">
-                        <span className="clock-label">{isRunning ? 'Running' : 'Next'}</span>
-                        <span className="clock-time">{isRunning ? '🔄' : formatCountdown(countdown)}</span>
+                        <span className="clock-label">{isRunning ? 'Scan' : 'Next'}</span>
+                        <span className="clock-time">{isRunning ? 'Running' : formatCountdown(countdown)}</span>
                     </div>
                 </>
             )}

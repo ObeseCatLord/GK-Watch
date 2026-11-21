@@ -667,11 +667,9 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
     return (
         <div className="options-container">
-            <h2>Options</h2>
-
             {/* Schedule Picker */}
             <div className="options-section">
-                <h3>⏰ Search Schedule</h3>
+                <h3>Search Schedule</h3>
                 <p className="options-description">
                     Click time slots to toggle when automatic searches run (JST / {timeZoneName} displayed).
                 </p>
@@ -680,6 +678,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         <button
                             type="button"
                             className={`segment-btn ${scheduleInterval === 60 ? 'active' : ''}`}
+                            aria-pressed={scheduleInterval === 60}
                             onClick={() => changeScheduleInterval(60)}
                         >
                             1 hour
@@ -687,6 +686,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         <button
                             type="button"
                             className={`segment-btn ${scheduleInterval === 30 ? 'active' : ''}`}
+                            aria-pressed={scheduleInterval === 30}
                             onClick={() => changeScheduleInterval(30)}
                         >
                             30 min
@@ -694,6 +694,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         <button
                             type="button"
                             className={`segment-btn ${scheduleInterval === 20 ? 'active' : ''}`}
+                            aria-pressed={scheduleInterval === 20}
                             onClick={() => changeScheduleInterval(20)}
                         >
                             20 min
@@ -701,6 +702,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         <button
                             type="button"
                             className={`segment-btn ${scheduleInterval === 15 ? 'active' : ''}`}
+                            aria-pressed={scheduleInterval === 15}
                             onClick={() => changeScheduleInterval(15)}
                         >
                             15 min
@@ -712,6 +714,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         <button
                             key={slot}
                             className={`hour-btn ${enabledSlots.includes(slot) ? 'active' : ''}`}
+                            aria-pressed={enabledSlots.includes(slot)}
                             onClick={() => toggleSlot(slot)}
                             title={`JST ${formatSlot(slot)} / ${timeZoneName} ${formatSlot(jstToLocalSlot(slot))}`}
                         >
@@ -724,12 +727,12 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
             {/* Site & Scraper Settings */}
             <div className="options-section">
-                <h3>🌍 Site & Scraper Settings</h3>
+                <h3>Site & Scraper Settings</h3>
                 <p className="options-description">
                     Control which sites to search and how strict the keyword matching should be.
                 </p>
 
-                <div className="sites-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px', marginTop: '15px' }}>
+                <div className="sites-grid">
                     {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'mandarake', 'taobao', 'goofish'].map(site => {
                         const siteName = site === 'yahoo' ? 'Yahoo Auctions' :
                             site === 'fril' ? 'Rakuma (Fril)' :
@@ -739,7 +742,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                             site === 'taobao' ? 'Taobao' :
                                                 site === 'goofish' ? 'Goofish (Xianyu)' : 'Mercari';
                         return (
-                            <div key={site} className="site-card" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
+                            <div key={site} className="site-card">
                                 <h4 style={{ textTransform: 'capitalize', marginTop: 0, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     {siteName}
                                 </h4>
@@ -822,12 +825,12 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                                 }}
                                                 style={{ fontSize: '0.8rem', padding: '2px 8px' }}
                                             >
-                                                {cookieSite === site ? '❌ Cancel' : '🍪 Update Cookies'}
+                                                {cookieSite === site ? 'Cancel' : 'Update Cookies'}
                                             </button>
 
                                             {/* Inline Cookie Edit Form */}
                                             {cookieSite === site && (
-                                                <div style={{ marginTop: '10px', background: '#333', padding: '10px', borderRadius: '8px', border: '1px solid #444' }}>
+                                                <div className="setting-group">
                                                     <p style={{ color: '#aaa', fontSize: '0.8rem', marginBottom: '8px', lineHeight: '1.4' }}>
                                                         1. Install <b>Cookie-Editor</b> extension.<br />
                                                         2. Log in to <b>{site === 'taobao' ? 'Taobao' : site === 'goofish' ? 'Goofish' : site === 'yahoo' ? 'Yahoo Auctions' : 'Mandarake'}</b>.<br />
@@ -844,8 +847,8 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                                         style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.75rem', marginBottom: '8px' }}
                                                     />
 
-                                                    {cookieError && <div style={{ color: 'red', marginBottom: '8px', fontSize: '0.8rem' }}>{cookieError}</div>}
-                                                    {cookieSuccess && <div style={{ color: 'green', marginBottom: '8px', fontSize: '0.8rem' }}>{cookieSuccess}</div>}
+                                                    {cookieError && <div style={{ color: 'var(--danger)', marginBottom: '8px', fontSize: '0.8rem' }}>{cookieError}</div>}
+                                                    {cookieSuccess && <div style={{ color: 'var(--accent-color)', marginBottom: '8px', fontSize: '0.8rem' }}>{cookieSuccess}</div>}
 
                                                     <button
                                                         className="page-btn active"
@@ -871,7 +874,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                         />
                                         Strict Filtering
                                     </label>
-                                    <div style={{ fontSize: '0.75rem', color: '#888', marginLeft: '24px', marginTop: '2px' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '24px', marginTop: '2px' }}>
                                         {settings.strictFiltering?.[site] !== false
                                             ? 'Only matches exact title keywords (or synonyms).'
                                             : 'Accepts all search results from site.'}
@@ -889,7 +892,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                             />
                                             Allow International Shipping
                                         </label>
-                                        <div style={{ fontSize: '0.75rem', color: '#888', marginLeft: '24px', marginTop: '2px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '24px', marginTop: '2px' }}>
                                             Include items marked as "International Shipping" (国際便).
                                         </div>
                                     </div>
@@ -901,7 +904,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
             </div>
 
             <div className="options-section">
-                <h3>📧 Email Notifications</h3>
+                <h3>Email Notifications</h3>
                 <p className="options-description">
                     Receive email alerts when new items are found during scheduled searches.
                 </p>
@@ -984,7 +987,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         />
                     </div>
 
-                    <div className="setting-group" style={{ background: '#2a2a2a', padding: '15px', borderRadius: '8px', marginTop: '10px' }}>
+                    <div className="setting-group">
                         <p style={{ fontSize: '0.85rem', color: '#aaa', marginBottom: '10px' }}>
                             {settings.hasSmtpPass ? '✅ Password is set.' : '⚠️ No password set.'}
                         </p>
@@ -1028,13 +1031,13 @@ const OptionsManager = ({ authenticatedFetch }) => {
                                     }
                                 }}
                                 disabled={!newSmtpPass}
-                                style={{ padding: '8px 16px', backgroundColor: '#4a90e2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', opacity: !newSmtpPass ? 0.6 : 1 }}
+
                             >
                                 Save SMTP Password
                             </button>
                         </div>
-                        {smtpPassError && <div style={{ color: 'red', marginTop: '5px', fontSize: '0.9rem' }}>{smtpPassError}</div>}
-                        {smtpPassSaved && <div style={{ color: 'green', marginTop: '5px', fontSize: '0.9rem' }}>SMTP Password Saved!</div>}
+                        {smtpPassError && <div style={{ color: 'var(--danger)', marginTop: '5px', fontSize: '0.9rem' }}>{smtpPassError}</div>}
+                        {smtpPassSaved && <div style={{ color: 'var(--accent-color)', marginTop: '5px', fontSize: '0.9rem' }}>SMTP Password Saved!</div>}
                     </div>
                 </details>
 
@@ -1043,18 +1046,18 @@ const OptionsManager = ({ authenticatedFetch }) => {
                     onClick={sendTestEmail}
                     disabled={testStatus === 'sending'}
                 >
-                    {testStatus === 'sending' ? '📤 Sending...' :
+                    {testStatus === 'sending' ? 'Sending...' :
                         testStatus === 'success' ? '✅ Sent!' :
-                            testStatus === 'error' ? '❌ Failed' :
-                                '📧 Send Test Email'}
+                            testStatus === 'error' ? 'Failed' :
+                                'Send Test Email'}
                 </button>
             </div>
 
             {/* Ntfy Notifications */}
             <div className="options-section">
-                <h3>🔔 Ntfy Notifications (Priority Alerts)</h3>
+                <h3>Ntfy Notifications (Priority Alerts)</h3>
                 <p className="options-description">
-                    Receive high-priority alerts on your phone using the free <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" style={{ color: '#4a90e2' }}>ntfy app</a>.
+                    Receive high-priority alerts on your phone using the free <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" >ntfy app</a>.
                     Set a unique topic name below and subscribe to it in the app.
                 </p>
 
@@ -1081,7 +1084,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         className="option-input"
                     />
                 </div>
-                <p style={{ fontSize: '0.8rem', color: '#888', marginTop: '-5px', marginBottom: '10px' }}>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-5px', marginBottom: '10px' }}>
                     Subscribe to <code>ntfy.sh/your-topic-name</code> in the app. Keep this secret!
                 </p>
 
@@ -1103,16 +1106,16 @@ const OptionsManager = ({ authenticatedFetch }) => {
                     disabled={ntfyTestStatus === 'sending' || !settings.ntfyTopic}
                     style={{ marginTop: '10px' }}
                 >
-                    {ntfyTestStatus === 'sending' ? '📤 Sending...' :
+                    {ntfyTestStatus === 'sending' ? 'Sending...' :
                         ntfyTestStatus === 'success' ? '✅ Sent!' :
-                            ntfyTestStatus === 'error' ? '❌ Failed' :
+                            ntfyTestStatus === 'error' ? 'Failed' :
                                 '🔔 Send Test Notification (Priority 5)'}
                 </button>
             </div>
 
             {/* Login Protection */}
             <div className="options-section">
-                <h3>🔐 Login Protection</h3>
+                <h3>Login Protection</h3>
                 <p className="options-description">
                     Require a password to access this application.
                 </p>
@@ -1130,7 +1133,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                     </label>
                 </div>
 
-                <div className="setting-group" style={{ marginLeft: '1.5rem', background: '#2a2a2a', padding: '15px', borderRadius: '8px' }}>
+                <div className="setting-group">
                     <p style={{ fontSize: '0.9rem', color: '#aaa', marginBottom: '0.5rem' }}>
                         {settings.hasLoginPassword ? '✅ Password is currently set.' : '⚠️ No password set.'}
                     </p>
@@ -1151,18 +1154,18 @@ const OptionsManager = ({ authenticatedFetch }) => {
                             className="save-btn small"
                             onClick={savePassword}
                             disabled={!newPassword || newPassword.length < 5}
-                            style={{ padding: '8px 16px', backgroundColor: '#4a90e2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', opacity: (!newPassword || newPassword.length < 5) ? 0.6 : 1 }}
+
                         >
                             Save Password
                         </button>
                     </div>
-                    {passwordError && <div style={{ color: 'red', marginTop: '5px', fontSize: '0.9rem' }}>{passwordError}</div>}
-                    {passwordSaved && <div style={{ color: 'green', marginTop: '5px', fontSize: '0.9rem' }}>Password Saved Successfully!</div>}
+                    {passwordError && <div style={{ color: 'var(--danger)', marginTop: '5px', fontSize: '0.9rem' }}>{passwordError}</div>}
+                    {passwordSaved && <div style={{ color: 'var(--accent-color)', marginTop: '5px', fontSize: '0.9rem' }}>Password Saved Successfully!</div>}
                 </div>
             </div>
 
             <div className="options-section">
-                <h3>📋 Watchlist Backup</h3>
+                <h3>Watchlist Backup</h3>
                 <p className="options-description">
                     Export your watchlist to a text file or import terms from a file.
                     Format: One search term per line.
@@ -1170,16 +1173,15 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
                 <div className="backup-buttons">
                     <button className="backup-btn export-btn" onClick={exportWatchlist}>
-                        📤 Export Watchlist
+                        Export Watchlist
                     </button>
 
                     <label className="backup-btn import-btn">
-                        📥 Import Watchlist
+                        Import Watchlist
                         <input
                             type="file"
                             accept=".txt"
                             onChange={importWatchlist}
-                            style={{ display: 'none' }}
                         />
                     </label>
                 </div>
@@ -1187,7 +1189,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
             {/* System Maintenance */}
             <div className="options-section">
-                <h3>🛠️ System Maintenance</h3>
+                <h3>System Maintenance</h3>
                 <p className="options-description">
                     Manually trigger system cleanup to rotate logs, remove expired results, and clear temporary files.
                 </p>
@@ -1197,9 +1199,9 @@ const OptionsManager = ({ authenticatedFetch }) => {
                         className={`save-btn ${cleanupStatus === 'cleaning' ? 'disabled' : ''}`}
                         onClick={runManualCleanup}
                         disabled={cleanupStatus === 'cleaning'}
-                        style={{ backgroundColor: cleanupStatus === 'error' ? '#ef5350' : '#4a90e2' }}
+
                     >
-                        {cleanupStatus === 'cleaning' ? '🧹 Cleaning System...' : '🧹 Clean System Now'}
+                        {cleanupStatus === 'cleaning' ? 'Cleaning system…' : 'Clean system now'}
                     </button>
                     {cleanupMessage && (
                         <div style={{ marginTop: '10px', fontSize: '0.9rem', color: cleanupStatus === 'success' ? '#66bb6a' : (cleanupStatus === 'error' ? '#ef5350' : '#ddd') }}>

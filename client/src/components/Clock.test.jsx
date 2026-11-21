@@ -16,7 +16,7 @@ describe('Clock', () => {
         render(<Clock authenticatedFetch={fetchMock} />);
 
         expect(await screen.findByText('Running')).toBeInTheDocument();
-        expect(await screen.findByText('🔄')).toBeInTheDocument();
+        expect(await screen.findByText('Running')).toBeInTheDocument();
     });
 
     it('renders countdown state when scheduler is idle', async () => {

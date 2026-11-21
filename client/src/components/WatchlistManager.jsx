@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { TokyoClock } from './Clock';
 import ResultCard from './ResultCard';
 import {
     buildExportHtml,
@@ -77,14 +78,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const lastResultsRequest = React.useRef('');
     const [schedulerProgress, setSchedulerProgress] = useState(null);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-    const [isMobile, setIsMobile] = useState(window.innerWidth <= 767);
+    const resultsPanelRef = React.useRef(null);
 
     // Track window resize for responsive placeholder
-    useEffect(() => {
-        const handleResize = () => setIsMobile(window.innerWidth <= 767);
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
 
 
     // Track previous running state to detect completion
@@ -821,11 +817,41 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         return 0;
     }), [watchlist, newCounts]);
 
+    const unreadCount = Object.values(newCounts).reduce((total, count) => total + count, 0);
+
     return (
         <div className="watchlist-container">
-
             {/* Top Row: Run All + Add Form */}
             <div className="watchlist-top-row">
+                <form onSubmit={addToWatchlist} className="add-watch-form">
+                    <input
+                        type="text"
+                        value={newTerm}
+                        onChange={(e) => setNewTerm(e.target.value)}
+                        placeholder="Add a search term…"
+                        aria-label="New watch term"
+                        className="search-input"
+                    />
+                    <label className="watch-strict-toggle" title="Enable Strict Filtering (Exact Match)">
+                        <input
+                            type="checkbox"
+                            checked={newStrict}
+                            onChange={e => setNewStrict(e.target.checked)}
+                        />
+                        Strict
+                    </label>
+                    <button type="submit" className="add-btn">Add</button>
+                    <button type="button" className="add-btn gk-btn" onClick={addGKEntries}>Add GK</button>
+                    <button
+                        type="button"
+                        className="add-btn taobao-btn"
+                        onClick={() => (!taobaoEnabled && !goofishEnabled) ? alert('CN Watch Disabled: Cookies missing for both sites') : addCNWatch()}
+                        disabled={(!taobaoEnabled && !goofishEnabled) || !newTerm.trim()}
+                        title={(!taobaoEnabled && !goofishEnabled) ? "CN Watch Disabled (Cookies Missing)" : "Add CN Watch (Taobao/Goofish)"}
+                    >
+                        Add CN
+                    </button>
+                </form>
                 <button
                     className="run-now-btn"
                     onClick={runNow}
@@ -837,48 +863,13 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     }
                 >
                     {currentQueueItem?.id === 'runAll'
-                        ? `🔄 ${currentQueueItem.progress || 'Starting...'}`
+                        ? `${currentQueueItem.progress || 'Starting...'}`
                         : searchQueue.some(q => q.id === 'runAll')
-                            ? '⏳ Queued'
+                            ? 'Queued'
                             : isGlobalRunning
-                                ? '⏳ Background...'
-                                : '▶ Run All'}
+                                ? 'Background...'
+                                : 'Run All'}
                 </button>
-
-                <form onSubmit={addToWatchlist} className="add-watch-form">
-                    <input
-                        type="text"
-                        value={newTerm}
-                        onChange={(e) => setNewTerm(e.target.value)}
-                        placeholder={isMobile ? "Add watch..." : "Add new term to watch..."}
-                        className="search-input"
-                    />
-                    <label className="watch-strict-toggle" title="Enable Strict Filtering (Exact Match)">
-                        <input
-                            type="checkbox"
-                            checked={newStrict}
-                            onChange={e => setNewStrict(e.target.checked)}
-                            style={{ marginRight: '5px' }}
-                        />
-                        Strict
-                    </label>
-                    <button type="submit" className="add-btn">Add</button>
-                    <button type="button" className="add-btn gk-btn" onClick={addGKEntries}>Add GK</button>
-                        <button
-                            type="button"
-                            className="add-btn taobao-btn"
-                            onClick={() => (!taobaoEnabled && !goofishEnabled) ? alert('CN Watch Disabled: Cookies missing for both sites') : addCNWatch()}
-                            disabled={(!taobaoEnabled && !goofishEnabled) || !newTerm.trim()}
-                            title={(!taobaoEnabled && !goofishEnabled) ? "CN Watch Disabled (Cookies Missing)" : "Add CN Watch (Taobao/Goofish)"}
-                        style={{
-                            backgroundColor: (!taobaoEnabled && !goofishEnabled) ? '#555' : '#ff5000',
-                            cursor: (!taobaoEnabled && !goofishEnabled) ? 'not-allowed' : 'pointer',
-                            opacity: (!taobaoEnabled && !goofishEnabled) ? 0.6 : 1
-                        }}
-                    >
-                        Add CN
-                    </button>
-                </form>
 
 
             </div>
@@ -889,7 +880,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     {/* Background scheduler running */}
                     {isGlobalRunning && !currentQueueItem && (
                         <span className="queue-item active">
-                            🔄 {schedulerProgress
+                            {schedulerProgress
                                 ? `Scheduled ${schedulerProgress.current}/${schedulerProgress.total}: ${schedulerProgress.currentItem}`
                                 : 'Scheduled search running...'}
                             <button
@@ -907,7 +898,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     )}
                     {currentQueueItem && (
                         <span className="queue-item active">
-                            🔄 {currentQueueItem.progress || currentQueueItem.name}
+                            {currentQueueItem.progress || currentQueueItem.name}
                             <button
                                 className="queue-remove-btn"
                                 onClick={() => stopSearch(currentQueueItem.id)}
@@ -917,7 +908,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     )}
                     {searchQueue.map((q) => (
                         <span key={q.id} className="queue-item pending">
-                            📋 {q.name}
+                            {q.name}
                             <button
                                 className="queue-remove-btn"
                                 onClick={() => stopSearch(q.id)}
@@ -932,37 +923,30 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 {/* Mobile toggle button */}
                 <button
                     className="mobile-sidebar-toggle"
+                    aria-controls="watch-rail"
+                    aria-expanded={mobileSidebarOpen}
                     onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
                 >
-                    {mobileSidebarOpen ? '✕ Close' : '☰ Watches'}
+                    {mobileSidebarOpen ? 'Hide watches' : `Watches (${watchlist.length})`}
                 </button>
 
-                {/* Overlay for mobile */}
-                {mobileSidebarOpen && (
-                    <div
-                        className="sidebar-overlay"
-                        onClick={() => setMobileSidebarOpen(false)}
-                    />
-                )}
-
-                <div className={`watchlist-sidebar ${mobileSidebarOpen ? 'open' : ''}`}>
-                    <div className="sidebar-actions" style={{ marginBottom: '10px' }}>
+                <aside id="watch-rail" className={`watchlist-sidebar ${mobileSidebarOpen ? 'open' : ''}`} aria-labelledby="watches-title">
+                    <div className="panel-heading">
+                        <h2 id="watches-title">Saved watches</h2>
+                        <span className="panel-count">{watchlist.length}</span>
+                    </div>
+                    <div className="sidebar-actions">
                         {!isMerging ? (
                             <>
                                 <button className="merge-btn" onClick={() => setIsMerging(true)} disabled={watchlist.length < 2}>
-                                    🔗 Merge Items
+                                    Merge Items
                                 </button>
                                 <button
                                     className="merge-btn"
-                                    style={{
-                                        marginLeft: '5px',
-                                        opacity: Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 ? 1 : 0.5,
-                                        cursor: Object.values(newCounts).reduce((a, b) => a + b, 0) > 0 ? 'pointer' : 'not-allowed'
-                                    }}
                                     onClick={handleMarkAllSeen}
-                                    disabled={Object.values(newCounts).reduce((a, b) => a + b, 0) === 0}
+                                    disabled={unreadCount === 0}
                                 >
-                                    ✓ Mark Read
+                                    Mark Read
                                 </button>
                             </>
                         ) : (
@@ -973,185 +957,187 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                         )}
                     </div>
 
-                    {watchlist.length === 0 && <p>No items in watchlist.</p>}
+                    {watchlist.length === 0 && <p className="rail-empty">No items in watchlist.</p>}
                     <ul className="watchlist-items">
                         {sortedWatchlist.map(item => (
-                                <li
-                                    key={item.id}
-                                    className={`watchlist-item ${selectedId === item.id ? 'active' : ''} ${draggedItem?.id === item.id ? 'dragging' : ''} ${newCounts[item.id] > 0 ? 'moving-up' : ''}`}
-                                    draggable={!isMerging}
-                                    onDragStart={(e) => !isMerging && handleDragStart(e, item)}
-                                    onDragOver={(e) => !isMerging && handleDragOver(e, item)}
-                                    onDragEnd={!isMerging ? handleDragEnd : undefined}
+                            <li
+                                key={item.id}
+                                className={`watchlist-item ${selectedId === item.id ? 'active' : ''} ${draggedItem?.id === item.id ? 'dragging' : ''} ${newCounts[item.id] > 0 ? 'moving-up' : ''}`}
+                                draggable={!isMerging}
+                                onDragStart={(e) => !isMerging && handleDragStart(e, item)}
+                                onDragOver={(e) => !isMerging && handleDragOver(e, item)}
+                                onDragEnd={!isMerging ? handleDragEnd : undefined}
+                            >
+                                {!isMerging && <span className="drag-handle" aria-hidden="true" />}
+                                <button
+                                    type="button"
+                                    className="watch-info"
+                                    aria-current={!isMerging && selectedId === item.id ? 'true' : undefined}
+                                    aria-pressed={isMerging ? checkedItems.has(item.id) : undefined}
                                     onClick={() => {
                                         if (isMerging) toggleCheck(item.id);
-                                        else viewResults(item.id, item.term);
-                                    }}
-                                    style={{
-                                        borderLeft: selectedId === item.id ? '4px solid var(--accent-color)' : 'none',
-                                        backgroundColor: selectedId === item.id ? '#333' : undefined
+                                        else {
+                                            viewResults(item.id, item.name || item.term);
+                                            if (mobileSidebarOpen) {
+                                                setMobileSidebarOpen(false);
+                                                resultsPanelRef.current?.focus();
+                                            }
+                                        }
                                     }}
                                 >
-                                    {isMerging ? (
-                                        <input
-                                            type="checkbox"
-                                            checked={checkedItems.has(item.id)}
-                                            readOnly
-                                            style={{ marginRight: '10px', transform: 'scale(1.5)', cursor: 'pointer' }}
-                                        />
-                                    ) : (
-                                        <span className="drag-handle">☰</span>
-                                    )}
-
-                                    <div className="watch-info">
-                                        <span className="watch-term">
-                                            {item.name || item.term}
-                                            {item.terms && item.terms.length > 1 && <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '5px' }}>({item.terms.length} terms)</span>}
+                                    <span className="watch-term">
+                                        {item.name || item.term}
+                                        {item.terms && item.terms.length > 1 && <span className="term-count">{item.terms.length} terms</span>}
+                                    </span>
+                                    <span className="watch-meta">
+                                        {item.lastRun ? new Date(item.lastRun).toLocaleString() : 'Awaiting first search'}
+                                        {item.lastResultCount !== undefined && ` • ${item.lastResultCount} results`}
+                                    </span>
+                                    {newCounts[item.id] > 0 && (
+                                        <span className="new-badge">
+                                            {newCounts[item.id]} NEW
                                         </span>
-                                        <span className="watch-meta">
-                                            Last Searched: {item.lastRun ? new Date(item.lastRun).toLocaleString() : 'Pending'}
-                                            {item.lastResultCount !== undefined && ` • ${item.lastResultCount} results`}
-                                        </span>
-                                        {newCounts[item.id] > 0 && (
-                                            <span className="new-badge">
-                                                {newCounts[item.id]} NEW
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {!isMerging && (
-                                        <button
-                                            className="edit-btn"
-                                            onClick={(e) => startEdit(e, item)}
-                                            style={{ marginRight: '5px' }}
-                                            title="Edit terms"
-                                        >
-                                            ✎
-                                        </button>
                                     )}
+                                </button>
 
-                                    {!isMerging && (
-                                        <button
-                                            className="delete-btn"
-                                            onClick={(e) => removeWatch(item.id, e)}
-                                            title="Remove from watchlist"
-                                        >
-                                            &times;
-                                        </button>
-                                    )}
-                                </li>
+                                {!isMerging && (
+                                    <button
+                                        className="edit-btn"
+                                        aria-label={`Edit ${item.name || item.term}`}
+                                        onClick={(e) => startEdit(e, item)}
+                                        title="Edit terms"
+                                    >
+                                        ✎
+                                    </button>
+                                )}
+
+                                {!isMerging && (
+                                    <button
+                                        className="delete-btn"
+                                        aria-label={`Remove ${item.name || item.term}`}
+                                        onClick={(e) => removeWatch(item.id, e)}
+                                        title="Remove from watchlist"
+                                    >
+                                        &times;
+                                    </button>
+                                )}
+                            </li>
                             ))}
                     </ul>
-                </div>
+                </aside>
 
                 {editingItem && (
-                    <div className="modal-overlay" style={{
-                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                        backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
-                    }}>
-                        <div className="modal-content" style={{
-                            backgroundColor: '#2a2a2a', padding: '20px', borderRadius: '8px', minWidth: '400px'
-                        }}>
-                            <h3>Edit Watch</h3>
-                            <div style={{ marginBottom: '15px' }}>
-                                <label style={{ display: 'block', marginBottom: '5px' }}>Name (for display):</label>
-                                <input
-                                    type="text"
-                                    value={editName}
-                                    onChange={e => setEditName(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: '#333', border: '1px solid #555', color: 'white' }}
-                                />
-                            </div>
-                            <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', marginBottom: '5px' }}>Search Terms (one per line):</label>
-                                <textarea
-                                    value={editTerms}
-                                    onChange={e => setEditTerms(e.target.value)}
-                                    rows={6}
-                                    style={{ width: '100%', padding: '8px', background: '#333', border: '1px solid #555', color: 'white' }}
-                                />
-                            </div>
-                            <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', marginBottom: '5px' }}>Filter Terms (one per line - hide items containing these):</label>
-                                <textarea
-                                    value={editFilters}
-                                    onChange={e => setEditFilters(e.target.value)}
-                                    rows={4}
-                                    placeholder="e.g. 'damaged', 'junk', 'parts only'"
-                                    style={{ width: '100%', padding: '8px', background: '#333', border: '1px solid #555', color: 'white' }}
-                                />
-                            </div>
-                            <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', marginBottom: '5px' }}>Enabled Services:</label>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                    {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'mandarake', 'taobao', 'goofish'].map(site => {
-                                        const isGloballyEnabled = globalSettings.enabledSites?.[site] !== false;
-                                        // Cookie-backed sites should not be enabled per-watch while globally off.
-                                        const isDisabled = (site === 'taobao' || site === 'goofish' || site === 'mandarake') && !isGloballyEnabled;
+                    <dialog
+                        className="modal-content"
+                        ref={node => { if (node && !node.open) node.showModal(); }}
+                        onCancel={() => setEditingItem(null)}
+                        aria-labelledby="edit-watch-heading"
+                    >
+                        <h3 id="edit-watch-heading">Edit Watch</h3>
+                        <div style={{ marginBottom: '15px' }}>
+                            <label htmlFor="watch-name">Display name</label>
+                            <input
+                                type="text"
+                                id="watch-name"
+                                value={editName}
+                                onChange={e => setEditName(e.target.value)}
 
-                                        return (
-                                            <label key={site} style={{ display: 'flex', alignItems: 'center', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editEnabledSites[site] !== false}
-                                                    onChange={e => {
-                                                        if (isDisabled) return;
-                                                        setEditEnabledSites(prev => ({ ...prev, [site]: e.target.checked }));
-                                                    }}
-                                                    disabled={isDisabled}
-                                                    style={{ marginRight: '8px' }}
-                                                />
-                                                {SITE_LABELS[site] || site.charAt(0).toUpperCase() + site.slice(1)}
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                                {editEnabledSites.mandarake !== false && (
-                                    <div style={{ marginTop: '12px', marginLeft: '4px' }}>
-                                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem' }}>Mandarake Mode:</label>
-                                        <select
-                                            value={editSiteOptions.mandarake?.mode || 'garageKit'}
-                                            onChange={e => setEditSiteOptions(prev => ({
-                                                ...prev,
-                                                mandarake: {
-                                                    ...(prev.mandarake || {}),
-                                                    mode: e.target.value
-                                                }
-                                            }))}
-                                            style={{ width: '100%', padding: '8px', background: '#333', border: '1px solid #555', color: 'white' }}
-                                        >
-                                            <option value="full">Full site search</option>
-                                            <option value="garageKit">Garage kits only</option>
-                                        </select>
-                                    </div>
-                                )}
-                            </div>
-                            <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={editStrict}
-                                        onChange={e => setEditStrict(e.target.checked)}
-                                        style={{ marginRight: '8px', transform: 'scale(1.2)' }}
-                                    />
-                                    Enable Strict Filtering (Exact Match)
-                                </label>
-                                <p style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '5px', marginLeft: '24px' }}>
-                                    If enabled, items must match query exactly (order insensitive) and pass anti-spam checks.
-                                </p>
-                            </div>
-                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                                <button onClick={() => setEditingItem(null)} className="page-btn">Cancel</button>
-                                <button onClick={saveEdit} className="page-btn active">Save Changes</button>
-                            </div>
+                            />
                         </div>
-                    </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label htmlFor="watch-terms">Search terms (one per line)</label>
+                            <textarea
+                                id="watch-terms"
+                                value={editTerms}
+                                onChange={e => setEditTerms(e.target.value)}
+                                rows={6}
+
+                            />
+                        </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label htmlFor="watch-filters">Terms to hide (one per line)</label>
+                            <textarea
+                                id="watch-filters"
+                                value={editFilters}
+                                onChange={e => setEditFilters(e.target.value)}
+                                rows={4}
+                                placeholder="e.g. 'damaged', 'junk', 'parts only'"
+
+                            />
+                        </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '5px' }}>Enabled Services:</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                {['mercari', 'yahoo', 'paypay', 'fril', 'surugaya', 'mandarake', 'taobao', 'goofish'].map(site => {
+                                    const isGloballyEnabled = globalSettings.enabledSites?.[site] !== false;
+                                    // Cookie-backed sites should not be enabled per-watch while globally off.
+                                    const isDisabled = (site === 'taobao' || site === 'goofish' || site === 'mandarake') && !isGloballyEnabled;
+
+                                    return (
+                                        <label key={site} style={{ display: 'flex', alignItems: 'center', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={editEnabledSites[site] !== false}
+                                                onChange={e => {
+                                                    if (isDisabled) return;
+                                                    setEditEnabledSites(prev => ({ ...prev, [site]: e.target.checked }));
+                                                }}
+                                                disabled={isDisabled}
+                                                style={{ marginRight: '8px' }}
+                                            />
+                                            {SITE_LABELS[site] || site.charAt(0).toUpperCase() + site.slice(1)}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                            {editEnabledSites.mandarake !== false && (
+                                <div style={{ marginTop: '12px', marginLeft: '4px' }}>
+                                    <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem' }}>Mandarake Mode:</label>
+                                    <select
+                                        value={editSiteOptions.mandarake?.mode || 'garageKit'}
+                                        onChange={e => setEditSiteOptions(prev => ({
+                                            ...prev,
+                                            mandarake: {
+                                                ...(prev.mandarake || {}),
+                                                mode: e.target.value
+                                            }
+                                        }))}
+
+                                    >
+                                        <option value="full">Full site search</option>
+                                        <option value="garageKit">Garage kits only</option>
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={editStrict}
+                                    onChange={e => setEditStrict(e.target.checked)}
+                                    style={{ marginRight: '8px', transform: 'scale(1.2)' }}
+                                />
+                                Enable Strict Filtering (Exact Match)
+                            </label>
+                            <p style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '5px', marginLeft: '24px' }}>
+                                If enabled, items must match query exactly (order insensitive) and pass anti-spam checks.
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                            <button onClick={() => setEditingItem(null)} className="page-btn">Cancel</button>
+                            <button onClick={saveEdit} className="page-btn active">Save Changes</button>
+                        </div>
+                    </dialog>
                 )}
 
-                <div className="watchlist-results">
+                <section className="watchlist-results" ref={resultsPanelRef} tabIndex={-1} aria-label="Stored results">
                     {selectedTerm && (
                         <>
-                            <h3>Stored Results for "{selectedTerm}" <span style={{ fontSize: '0.8em', color: '#888', marginLeft: '10px' }}>({resultCount} results)</span></h3>
+                            <div className="panel-heading results-heading">
+                                <h2>{selectedTerm}</h2>
+                                {selectedResults && <span className="result-count">({resultCount} results)</span>}
+                            </div>
                             <div className="results-actions">
 
                                 <button
@@ -1168,10 +1154,10 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     disabled={currentQueueItem?.id === selectedId || searchQueue.some(q => q.id === selectedId)}
                                 >
                                     {currentQueueItem?.id === selectedId
-                                        ? '🔄 Searching...'
+                                        ? 'Searching...'
                                         : searchQueue.some(q => q.id === selectedId)
-                                            ? '⏳ Queued'
-                                            : '🔄 Run Search'}
+                                            ? 'Queued'
+                                            : 'Run Search'}
                                 </button>
                                 <button
                                     className={`action-btn email-toggle-btn ${emailSettings[selectedId] ? 'email-on' : 'email-off'}`}
@@ -1189,7 +1175,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     }}
                                     title={emailSettings[selectedId] ? 'Email notifications ON' : 'Email notifications OFF'}
                                 >
-                                    {emailSettings[selectedId] ? '🔔 Emails On' : '🔕 Emails Off'}
+                                    {emailSettings[selectedId] ? 'Emails On' : 'Emails Off'}
                                 </button>
                                 <button
                                     className={`action-btn priority-toggle-btn ${prioritySettings[selectedId] ? 'priority-on' : 'priority-off'}`}
@@ -1206,9 +1192,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         }
                                     }}
                                     title={prioritySettings[selectedId] ? 'Priority Alerts ON (Ntfy)' : 'Priority Alerts OFF'}
-                                    style={prioritySettings[selectedId] ? { background: '#d32f2f', color: 'white' } : {}}
                                 >
-                                    {prioritySettings[selectedId] ? '🚨 Priority ON' : '💤 Priority Off'}
+                                    {prioritySettings[selectedId] ? 'Priority ON' : 'Priority Off'}
                                 </button>
                                 <button
                                     className={`action-btn active-toggle-btn ${activeSettings[selectedId] ? 'active-on' : 'active-off'}`}
@@ -1230,13 +1215,21 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     }}
                                     title={activeSettings[selectedId] ? 'Included in Run All' : 'Excluded from Run All'}
                                 >
-                                    {activeSettings[selectedId] ? '✅ Active' : '⛔ Inactive'}
+                                    {activeSettings[selectedId] ? 'Active' : 'Inactive'}
                                 </button>
                             </div>
                         </>
                     )}
 
-                    {!selectedTerm && <p className="empty-results-message">Select an item to view stored results.</p>}
+                    {!selectedTerm && (
+                        <>
+                            <div className="panel-heading"><h2>Stored results</h2></div>
+                            <div className="results-idle">
+                                <TokyoClock />
+                                <p>{watchlist.length ? 'Select a watch to see its results.' : 'Add a watch to start tracking listings.'}</p>
+                            </div>
+                        </>
+                    )}
 
                     {selectedResults && (
                         <>
@@ -1245,17 +1238,19 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                 <input
                                     type="text"
                                     placeholder="Filter results by title..."
+                                    aria-label="Filter results by title"
                                     value={resultFilter}
                                     onChange={(e) => { setResultFilter(e.target.value); setCurrentPage(1); }}
                                     className="search-input"
-                                    style={{ maxWidth: '400px', fontSize: '0.9rem', marginBottom: '1rem', marginRight: '10px' }}
+
                                 />
 
                                 <select
+                                    aria-label="Filter by marketplace"
                                     value={sourceFilter}
                                     onChange={(e) => { setSourceFilter(e.target.value); setCurrentPage(1); }}
-                                    className="search-input" // Reusing search-input style for consistency
-                                    style={{ maxWidth: '200px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem' }}
+                                    className="search-input"
+
                                 >
                                     <option value="All">All Websites</option>
                                     {resultSources.map(source => (
@@ -1273,10 +1268,11 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     </button>
                                 )}
                                 <select
+                                    aria-label="Sort results"
                                     value={sortBy}
                                     onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
                                     className="search-input"
-                                    style={{ maxWidth: '180px', fontSize: '0.9rem', marginBottom: '1rem', padding: '0.5rem', marginLeft: '10px' }}
+
                                 >
                                     <option value="time">Sort: Time Scraped</option>
                                     <option value="favorite">Sort: Favorited</option>
@@ -1285,10 +1281,10 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     <option value="priceLow">Sort: Price Low→High</option>
                                 </select>
                             </div>
-                            <div className="results-grid">
+                            <div className="results-grid" key={selectedId}>
                                 {(() => {
                                     if (filteredAndSortedResults.length === 0) {
-                                        return <p>{resultFilter || sourceFilter !== 'All' ? 'No results match your filter.' : 'No results found in last run (or run hasn\'t happened yet).'}</p>;
+                                        return <p className="empty-results-message">{resultFilter || sourceFilter !== 'All' ? 'No results match your filter.' : 'No stored results yet.'}</p>;
                                     }
 
                                     return visibleResults
@@ -1365,14 +1361,14 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         Next →
                                     </button>
 
-                                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                                    <div className="export-actions">
                                         <button
                                             className="page-btn"
                                             onClick={() => handleExportClipboard(visibleResults)}
-                                            style={{ backgroundColor: '#333', border: '1px solid #555' }}
+
                                             title="Copy Name - Link to Clipboard"
                                         >
-                                            📋 Copy
+                                            Copy
                                         </button>
                                         <button
                                             className="page-btn"
@@ -1380,9 +1376,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                                 visibleResults,
                                                 selectedTerm || 'watchlist_results'
                                             )}
-                                            style={{ backgroundColor: '#333', border: '1px solid #555' }}
+
                                         >
-                                            📥 Export HTML
+                                            Export HTML
                                         </button>
                                     </div>
                             </div>
@@ -1390,14 +1386,14 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
 
                             {/* Export Button (shown when no pagination) */}
                             {visibleResults.length > 0 && totalPages <= 1 && (
-                                <div style={{ textAlign: 'right', marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
+                                <div className="export-actions standalone">
                                     <button
                                         className="page-btn"
                                         onClick={() => handleExportClipboard(visibleResults)}
-                                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
+
                                         title="Copy Name - Link to Clipboard"
                                     >
-                                        📋 Copy ({visibleResults.length})
+                                        Copy ({visibleResults.length})
                                     </button>
                                     <button
                                         className="page-btn"
@@ -1405,15 +1401,15 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                             visibleResults,
                                             selectedTerm || 'watchlist_results'
                                         )}
-                                        style={{ backgroundColor: '#333', border: '1px solid #555' }}
+
                                     >
-                                        📥 Export HTML ({visibleResults.length})
+                                        Export HTML ({visibleResults.length})
                                     </button>
                                 </div>
                             )}
                         </>
                     )}
-                </div>
+                </section>
             </div>
         </div>
     );
