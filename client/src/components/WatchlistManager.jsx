@@ -1125,25 +1125,26 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                 </button>
 
                                 {!isMerging && (
-                                    <button
-                                        className="edit-btn"
-                                        aria-label={`Edit ${item.name || item.term}`}
-                                        onClick={(e) => startEdit(e, item)}
-                                        title="Edit terms"
-                                    >
-                                        <Icon name="edit" />
-                                    </button>
-                                )}
-
-                                {!isMerging && (
-                                    <button
-                                        className="delete-btn"
-                                        aria-label={`Remove ${item.name || item.term}`}
-                                        onClick={(e) => removeWatch(item.id, e)}
-                                        title="Remove from watchlist"
-                                    >
-                                        <Icon name="trash" />
-                                    </button>
+                                    <div className="watch-row-actions">
+                                        <button
+                                            type="button"
+                                            className="edit-btn"
+                                            aria-label={`Edit ${item.name || item.term}`}
+                                            onClick={(e) => startEdit(e, item)}
+                                            title="Edit terms"
+                                        >
+                                            <Icon name="edit" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="delete-btn"
+                                            aria-label={`Remove ${item.name || item.term}`}
+                                            onClick={(e) => removeWatch(item.id, e)}
+                                            title="Remove from watchlist"
+                                        >
+                                            <Icon name="trash" />
+                                        </button>
+                                    </div>
                                 )}
                             </li>
                             ))}

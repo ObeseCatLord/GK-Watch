@@ -485,6 +485,26 @@ a.watch-meta { color: var(--accent-color); }
   border-color: transparent;
 }
 
+.watch-row-actions {
+  display: grid;
+  flex: none;
+  gap: .125rem;
+}
+
+.watch-row-actions button {
+  display: grid;
+  place-items: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+  box-shadow: none;
+}
+
+.watch-row-actions .bitmap-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
 .delete-btn:hover:not(:disabled), .block-btn:hover:not(:disabled) { color: var(--danger); }
 .mobile-sidebar-toggle { display: none; }
 
@@ -857,6 +877,7 @@ input.settings-input { max-width: 100%; }
   .watchlist-drawer::backdrop { background: #11111ba6; }
   html:has(.watchlist-drawer[open]) { overflow: hidden; }
   .drawer-close { min-width: 2.75rem; min-height: 2.75rem; }
+  .watchlist-drawer .watch-row-actions button { min-width: 1.75rem; min-height: 1.75rem; }
   .workspace { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
 
   .mobile-sidebar-toggle {
