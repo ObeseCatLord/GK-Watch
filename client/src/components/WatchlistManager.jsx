@@ -16,6 +16,8 @@ const shallowEqual = (left, right) => {
     return keys.length === Object.keys(right).length && keys.every(key => left[key] === right[key]);
 };
 
+const ITEMS_PER_PAGE = 25;
+
 const DEFAULT_ENABLED_SITES = {
     mercari: true,
     yahoo: true,
@@ -69,7 +71,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const [selectedResultsMeta, setSelectedResultsMeta] = useState({
         total: 0,
         page: 1,
-        pageSize: 24,
+        pageSize: ITEMS_PER_PAGE,
         totalPages: 1,
         useServerPagination: false
     });
@@ -123,8 +125,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const [newStrict, setNewStrict] = useState(true);
     const [globalSettings, setGlobalSettings] = useState({}); // Renamed to avoid collision with 'activeSettings' maybe? No, 'settings' is fine but distinct from local settings maps.
 
-
-    const ITEMS_PER_PAGE = 24;
 
     const fetchGlobalSettings = React.useCallback(async () => {
         try {

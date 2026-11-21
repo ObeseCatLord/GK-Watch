@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import WatchlistManager from './WatchlistManager';
 
@@ -34,10 +34,11 @@ const createApi = ({ paginated = true, deferSeen = false } = {}) => {
         if (url.startsWith('/api/results/')) {
             const request = new URL(url, 'https://example.test');
             const page = Number(request.searchParams.get('page') || 1);
+            const pageSize = Number(request.searchParams.get('pageSize'));
             const results = request.pathname === '/api/results/a' ? items : [makeItem('Other result')];
             return response(paginated ? {
-                items: results.slice((page - 1) * 24, page * 24), total: results.length,
-                page, pageSize: 24, totalPages: Math.ceil(results.length / 24), sources: ['Mercari']
+                items: results.slice((page - 1) * pageSize, page * pageSize), total: results.length,
+                page, pageSize, totalPages: Math.ceil(results.length / pageSize), sources: ['Mercari']
             } : results);
         }
         return response({});
@@ -92,13 +93,15 @@ describe('watch unread lifecycle', () => {
         expect(await screen.findByRole('heading', { name: 'Page 1' })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Load page 2' }));
         expect(await screen.findByRole('heading', { name: 'Page 2' })).toBeInTheDocument();
-        expect(screen.getByRole('region', { name: 'Page 1' })).toHaveTextContent('New item 1');
+        expect(within(screen.getByRole('region', { name: 'Page 1' })).getAllByRole('link')).toHaveLength(25);
+        expect(within(screen.getByRole('region', { name: 'Page 2' })).getAllByRole('link')).toHaveLength(1);
         if (paginated) expect(api.resultCalls().some(([url]) => url.includes('page=2'))).toBe(true);
 
         fireEvent.click(screen.getByRole('button', { name: 'Paged view' }));
         await waitFor(() => expect(screen.queryByRole('region', { name: 'Page 2' })).not.toBeInTheDocument());
         fireEvent.click(screen.getByText('Next →'));
-        expect(await screen.findByRole('region', { name: 'Page 2' })).toBeInTheDocument();
+        const secondPage = await screen.findByRole('region', { name: 'Page 2' });
+        expect(within(secondPage).getAllByRole('link')).toHaveLength(1);
         expect(screen.queryByRole('region', { name: 'Page 1' })).not.toBeInTheDocument();
     });
 

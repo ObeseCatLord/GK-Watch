@@ -172,7 +172,7 @@ describe('WatchlistManager', () => {
                         items: [{ title: 'New Result', link: 'https://example.test/new-result', source: 'mercari' }],
                         total: 1,
                         page: 1,
-                        pageSize: 24,
+                        pageSize: 25,
                         totalPages: 1,
                         sources: ['mercari']
                     })
@@ -202,7 +202,7 @@ describe('WatchlistManager', () => {
     });
 
     it('loads malformed paginated results response using client-side pagination', async () => {
-        const malformedItems = Array.from({ length: 25 }, (_, index) => ({
+        const malformedItems = Array.from({ length: 26 }, (_, index) => ({
             title: `Fallback ${index + 1}`,
             link: `https://example.com/fallback-${index + 1}`,
             source: 'mercari',
@@ -261,7 +261,7 @@ describe('WatchlistManager', () => {
         fireEvent.click(screen.getByText('Fallback Set'));
 
         await waitFor(() => {
-            expect(screen.getByText('(25 results)')).toBeInTheDocument();
+            expect(screen.getByText('(26 results)')).toBeInTheDocument();
             expect(screen.getByRole('button', { name: 'Load page 2' })).toBeInTheDocument();
         });
     });
