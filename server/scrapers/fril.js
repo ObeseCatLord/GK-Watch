@@ -71,7 +71,7 @@ async function searchDirect(query, signal) {
     return { items: [...items.values()], complete: false };
 }
 
-async function search(query, strictEnabled = true, filters = [], signal = null) {
+async function search(query, strictEnabled = true, filters = [], signal = null, onFallback) {
     signal?.throwIfAborted();
     const parsedQuery = parseQuery(query);
     const excludedTerms = (filters || []).map(term => term.toLowerCase());
@@ -92,6 +92,7 @@ async function search(query, strictEnabled = true, filters = [], signal = null) 
         return [...results.values()];
     }
 
+    onFallback?.();
     try {
         const fallback = await doorzo.search(query, 'rakuma', signal);
         signal?.throwIfAborted();

@@ -7,6 +7,7 @@ const ScheduleSettings = require('./models/schedule');
 const Settings = require('./models/settings');
 const EmailService = require('./emailService');
 const NtfyService = require('./utils/ntfyService');
+const { createRakumaBatchMetrics } = require('./utils/rakumaBatchMetrics');
 const Cleanup = require('./utils/cleanup');
 const searchAggregator = require('./scrapers');
 const db = require('./models/database');
@@ -414,6 +415,8 @@ const Scheduler = {
         Scheduler.progress = { current: startIndex, total: items.length, currentItem: '' };
 
         const allNewItems = {};
+        const batchStartedAt = Date.now();
+        const rakumaMetrics = createRakumaBatchMetrics();
 
         console.log(`[Batch] Starting ${type} run. ${items.length} items. From index ${startIndex}.`);
 
@@ -473,10 +476,10 @@ const Scheduler = {
                                 item.enabledSites,
                                 item.strict !== false,
                                 item.filters || [],
-                                sourceOutcomes.onProgress,
+                                rakumaMetrics.trackQuery(sourceOutcomes.onProgress),
                                 item.siteOptions || {},
                                 null,
-                                { kind: 'watch', runType: type }
+                                { kind: 'watch', runType: type, onRakumaFallback: rakumaMetrics.recordFallback }
                             );
                             if (results && results.length > 0) {
                                 for (const res of results) {
@@ -561,6 +564,11 @@ const Scheduler = {
         } catch (err) {
             console.error('[Scheduler] Error in runBatch:', err);
         } finally {
+            const summary = rakumaMetrics.summarize();
+            if (summary) {
+                const log = summary.warning ? console.warn : console.log;
+                log(`[Batch] Rakuma search health ${JSON.stringify({ type, elapsedMs: Date.now() - batchStartedAt, ...summary })}`);
+            }
             Scheduler.isRunning = false;
             Scheduler.progress = null;
             Scheduler.shouldAbort = false;

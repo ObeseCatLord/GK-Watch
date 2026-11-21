@@ -230,7 +230,7 @@ async function runSearch(query, enabledOverride = null, strictOverride = null, f
     }
 
     if (enabled.fril !== false) {
-        scraperTasks.push({ name: 'Fril', promise: scheduleScraper('Fril', () => fril.search(query, strict.fril ?? true, filters, signal)) });
+        scraperTasks.push({ name: 'Fril', promise: scheduleScraper('Fril', () => fril.search(query, strict.fril ?? true, filters, signal, executionContext.onRakumaFallback)) });
     }
 
     if (enabled.surugaya !== false) {
