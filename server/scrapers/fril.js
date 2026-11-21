@@ -1,7 +1,9 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const dejapan = require('./dejapan');
-const { matchTitle, parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
+const doorzo = require('./doorzo');
+const jsubculture = require('./jsubculture');
+const { parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
 
 function throwIfAborted(signal) {
     if (!signal?.aborted) return;
@@ -112,37 +114,49 @@ async function searchDirect(query, strictEnabled = true, filters = [], signal = 
     }
 }
 
-// Wrapper for main search to handle fallback
 async function searchWithFallback(query, strictEnabled = true, filters = [], signal = null) {
     throwIfAborted(signal);
-    let results = null;
-    try {
-        results = await searchDirect(query, strictEnabled, filters, signal);
-    } catch (err) {
-        throwIfAborted(signal);
-        console.warn(`[Fril] Direct search critical error: ${err.message}`);
-        results = null;
-    }
-
-    if (results !== null) {
-        return results;
-    }
-
-    console.log('[Fril] Direct search failed (returned null). Attempting Fallback: DEJapan...');
-    try {
-        throwIfAborted(signal);
-        const dejapanResults = await dejapan.searchRakuma(query, strictEnabled, filters, signal);
-        throwIfAborted(signal);
-        if (dejapanResults !== null) {
-            console.log(`[Fril] DEJapan search successful (${dejapanResults.length} items).`);
-            return dejapanResults;
+    const parsedQuery = parseQuery(query);
+    const excludedTerms = (filters || []).map(term => term.toLowerCase());
+    const filterItems = items => (items || []).filter(item => matchesQuery(item.title, parsedQuery, strictEnabled)
+        && !excludedTerms.some(term => item.title.toLowerCase().includes(term)));
+    const primary = await jsubculture.search(query, 'rakuma', signal);
+    const results = new Map(filterItems(primary.items).map(item => [item.link, item]));
+    const merge = items => {
+        for (const item of items) {
+            const link = item.link.split(/[?#]/, 1)[0].replace(/\/$/, '');
+            if (!results.has(link)) results.set(link, item);
         }
-    } catch (err) {
-        throwIfAborted(signal);
-        console.warn(`[Fril] DEJapan fallback error: ${err.message}`);
+        return [...results.values()];
+    };
+
+    if (primary.complete && results.size) {
+        console.log(`[Fril] J-Subculture found ${results.size} matching listings.`);
+        return [...results.values()];
     }
 
-    return [];
+    try {
+        const fallback = await doorzo.search(query, 'rakuma', signal);
+        throwIfAborted(signal);
+        const items = filterItems(fallback);
+        if (items.length) return merge(items);
+    } catch (error) {
+        throwIfAborted(signal);
+        console.warn(`[Fril] Doorzo fallback error: ${error.message}`);
+    }
+
+    const direct = await searchDirect(query, strictEnabled, filters, signal);
+    if (direct?.length) return merge(direct);
+
+    try {
+        const fallback = await dejapan.searchRakuma(query, strictEnabled, filters, signal);
+        throwIfAborted(signal);
+        return merge(fallback || []);
+    } catch (error) {
+        throwIfAborted(signal);
+        console.warn(`[Fril] DEJapan fallback error: ${error.message}`);
+        return [...results.values()];
+    }
 }
 
 module.exports = { search: searchWithFallback };

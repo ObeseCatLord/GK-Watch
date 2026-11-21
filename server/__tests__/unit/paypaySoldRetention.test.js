@@ -6,31 +6,20 @@ jest.mock('../../scrapers/doorzo', () => ({ search: jest.fn() }));
 const axios = require('axios');
 const { getTestDb, closeTestDb, clearTestDb } = require('../testSetup');
 
-function buildPayPaySearchHtml(items) {
-    const nextData = {
-        props: {
-            initialState: {
-                searchState: {
-                    search: {
-                        result: { items }
-                    }
-                }
-            }
-        }
-    };
+const doorzo = require('../../scrapers/doorzo');
 
-    return `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(nextData)}</script></body></html>`;
-}
-
-function buildPayPaySearchHtmlWithDomFallback(items, domItems) {
-    const dom = domItems.map(item => `
-        <a href="/item/${item.id}">
-            <img alt="${item.title}" src="${item.image}">
-            <p>${item.price}円</p>
-        </a>
-    `).join('');
-
-    return buildPayPaySearchHtml(items).replace('</body>', `${dom}</body>`);
+function buildSearchPage(items, total = items.length, nextPage) {
+    const cards = items.map(item => {
+        const url = encodeURIComponent(`https://paypayfleamarket.yahoo.co.jp/item/${item.id}`);
+        return `<div class="product-item">
+            <img src="https://example.test/${item.id}.jpg">
+            <h6 class="product-title"><a href="/en/shoppings/detail?shopping_url=${url}">${item.title}</a></h6>
+            <span class="cur-price-main"><span class="num">${item.price || '9,500'}</span> JPY</span>
+        </div>`;
+    }).join('');
+    const next = nextPage ? `<a href="?keyword=garage+kit&amp;page=${nextPage}">Next</a>` : '';
+    return { data: `<div class="showing">We could find ${total} results for garage kit</div>
+        ${cards}<div class="shop-pagination">${next}</div>` };
 }
 
 describe('PayPay SOLD retention', () => {
@@ -53,47 +42,20 @@ describe('PayPay SOLD retention', () => {
         jest.clearAllMocks();
     });
 
-    test('scraper drops Yahoo Flea Market SOLD items older than 24 hours', async () => {
+    test('Doorzo fallback retains recently sold items for 24 hours', async () => {
         const paypay = require('../../scrapers/paypay');
         const now = Date.now();
 
-        axios.get.mockResolvedValue({
-            data: buildPayPaySearchHtml([
-                {
-                    id: 'z-old-sold',
-                    title: 'Old sold garage kit',
-                    price: 17000,
-                    itemStatus: 'SOLD',
-                    endTime: new Date(now - 25 * 60 * 60 * 1000).toISOString(),
-                    thumbnailImageUrl: 'https://example.test/old.jpg'
-                },
-                {
-                    id: 'z-recent-sold',
-                    title: 'Recent sold garage kit',
-                    price: 18000,
-                    itemStatus: 'SOLD',
-                    endTime: new Date(now - 23 * 60 * 60 * 1000).toISOString(),
-                    thumbnailImageUrl: 'https://example.test/recent.jpg'
-                },
-                {
-                    id: 'z-open',
-                    title: 'Open garage kit',
-                    price: 19000,
-                    itemStatus: 'OPEN',
-                    endTime: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                    thumbnailImageUrl: 'https://example.test/open.jpg'
-                }
-            ])
-        });
+        axios.get.mockRejectedValueOnce(new Error('Request timed out'));
+        doorzo.search.mockResolvedValueOnce([
+            { title: 'Old sold garage kit', link: 'old', isSold: true, endTime: new Date(now - 25 * 60 * 60 * 1000).toISOString() },
+            { title: 'Recent sold garage kit', link: 'recent', isSold: true, endTime: new Date(now - 23 * 60 * 60 * 1000).toISOString() },
+            { title: 'Open garage kit', link: 'open', isSold: false, endTime: '' }
+        ]);
 
-        const results = await paypay.search('garage kit', false, []);
-        const links = results.map(result => result.link);
-
-        expect(links).not.toContain('https://paypayfleamarket.yahoo.co.jp/item/z-old-sold');
-        expect(links).toContain('https://paypayfleamarket.yahoo.co.jp/item/z-recent-sold');
-        expect(links).toContain('https://paypayfleamarket.yahoo.co.jp/item/z-open');
-        expect(results.find(result => result.link.endsWith('/z-recent-sold')).isSold).toBe(true);
-        expect(results.find(result => result.link.endsWith('/z-open')).endTime).toBe('');
+        const results = await paypay.search('garage kit');
+        expect(doorzo.search).toHaveBeenCalledWith('garage kit', 'paypay', null);
+        expect(results.map(result => result.link)).toEqual(['recent', 'open']);
     });
 
     test('scheduler refuses to persist PayPay SOLD items older than 24 hours', async () => {
@@ -190,22 +152,62 @@ describe('PayPay SOLD retention', () => {
         expect(item.hidden).toBe(1);
     });
 
-    test('scraper falls back to DOM parsing when structured PayPay items cannot be mapped', async () => {
+    test('J-Subculture follows pagination and deduplicates before filtering', async () => {
         const paypay = require('../../scrapers/paypay');
+        const item = { id: 'z123', title: 'Garage kit &amp; base' };
+        axios.get.mockResolvedValueOnce(buildSearchPage([
+            item,
+            { id: 'z124', title: 'Blocked garage kit' }
+        ], 4, 2)).mockResolvedValueOnce(buildSearchPage([
+            item,
+            { id: 'z125', title: 'Garage kit with box' },
+            { id: 'z126', title: 'Unrelated figure' }
+        ], 4));
 
-        axios.get.mockResolvedValue({
-            data: buildPayPaySearchHtmlWithDomFallback(
-                [{ unexpectedId: 'z-unmapped', unexpectedName: 'Unmapped structured item' }],
-                [{
-                    id: 'z-dom-fallback',
-                    title: 'DOM fallback garage kit',
-                    image: 'https://example.test/dom.jpg',
-                    price: '9500'
-                }]
-            )
+        const results = await paypay.search('garage kit', true, ['blocked']);
+        expect(results).toEqual([
+            { title: 'Garage kit & base', link: 'https://paypayfleamarket.yahoo.co.jp/item/z123', price: '¥9,500', image: 'https://example.test/z123.jpg' },
+            { title: 'Garage kit with box', link: 'https://paypayfleamarket.yahoo.co.jp/item/z125', price: '¥9,500', image: 'https://example.test/z125.jpg' }
+        ]);
+        expect(new URL(axios.get.mock.calls[1][0]).searchParams.get('page')).toBe('2');
+        expect(doorzo.search).not.toHaveBeenCalled();
+    });
+
+    test('a malformed second page preserves J-Subculture results and fills in from Doorzo', async () => {
+        const paypay = require('../../scrapers/paypay');
+        const primaryLink = 'https://paypayfleamarket.yahoo.co.jp/item/z123';
+        const fallback = { title: 'Doorzo garage kit', link: 'https://paypayfleamarket.yahoo.co.jp/item/z124' };
+        axios.get.mockResolvedValueOnce(buildSearchPage([{ id: 'z123', title: 'J-Subculture garage kit' }], 2, 2))
+            .mockResolvedValueOnce({ data: '<html>Service unavailable</html>' });
+        doorzo.search.mockResolvedValueOnce([{ title: 'Duplicate garage kit', link: primaryLink }, fallback]);
+
+        const results = await paypay.search('garage kit');
+        expect(results.map(item => item.title)).toEqual(['J-Subculture garage kit', 'Doorzo garage kit']);
+    });
+
+    test('a genuine empty J-Subculture search falls back to Doorzo', async () => {
+        const paypay = require('../../scrapers/paypay');
+        axios.get.mockResolvedValueOnce(buildSearchPage([]));
+        doorzo.search.mockResolvedValueOnce([]);
+        expect(await paypay.search('garage kit')).toEqual([]);
+        expect(doorzo.search).toHaveBeenCalledTimes(1);
+    });
+
+    test('a provider error remains distinguishable from an empty search', async () => {
+        const paypay = require('../../scrapers/paypay');
+        axios.get.mockResolvedValueOnce({ data: '<html>Service unavailable</html>' });
+        doorzo.search.mockResolvedValueOnce(null);
+        expect(await paypay.search('garage kit')).toBeNull();
+    });
+
+    test('an aborted J-Subculture search never starts Doorzo', async () => {
+        const paypay = require('../../scrapers/paypay');
+        const controller = new AbortController();
+        axios.get.mockImplementationOnce(async () => {
+            controller.abort();
+            return buildSearchPage([]);
         });
-
-        const results = await paypay.search('garage kit', false, []);
-        expect(results.map(result => result.link)).toContain('https://paypayfleamarket.yahoo.co.jp/item/z-dom-fallback');
+        await expect(paypay.search('garage kit', true, [], controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+        expect(doorzo.search).not.toHaveBeenCalled();
     });
 });

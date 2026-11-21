@@ -142,7 +142,7 @@ describe('Mercari Scraper Retry Logic', () => {
         errorSpy.mockRestore();
     });
 
-    test('uses a newest-first native pass without calling Doorzo', async () => {
+    test('uses a newest-first native pass after Doorzo is unavailable', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
             items: [{ id: 'm999', name: 'test query native item', price: '1000' }],
             meta: { nextPageToken: null }
@@ -153,7 +153,7 @@ describe('Mercari Scraper Retry Logic', () => {
 
         expect(results.map(item => item.link)).toEqual(['https://jp.mercari.com/item/m999']);
         expect(mock.history.post).toHaveLength(1);
-        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(0);
+        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(1);
         expect(JSON.parse(mock.history.post[0].data).searchCondition.sort).toBe('SORT_CREATED_TIME');
         expect(mock.history.post[0].timeout).toBe(3000);
         expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Native search successful'));
@@ -161,7 +161,7 @@ describe('Mercari Scraper Retry Logic', () => {
         logSpy.mockRestore();
     });
 
-    test('returns native freshness results without waiting for Doorzo', async () => {
+    test('streams results from the native fallback', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
             items: [
                 { id: 'm111', name: 'test query shared item', price: '1000' },
@@ -181,7 +181,7 @@ describe('Mercari Scraper Retry Logic', () => {
             'https://jp.mercari.com/item/m111',
             'https://jp.mercari.com/item/m85302349482'
         ]);
-        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(0);
+        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(1);
 
         logSpy.mockRestore();
     });
@@ -234,33 +234,33 @@ describe('Mercari Scraper Retry Logic', () => {
         errorSpy.mockRestore();
     });
 
-    test('does not start Doorzo while a successful native search is pending', async () => {
-        let releaseDoorzo;
-        let releaseDirect;
-        mock.onGet('https://sig.doorzo.com/').reply(() => new Promise(resolve => {
-            releaseDoorzo = resolve;
-        }));
-        mock.onPost('https://api.mercari.jp/v2/entities:search').reply(() => new Promise(resolve => {
-            releaseDirect = resolve;
+    test('does not start a fallback while J-Subculture is pending', async () => {
+        let releasePrimary;
+        mock.onGet(/^https:\/\/www\.j-subculture\.com\/en\/searches\/mercari-lists/).reply(() => new Promise(resolve => {
+            releasePrimary = resolve;
         }));
 
-        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
-        const pending = search('test query');
-        for (let attempt = 0; !releaseDirect && attempt < 50; attempt++) {
-            await new Promise(resolve => setImmediate(resolve));
-        }
+        const pending = search('test query', true, [], onProgress);
+        expect(releasePrimary).toBeDefined();
+        expect(mock.history.get).toHaveLength(1);
+        expect(mock.history.post).toHaveLength(0);
 
-        expect(releaseDirect).toBeDefined();
-        expect(releaseDoorzo).toBeUndefined();
-        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(0);
-        releaseDirect([200, { items: [], meta: { nextPageToken: null } }]);
-        await expect(pending).resolves.toEqual([]);
-        expect(releaseDoorzo).toBeUndefined();
-
-        logSpy.mockRestore();
+        releasePrimary([200, `
+            <div class="showing">We could find 1 result for test query</div>
+            <article class="product-item">
+                <h6 class="product-title">
+                    <a href="/en/shoppings/detail?shopping_url=https%3A%2F%2Fjp.mercari.com%2Fshops%2Fproduct%2FAbC123%2F">test query shop</a>
+                </h6>
+            </article>`]);
+        await expect(pending).resolves.toEqual([expect.objectContaining({
+            link: 'https://jp.mercari.com/shops/product/AbC123'
+        })]);
+        expect(mock.history.get).toHaveLength(1);
+        expect(mock.history.post).toHaveLength(0);
+        expect(onProgress).toHaveBeenCalledTimes(1);
     });
 
-    test('returns Doorzo results when the freshness queue exceeds its deadline', async () => {
+    test('returns Doorzo results without waiting for a full native queue', async () => {
         const { mercariFreshnessPool } = require('../../utils/admissionControl');
         const releases = [];
         const blockers = Array.from({ length: 2 }, () => mercariFreshnessPool.run(() => new Promise(resolve => {
@@ -283,28 +283,17 @@ describe('Mercari Scraper Retry Logic', () => {
             meta: { nextPageToken: null }
         });
 
-        jest.useFakeTimers();
-        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => { });
-        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
         try {
-            const pending = search('test query');
-            await Promise.resolve();
-            jest.advanceTimersByTime(4000);
-            const results = await pending;
-
+            const results = await search('test query');
             expect(results.map(item => item.link)).toEqual(['https://jp.mercari.com/item/m111']);
             expect(mock.history.post).toHaveLength(0);
-            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Freshness pass exceeded 4000ms'));
         } finally {
-            jest.useRealTimers();
             releases.forEach(resolve => resolve());
             await Promise.all(blockers);
-            logSpy.mockRestore();
-            warnSpy.mockRestore();
         }
     });
 
-    test('treats an empty native response as success without calling Doorzo', async () => {
+    test('treats an empty native response as success without calling Neokyo', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
             items: [],
             meta: { nextPageToken: null }
@@ -315,12 +304,12 @@ describe('Mercari Scraper Retry Logic', () => {
 
         expect(results).toEqual([]);
         expect(onProgress).not.toHaveBeenCalled();
-        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(0);
+        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(1);
 
         logSpy.mockRestore();
     });
 
-    test('returns native results without probing Doorzo', async () => {
+    test('returns native results after a Doorzo API error', async () => {
         mock.onGet('https://sig.doorzo.com/').reply(200, { code: 123, data: {} });
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(200, {
             items: [{ id: 'm998', name: 'test query direct item', price: '1200' }],
@@ -334,7 +323,7 @@ describe('Mercari Scraper Retry Logic', () => {
         expect(results).toHaveLength(1);
         expect(results[0].link).toBe('https://jp.mercari.com/item/m998');
         expect(mock.history.post).toHaveLength(1);
-        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(0);
+        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(1);
         expect(JSON.parse(mock.history.post[0].data).searchCondition.sort).toBe('SORT_CREATED_TIME');
 
         logSpy.mockRestore();
@@ -357,7 +346,7 @@ describe('Mercari Scraper Retry Logic', () => {
         releaseDirect([200, { items: [], meta: { nextPageToken: null } }]);
 
         await expect(pending).rejects.toMatchObject({ code: 'ABORT_ERR' });
-        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(0);
+        expect(mock.history.get.filter(request => request.url === 'https://sig.doorzo.com/')).toHaveLength(1);
         expect(mock.history.get.filter(request => request.url.startsWith('https://neokyo.com/'))).toHaveLength(0);
 
         logSpy.mockRestore();
@@ -568,7 +557,7 @@ describe('Mercari Scraper Retry Logic', () => {
         errorSpy.mockRestore();
     });
 
-    test('retains Doorzo token pages when the native freshness pass is rate limited', async () => {
+    test('streams Doorzo token pages without starting the native fallback', async () => {
         mock.onPost('https://api.mercari.jp/v2/entities:search').reply(429, {});
 
         let doorzoCallCount = 0;
@@ -617,7 +606,7 @@ describe('Mercari Scraper Retry Logic', () => {
             'https://jp.mercari.com/item/m111',
             'https://jp.mercari.com/item/m222'
         ]);
-        expect(mock.history.post).toHaveLength(2);
+        expect(mock.history.post).toHaveLength(0);
         expect(onProgress).toHaveBeenCalledTimes(2);
         expect(onProgress.mock.calls.flatMap(([event]) => event.items.map(item => item.link))).toEqual([
             'https://jp.mercari.com/item/m111',
@@ -659,7 +648,7 @@ describe('Mercari Scraper Retry Logic', () => {
         expect(requestedUrls.some(url => url.startsWith('https://neokyo.com/en/search/mercari'))).toBe(true);
         expect(requestedUrls.some(url => url.includes('dejapan.com/en/shopping/mercari'))).toBe(false);
         expect(mock.history.post).toHaveLength(2);
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to Neokyo'));
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('trying Neokyo'));
         expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Neokyo search successful'));
 
         logSpy.mockRestore();

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const dejapan = require('./dejapan');
 const doorzo = require('./doorzo');
+const jsubculture = require('./jsubculture');
 const path = require('path');
 const os = require('os');
 const puppeteer = require('puppeteer');
@@ -917,7 +918,7 @@ async function searchNeokyo(query, strictEnabled, filters, signal = null) {
     }
 }
 
-function filterDoorzoItems(results, query, strictEnabled, filters, logChanges = true) {
+function filterProxyItems(results, query, strictEnabled, filters, logChanges = true) {
     let filtered = Array.isArray(results) ? results : [];
 
     if (filters && filters.length > 0) {
@@ -927,7 +928,7 @@ function filterDoorzoItems(results, query, strictEnabled, filters, logChanges = 
             const titleLower = String(item.title || '').toLowerCase();
             return !filterTerms.some(term => titleLower.includes(term));
         });
-        if (logChanges) console.log(`[Mercari Doorzo] Negative filtering removed ${preCount - filtered.length} items.`);
+        if (logChanges) console.log(`[Mercari] Proxy negative filtering removed ${preCount - filtered.length} items.`);
     }
 
     const parsedQuery = parseQuery(query);
@@ -935,7 +936,7 @@ function filterDoorzoItems(results, query, strictEnabled, filters, logChanges = 
     if (strictEnabled || hasQuoted || (filters && filters.length > 0)) {
         const preCount = filtered.length;
         filtered = filtered.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
-        if (logChanges) console.log(`[Mercari Doorzo] Local filtering: ${preCount} -> ${filtered.length} items.`);
+        if (logChanges) console.log(`[Mercari] Proxy local filtering: ${preCount} -> ${filtered.length} items.`);
     }
 
     return filtered;
@@ -947,7 +948,7 @@ async function searchDoorzo(query, strictEnabled = true, filters = [], signal = 
 
     const emittedKeys = new Set();
     const onPage = onProgress ? pageItems => {
-        const filteredPage = filterDoorzoItems(pageItems, query, strictEnabled, filters, false)
+        const filteredPage = filterProxyItems(pageItems, query, strictEnabled, filters, false)
             .filter(item => {
                 const key = resultKey(item);
                 if (emittedKeys.has(key)) return false;
@@ -960,7 +961,7 @@ async function searchDoorzo(query, strictEnabled = true, filters = [], signal = 
     throwIfAborted(signal);
     if (results === null) return null;
 
-    return filterDoorzoItems(results, query, strictEnabled, filters);
+    return filterProxyItems(results, query, strictEnabled, filters);
 }
 
 function resultKey(item) {
@@ -1055,47 +1056,40 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
 
     throwIfAborted(signal);
 
-    if (isDisabled) {
-        console.log(`Mercari skipped (Disabled due to ${consecutiveTimeouts} consecutive timeouts).`);
-        return [];
+    const complete = results => {
+        if (onProgress && results.length > 0) onProgress({ items: results, partial: true });
+        return results;
+    };
+    const primary = await jsubculture.search(query, 'mercari', signal);
+    const primaryItems = filterProxyItems(primary.items, query, strictEnabled, filters, false);
+    if (primary.complete && primaryItems.length) {
+        console.log(`[Mercari] J-Subculture found ${primaryItems.length} matching listings.`);
+        return complete(primaryItems);
+    }
+
+    let doorzoResults = null;
+    try {
+        doorzoResults = await searchDoorzo(query, strictEnabled, filters, signal, primaryItems.length ? null : onProgress);
+        if (doorzoResults?.length) {
+            console.log(`[Mercari] Doorzo fallback successful (${doorzoResults.length} listings).`);
+            return primaryItems.length ? complete(mergeUniqueResults(primaryItems, doorzoResults)) : doorzoResults;
+        }
+    } catch (error) {
+        if (isAborted(signal, error)) throw abortError();
+        console.warn(`[Mercari] Doorzo error: ${error.message}.`);
     }
 
     const directOutcome = await searchNativeWithDeadline(query, strictEnabled, filters, signal);
-
     throwIfAborted(signal);
-    const directResults = directOutcome.results;
-    const uniqueDirectResults = mergeUniqueResults(directResults);
-
-    if (directResults !== null && !directOutcome.fallbackReason) {
-        if (onProgress && uniqueDirectResults.length > 0) {
-            onProgress({ items: uniqueDirectResults, partial: true });
+    const merged = mergeUniqueResults(primaryItems, directOutcome.results);
+    if (directOutcome.results !== null || doorzoResults !== null || merged.length) {
+        if (directOutcome.results !== null && !directOutcome.fallbackReason) {
+            console.log(`[Mercari] Native search successful (${merged.length} items).`);
         }
-        console.log(`[Mercari] Native search successful (${uniqueDirectResults.length} items).`);
-        return uniqueDirectResults;
+        return complete(merged);
     }
 
-    console.warn(`[Mercari] Native search unavailable (${directOutcome.fallbackReason || 'no completion result'}); falling back to Doorzo...`);
-    let doorzoResults = null;
-    try {
-        doorzoResults = await searchDoorzo(query, strictEnabled, filters, signal, onProgress);
-    } catch (err) {
-        if (isAborted(signal, err)) throw abortError();
-        console.warn(`[Mercari] Doorzo error: ${err.message}.`);
-    }
-
-    if (doorzoResults !== null || directResults !== null) {
-        const merged = mergeUniqueResults(uniqueDirectResults, doorzoResults);
-        if (onProgress && uniqueDirectResults.length > 0) {
-            const doorzoKeys = new Set((doorzoResults || []).map(resultKey));
-            const nativeOnly = uniqueDirectResults.filter(item => !doorzoKeys.has(resultKey(item)));
-            if (nativeOnly.length > 0) onProgress({ items: nativeOnly, partial: true });
-        }
-
-        console.log(`[Mercari] Doorzo fallback successful (native=${uniqueDirectResults.length}, Doorzo=${doorzoResults?.length ?? 0}, merged=${merged.length}).`);
-        return merged;
-    }
-
-    console.warn('[Mercari] Doorzo and direct API failed, falling back to Neokyo...');
+    console.warn('[Mercari] J-Subculture, Doorzo, and direct API yielded no usable results; trying Neokyo.');
 
     // Neokyo (Fast/Axios)
     try {
@@ -1123,8 +1117,12 @@ async function search(query, strictEnabled = true, filters = [], onProgress = nu
         console.warn(`[Mercari] DEJapan error: ${err.message}, falling back to native scraper...`);
     }
 
-    // Priority 5: Native Scraper (Puppeteer) - Ultimate Fallback
-    // Only used if ALL direct/proxy methods fail.
+    if (isDisabled) {
+        console.log(`[Mercari] Browser fallback disabled after ${consecutiveTimeouts} consecutive timeouts.`);
+        return [];
+    }
+
+    // Browser fallback is only used when all HTTP providers fail.
     console.log('[Mercari] All Axios methods failed. Attempting Native (Puppeteer) fallback...');
     const MAX_RETRIES = 1;
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {

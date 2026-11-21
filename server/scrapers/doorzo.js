@@ -29,7 +29,7 @@ function decodeHexUrl(hex) {
 }
 
 function normalizeWebsite(targetSite = 'paypay') {
-    if (targetSite === 'surugaya' || targetSite === 'mercari') {
+    if (targetSite === 'surugaya' || targetSite === 'mercari' || targetSite === 'rakuma') {
         return targetSite;
     }
     return 'paypay';
@@ -38,6 +38,7 @@ function normalizeWebsite(targetSite = 'paypay') {
 function sourceNameForWebsite(website) {
     if (website === 'paypay') return 'PayPay Flea Market';
     if (website === 'mercari') return 'Mercari';
+    if (website === 'rakuma') return 'Rakuma';
     return 'Suruga-ya';
 }
 
@@ -82,6 +83,9 @@ function mapDoorzoItem(item, website) {
         }
     } else if (website === 'mercari') {
         link = buildMercariLink(item);
+    } else if (website === 'rakuma') {
+        const id = [item.Asin, item.Url].find(value => /^[a-f\d]{32}$/i.test(value));
+        if (id) link = `https://item.fril.jp/${id}`;
     }
 
     return {
@@ -97,6 +101,8 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
     signal?.throwIfAborted();
     // Doorzo requires specific params to filter
     const website = normalizeWebsite(targetSite);
+    const mapItems = items => items.map(item => mapDoorzoItem(item, website))
+        .filter(item => website !== 'rakuma' || item.link);
 
     // Note: Doorzo allows filtering by multiple sites, but our architecture splits them.
     const params = {
@@ -144,7 +150,7 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
                 console.log(`[Doorzo] Page ${pageCount + 1} found ${items.length} items (Total: ${allItems.length})`);
 
                 if (onPage && items.length > 0) {
-                    await onPage(items.map(item => mapDoorzoItem(item, website)));
+                    await onPage(mapItems(items));
                 }
 
                 nextToken = responseData.nextPageToken;
@@ -157,7 +163,7 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
                 const itemShape = responseData?.items === undefined ? 'missing' : typeof responseData.items;
                 console.warn(`[Doorzo] Invalid API response while searching "${query}" on ${website} (code=${String(responseCode)}, items=${itemShape}).`);
                 return allItems.length > 0
-                    ? allItems.map(item => mapDoorzoItem(item, website))
+                    ? mapItems(allItems)
                     : null;
             }
 
@@ -165,7 +171,7 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
 
         console.log(`[Doorzo] Finished searching "${query}" on ${website}. Total items: ${allItems.length}`);
 
-        return allItems.map(item => mapDoorzoItem(item, website));
+        return mapItems(allItems);
 
     } catch (err) {
         if (signal?.aborted) throw err;
@@ -174,7 +180,7 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
         // Better to return what we have if possible, but scraper logic expects null on critical failure.
         // If we have items, return them.
         if (allItems.length > 0) {
-            return allItems.map(item => mapDoorzoItem(item, website));
+            return mapItems(allItems);
         }
         return null;
     }
