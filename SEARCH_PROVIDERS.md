@@ -6,13 +6,13 @@
 | --- | --- |
 | PayPay Flea Market | J-Subculture → Doorzo |
 | Mercari | J-Subculture → Doorzo → native API → Neokyo → DEJapan → native Chromium |
-| Rakuma / Fril | J-Subculture → Doorzo → native Fril → DEJapan |
+| Rakuma / Fril | J-Subculture → Doorzo → native Fril (in-stock results, up to five pages). A completed J-Subculture search can return zero matches. |
 | Yahoo Auctions | Native Yahoo first for live searches and authenticated watches. Doorzo first for unauthenticated watches. Neokyo and Jauce are later fallbacks. |
 | Suruga-ya | Doorzo → Neokyo → DEJapan. Native Suruga-ya item pages can supply missing prices. |
 | Mandarake | Native Mandarake with configured cookies, plus catalog metadata for garage-kit mode. |
 | Taobao and Goofish | Native browser searches with configured cookies. |
 
-A completed J-Subculture search with matching results ends the search. Empty, failed, and incomplete searches can reach Doorzo. If pagination fails after yielding results, the results already found can be merged with the fallback by canonical marketplace URL.
+A completed J-Subculture search with matching results ends the search. Failed and incomplete searches can reach Doorzo. On Mercari and PayPay, empty searches also try Doorzo. Rakuma skips further requests after a completed search because extra providers repeatedly returned no additional matches during the monitored batch. DEJapan was removed from the Rakuma chain after repeated HTTP 403 responses. If pagination fails after yielding results, the results already found can be merged with the fallback by canonical marketplace URL.
 
 ## Free search candidates
 
@@ -37,3 +37,9 @@ November 2026 spot checks used Japanese garage-kit queries and compared canonica
 - Apify advertises deeper PayPay paging. Anysite documents PayPay listing search. Live coverage was unverified for both. [Apify](https://apify.com/neverempty/yahoo-fleamarket-japan-listings-monitor) · [Anysite](https://app.anysite.io/docs/api/post-api-paypayfleamarket-products)
 
 For future comparisons, use the same query and stock filters on both providers, paginate, compare IDs with tracking parameters removed, and check missing items on the original marketplace. Distinguish sold items, catalog variants, login pages, and rate limits from genuine misses. The spot checks did not establish sustained throughput at Foundry's scheduled volume.
+
+### Rakuma timing on Foundry
+
+On November 21, 2026, the last scheduled batch before the provider switch took 6m 19s from the first of 86 watch completions to the last. A scheduled batch after the switch took 8m 10s over the same number of watches. Rakuma was the largest regression because empty searches typically ran all four providers, including the blocked DEJapan route.
+
+After the Rakuma fix, a paired replay on Foundry across five queries took a median of 0.52s per query, down from 2.81s. Both versions returned the same listing IDs in that sample. A live test with the first two providers forced unavailable returned 11 active listings from native Rakuma in 2.51s. These replay timings cover Rakuma alone.

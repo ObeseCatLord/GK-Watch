@@ -1,162 +1,111 @@
+const { setTimeout: delay } = require('node:timers/promises');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const dejapan = require('./dejapan');
 const doorzo = require('./doorzo');
 const jsubculture = require('./jsubculture');
-const { parseQuery, hasQuotedTerms, matchesQuery } = require('../utils/queryMatcher');
+const { parseQuery, matchesQuery } = require('../utils/queryMatcher');
 
-function throwIfAborted(signal) {
-    if (!signal?.aborted) return;
-    const error = new Error('Search was aborted');
-    error.name = 'AbortError';
-    error.code = 'ABORT_ERR';
-    throw error;
+const SEARCH_URL = 'https://fril.jp/s';
+const ITEM_URL = 'https://item.fril.jp/';
+const MAX_NATIVE_PAGES = 5;
+
+function listingLink(href) {
+    const match = /^https:\/\/item\.fril\.jp\/([a-f\d]{32})(?=[/?#]|$)/i.exec(href || '');
+    return match ? ITEM_URL + match[1].toLowerCase() : null;
 }
 
-async function searchDirect(query, strictEnabled = true, filters = [], signal = null) {
-    throwIfAborted(signal);
-    console.log(`Searching Fril for ${query}...`);
-    const searchUrl = `https://fril.jp/s?query=${encodeURIComponent(query)}`;
-
+async function searchDirect(query, signal) {
+    const url = new URL(SEARCH_URL);
+    url.search = new URLSearchParams({ query, transaction: 'selling', sort: 'relevance', order: 'desc' });
+    const items = new Map();
     try {
-        const res = await axios.get(searchUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept-Language': 'ja-JP'
-            },
-            timeout: 10000,
-            signal
-        });
+        for (let page = 1; page <= MAX_NATIVE_PAGES; page++) {
+            if (page > 1) {
+                await delay(300, undefined, { signal: signal ?? undefined });
+                url.searchParams.set('page', page);
+            }
 
-        const $ = cheerio.load(res.data);
-        let results = [];
-        const itemBoxes = $('.item-box');
+            const { data } = await axios.get(url.href, { timeout: 10000, signal });
+            signal?.throwIfAborted();
+            const $ = cheerio.load(data);
+            const searchResults = $('.search_tab');
+            if (!searchResults.length) throw new Error('Unexpected Rakuma search page');
+            const cards = searchResults.find('.item-box').toArray();
+            if (!cards.length) return { items: [...items.values()], complete: page === 1 };
 
-        itemBoxes.each((i, el) => {
-            try {
-                // Skip sold out items
-                if ($(el).find('.item-box__soldout_ribbon').length > 0) return;
+            const previousSize = items.size;
+            for (const card of cards) {
+                const box = $(card);
+                if (box.find('.item-box__soldout_ribbon').length) continue;
+                const link = listingLink(box.find('.item-box__image-wrapper a').first().attr('href'));
+                const title = box.find('.item-box__item-name span').text().trim();
+                if (!link || !title || items.has(link)) continue;
 
-                // Get title from the name span
-                const title = $(el).find('.item-box__item-name span').text().trim();
-                if (!title) return;
-
-                // Get link from image wrapper
-                const linkEl = $(el).find('.item-box__image-wrapper a[href*="item.fril.jp"]');
-                if (!linkEl.length) return;
-                const link = linkEl.attr('href');
-
-                // Get image
-                const imgEl = $(el).find('.item-box__image-wrapper img');
-                const image = imgEl.attr('data-original') || imgEl.attr('src') || '';
-
-                // Get price
-                let price = 'N/A';
-                const priceEl = $(el).find('.item-box__item-price');
-                if (priceEl.length) {
-                    const priceSpan = priceEl.find('span[data-content]:not([data-content="JPY"])');
-                    if (priceSpan.length) {
-                        const priceValue = priceSpan.attr('data-content');
-                        price = `¥${Number(priceValue).toLocaleString()}`;
-                    } else {
-                        // Fallback to text content, try to extract number
-                        const priceText = priceEl.text().trim();
-                        const priceMatch = priceText.match(/(\d{1,3}(,\d{3})*)/);
-                        if (priceMatch) {
-                            price = `¥${priceMatch[1]}`;
-                        }
-                    }
-                }
-
-                results.push({
+                const img = box.find('.item-box__image-wrapper img').first();
+                const priceEl = box.find('.item-box__item-price');
+                const digits = priceEl.find('span[data-content]:not([data-content="JPY"])').first().attr('data-content')
+                    || priceEl.text().match(/\d[\d,]*/)?.[0];
+                const yen = Number(digits?.replaceAll(',', ''));
+                items.set(link, {
                     title,
                     link,
-                    image,
-                    price,
-                    source: 'Rakuma' // Updated source name to be more recognizable
+                    image: img.attr('data-original') || img.attr('src') || '',
+                    price: yen > 0 ? `¥${yen.toLocaleString('ja-JP')}` : 'N/A',
+                    source: 'Rakuma'
                 });
-            } catch (e) {
-                // Skip bad items
             }
-        });
-
-        // Apply negative filtering (server-side since Rakuma/Fril query params are limited/unreliable)
-        if (filters && filters.length > 0) {
-            const filterTerms = filters.map(f => f.toLowerCase());
-            const preCount = results.length;
-            results = results.filter(item => {
-                const titleLower = item.title.toLowerCase();
-                return !filterTerms.some(term => titleLower.includes(term));
+            if (items.size === previousSize) throw new Error('Rakuma page contained no new active listings');
+            const next = searchResults.find('nav.pagination a[href]').toArray().some(anchor => {
+                const link = new URL($(anchor).attr('href'), url);
+                return link.origin === url.origin && link.pathname === url.pathname
+                    && link.searchParams.get('query') === query
+                    && Number(link.searchParams.get('page')) === page + 1;
             });
-            console.log(`[Fril] Server-side negative filtering removed ${preCount - results.length} items.`);
+            if (!next) return { items: [...items.values()], complete: true };
         }
-
-        // Strict filtering using query matcher (supports | for OR, && for AND, and quoted terms)
-        const parsedQuery = parseQuery(query);
-        const hasQuoted = hasQuotedTerms(parsedQuery);
-
-        if (strictEnabled || hasQuoted) {
-            const filteredResults = results.filter(item => matchesQuery(item.title, parsedQuery, strictEnabled));
-            console.log(`Fril: Found ${results.length} items, ${filteredResults.length} after strict filter${hasQuoted ? ' (Quoted Terms Enforced)' : ''}`);
-            return filteredResults;
-        }
-
-        console.log(`Fril: Found ${results.length} items (Strict filter disabled)`);
-        return results;
-
+        console.warn(`[Fril] Native search reached the ${MAX_NATIVE_PAGES}-page limit.`);
     } catch (error) {
-        throwIfAborted(signal);
-        console.error('Fril Scraper Error:', error.message);
-        if (error.response && error.response.status === 404) {
-            return []; // No results found often returns 404 on some sites, though Fril usually just empty list
-        }
-        return null;
+        signal?.throwIfAborted();
+        console.warn(`[Fril] Native search failed: ${error.message}`);
     }
+    return { items: [...items.values()], complete: false };
 }
 
-async function searchWithFallback(query, strictEnabled = true, filters = [], signal = null) {
-    throwIfAborted(signal);
+async function search(query, strictEnabled = true, filters = [], signal = null) {
+    signal?.throwIfAborted();
     const parsedQuery = parseQuery(query);
     const excludedTerms = (filters || []).map(term => term.toLowerCase());
-    const filterItems = items => (items || []).filter(item => matchesQuery(item.title, parsedQuery, strictEnabled)
-        && !excludedTerms.some(term => item.title.toLowerCase().includes(term)));
-    const primary = await jsubculture.search(query, 'rakuma', signal);
-    const results = new Map(filterItems(primary.items).map(item => [item.link, item]));
-    const merge = items => {
+    const results = new Map();
+    const addMatches = items => {
         for (const item of items) {
-            const link = item.link.split(/[?#]/, 1)[0].replace(/\/$/, '');
-            if (!results.has(link)) results.set(link, item);
+            const link = listingLink(item.link);
+            if (!link || results.has(link) || !matchesQuery(item.title, parsedQuery, strictEnabled)) continue;
+            if (excludedTerms.some(term => item.title.toLowerCase().includes(term))) continue;
+            results.set(link, { ...item, link });
         }
-        return [...results.values()];
     };
 
-    if (primary.complete && results.size) {
+    const primary = await jsubculture.search(query, 'rakuma', signal);
+    addMatches(primary.items);
+    if (primary.complete) {
         console.log(`[Fril] J-Subculture found ${results.size} matching listings.`);
         return [...results.values()];
     }
 
     try {
         const fallback = await doorzo.search(query, 'rakuma', signal);
-        throwIfAborted(signal);
-        const items = filterItems(fallback);
-        if (items.length) return merge(items);
+        signal?.throwIfAborted();
+        const primaryCount = results.size;
+        addMatches(fallback || []);
+        if (results.size > primaryCount) return [...results.values()];
     } catch (error) {
-        throwIfAborted(signal);
-        console.warn(`[Fril] Doorzo fallback error: ${error.message}`);
+        signal?.throwIfAborted();
+        console.warn(`[Fril] Doorzo fallback failed: ${error.message}`);
     }
 
-    const direct = await searchDirect(query, strictEnabled, filters, signal);
-    if (direct?.length) return merge(direct);
-
-    try {
-        const fallback = await dejapan.searchRakuma(query, strictEnabled, filters, signal);
-        throwIfAborted(signal);
-        return merge(fallback || []);
-    } catch (error) {
-        throwIfAborted(signal);
-        console.warn(`[Fril] DEJapan fallback error: ${error.message}`);
-        return [...results.values()];
-    }
+    const direct = await searchDirect(query, signal);
+    addMatches(direct.items);
+    return results.size || direct.complete ? [...results.values()] : null;
 }
 
-module.exports = { search: searchWithFallback };
+module.exports = { search };

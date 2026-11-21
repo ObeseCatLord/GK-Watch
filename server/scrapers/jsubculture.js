@@ -49,7 +49,13 @@ function parsePage(html, url, page, marketplace) {
             && link.searchParams.get('keyword') === url.searchParams.get('keyword')
             && Number(link.searchParams.get('page')) === page + 1;
     });
-    return { items, total, next, hasPagination: pagination.length > 0 };
+    return {
+        items,
+        total,
+        next,
+        hasPagination: pagination.length > 0,
+        emptyNotice: $('.no_search_result').text().includes('No items matched your search.')
+    };
 }
 
 async function search(query, site, signal) {
@@ -71,6 +77,9 @@ async function search(query, site, signal) {
             const previousSize = items.size;
             for (const [link, item] of result.items) {
                 if (!items.has(link)) items.set(link, item);
+            }
+            if (site === 'rakuma' && page > 1 && !result.next && result.items.size === 0 && result.emptyNotice) {
+                return { items: [...items.values()], complete: true };
             }
             if (items.size === previousSize) throw new Error('Search page contained no new marketplace listings');
             if (!result.next) {
