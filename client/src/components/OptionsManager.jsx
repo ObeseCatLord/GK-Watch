@@ -990,7 +990,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
                     <div className="setting-group">
                         <p style={{ fontSize: '0.85rem', color: '#aaa', marginBottom: '10px' }}>
-                            {settings.hasSmtpPass ? '✅ Password is set.' : '⚠️ No password set.'}
+                            {settings.hasSmtpPass ? 'Password is set.' : 'No password set.'}
                         </p>
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                             <input
@@ -1048,7 +1048,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                     disabled={testStatus === 'sending'}
                 >
                     {testStatus === 'sending' ? 'Sending...' :
-                        testStatus === 'success' ? '✅ Sent!' :
+                        testStatus === 'success' ? 'Sent!' :
                             testStatus === 'error' ? 'Failed' :
                                 'Send Test Email'}
                 </button>
@@ -1108,9 +1108,9 @@ const OptionsManager = ({ authenticatedFetch }) => {
                     style={{ marginTop: '10px' }}
                 >
                     {ntfyTestStatus === 'sending' ? 'Sending...' :
-                        ntfyTestStatus === 'success' ? '✅ Sent!' :
+                        ntfyTestStatus === 'success' ? 'Sent!' :
                             ntfyTestStatus === 'error' ? 'Failed' :
-                                '🔔 Send Test Notification (Priority 5)'}
+                                'Send Test Notification (Priority 5)'}
                 </button>
             </div>
 
@@ -1136,7 +1136,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
 
                 <div className="setting-group">
                     <p style={{ fontSize: '0.9rem', color: '#aaa', marginBottom: '0.5rem' }}>
-                        {settings.hasLoginPassword ? '✅ Password is currently set.' : '⚠️ No password set.'}
+                        {settings.hasLoginPassword ? 'Password is currently set.' : 'No password set.'}
                     </p>
 
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
