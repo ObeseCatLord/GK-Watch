@@ -1,13 +1,15 @@
 ```text
-         _______
-       _/     (oo)        ____ _  ____        ___  _____ ____ _   _
-      /    ___   \_      / ___| |/ /\ \      / / \|_   _/ ___| | | |
-     /__--'   \____)    | |  _| ' /  \ \ /\ / / _ \ | || |   | |_| |
-      /~ ,---. _  \     | |_| | . \   \ V  V / ___ \| || |___|  _  |
-     {  ( o  )-( o )     \____|_|\_\   \_/\_/_/   \_\_| \____|_| |_|
-      \  '---' '---'/
-     (~\    -w-   /~)
-      ~ '.______.' ~
+   /\
+  /  \   __--/
+  |   \ /___.'  /\        ____ _  ____        ___  _____ ____ _   _
+  \   _(____/  /  |      / ___| |/ /\ \      / / \|_   _/ ___| | | |
+ .-'~/      / \_.'      | |  _| ' /  \ \ /\ / / _ \ | || |   | |_| |
+/~ /\~\__/-~~\          | |_| | . \   \ V  V / ___ \| || |___|  _  |
+{~/  \   |  /~~\         \____|_|\_\   \_/\_/_/   \_\_| \____|_| |_|
+/~{ (o)-(O) }~~)
+\~~\   .   /~~/
+ ~(_)\_u_/(_)/
+     _/  \_
 ```
 
 # GK Watcher
@@ -32,7 +34,7 @@ The server runs on port 3000 and is started automatically when you run the clien
 The interface follows [Daniela](https://github.com/gh0stzk/dotfiles#-the-themes)
 with its Catppuccin Mocha palette, Bebas Neue status bar, and JetBrains Mono
 interface. [HyDE](https://github.com/HyDE-Project/HyDE#styles) informed the
-controls. Icons use Font Awesome glyphs from [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) and 24 px bitmaps rendered
+controls. Interface icons use 24 px bitmaps rendered
 from [Pixelarticons](https://github.com/halfmage/pixelarticons).
 
 ## Operations

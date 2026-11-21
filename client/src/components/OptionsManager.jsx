@@ -1,3 +1,4 @@
+import Icon from './Icon';
 import React, { useState, useEffect, useCallback } from 'react';
 
 const SUPPORTED_SCHEDULE_INTERVALS = [60, 30, 20, 15];
@@ -1217,7 +1218,7 @@ const OptionsManager = ({ authenticatedFetch }) => {
                 </div>
             )}
             {saved && (
-                <div className="auto-save-indicator">✓ Settings saved</div>
+                <div className="auto-save-indicator"><Icon name="check" /> Settings saved</div>
             )}
         </div>
     );

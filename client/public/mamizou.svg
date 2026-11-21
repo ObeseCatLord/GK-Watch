@@ -1,13 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="ASCII Mamizou">
-  <path fill="#222634" d="M8 0h56v4h4v4h4v56h-4v4h-4v4H8v-4H4v-4H0V8h4V4h4z"/>
-  <g font-family="monospace" font-size="11" font-weight="bold" xml:space="preserve" text-anchor="middle">
-    <text x="36" y="13" fill="#b5dea3"> ______  </text>
-    <text x="36" y="20" fill="#b5dea3">/      <tspan fill="#f2cb91">oo</tspan></text>
-    <text x="36" y="27" fill="#b5dea3">|/^^^\__)</text>
-    <text x="36" y="34"><tspan fill="#d99888">  /</tspan><tspan fill="#b5dea3">\____)</tspan></text>
-    <text x="36" y="42" fill="#eab2a1">{ <tspan fill="#f9e7cc">O-O</tspan>  }</text>
-    <text x="36" y="50" fill="#eab2a1">( <tspan fill="#f9e7cc">\_~_/</tspan> )</text>
-    <text x="36" y="58" fill="#d99888">~)     (~</text>
-    <text x="36" y="65" fill="#d99888">  `---'  </text>
+<svg xmlns="http://www.w3.org/2000/svg" width="126" height="96" viewBox="0 0 126 96" role="img" aria-label="ASCII Mamizou with tanuki ears and a leaf hat">
+  <rect width="126" height="96" rx="10" fill="#181825"/>
+  <g font-family="DejaVu Sans Mono, monospace" font-weight="bold" font-size="10" xml:space="preserve">
+    <text x="6" y="11"><tspan fill="#b97968">   /\</tspan></text>
+    <text x="6" y="19"><tspan fill="#b97968">  /  \</tspan><tspan fill="#58d46d">   __--/</tspan></text>
+    <text x="6" y="27"><tspan fill="#b97968">  |   \</tspan><tspan fill="#58d46d"> /___.&#x27;</tspan><tspan fill="#b97968">  /\</tspan></text>
+    <text x="6" y="35"><tspan fill="#b97968">  \  </tspan><tspan fill="#58d46d"> _(____/ </tspan><tspan fill="#b97968"> /  |</tspan></text>
+    <text x="6" y="43"><tspan fill="#ea5396"> .-&#x27;~</tspan><tspan fill="#58d46d">/      /</tspan><tspan fill="#b97968"> \_.&#x27;</tspan></text>
+    <text x="6" y="51"><tspan fill="#ea5396">/~ /\~\__/-~~\</tspan></text>
+    <text x="6" y="59"><tspan fill="#ea5396">{~/  \   |  /~~\</tspan></text>
+    <text x="6" y="67"><tspan fill="#ea5396">/~{ </tspan><tspan fill="#e1c7fa">(o)-(O)</tspan><tspan fill="#ea5396"> }~~)</tspan></text>
+    <text x="6" y="75"><tspan fill="#ea5396">\~~\</tspan><tspan fill="#ffdbc5">   .   </tspan><tspan fill="#ea5396">/~~/</tspan></text>
+    <text x="6" y="83"><tspan fill="#ea5396"> ~(_)</tspan><tspan fill="#ffdbc5">\_u_/</tspan><tspan fill="#ea5396">(_)/</tspan></text>
+    <text x="6" y="91"><tspan fill="#ffdbc5">     _/  \_</tspan></text>
   </g>
 </svg>

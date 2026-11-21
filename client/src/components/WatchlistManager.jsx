@@ -1019,19 +1019,19 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             )}
 
             <div className="watchlist-grid">
-                {/* Mobile toggle button */}
+                {/* Floating mobile drawer trigger */}
                 <button
                     className="mobile-sidebar-toggle"
                     type="button"
                     ref={watchDrawerButtonRef}
+                    aria-label={`Open watches (${watchlist.length})`}
+                    title="Open watches"
                     aria-controls="watch-rail"
                     aria-haspopup="dialog"
                     aria-expanded={mobileSidebarOpen}
                     onClick={() => setMobileSidebarOpen(true)}
                 >
                     <Icon name="folder" />
-                    {`Watches (${watchlist.length})`}
-                    <Icon name="chevron" />
                 </button>
 
                 <WatchRail
@@ -1387,7 +1387,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         onClick={() => { setResultFilter(''); setSourceFilter('All'); setCurrentPage(1); }}
                                         style={{ marginLeft: '10px' }}
                                     >
-                                        ✕ Clear
+                                        <Icon name="close" /> Clear
                                     </button>
                                 )}
                                 <select

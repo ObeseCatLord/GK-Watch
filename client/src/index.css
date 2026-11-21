@@ -13,12 +13,6 @@
   font-display: swap;
 }
 
-@font-face {
-  font-family: "Nerd Font Icons";
-  src: url("/fonts/hyde-symbols.woff2") format("woff2");
-  font-display: block;
-}
-
 :root {
   color-scheme: dark;
   --crust: #11111b;
@@ -68,14 +62,6 @@ h1, h2, h3, h4, p { margin: 0; }
   white-space: nowrap;
 }
 
-.ui-icon {
-  display: inline-block;
-  width: 1em;
-  flex: 0 0 1em;
-  font: 400 .875em/1 "Nerd Font Icons";
-  text-align: center;
-}
-
 .bitmap-icon {
   display: inline-block;
   width: 1.5rem;
@@ -86,11 +72,6 @@ h1, h2, h3, h4, p { margin: 0; }
   mask: var(--bitmap) center / contain no-repeat;
   image-rendering: pixelated;
 }
-.bitmap-icon--close { --bitmap: url("/icons/close.png"); }
-.bitmap-icon--pencil { --bitmap: url("/icons/pencil.png"); }
-.bitmap-icon--star { --bitmap: url("/icons/star.png"); }
-.bitmap-icon--trash { --bitmap: url("/icons/trash.png"); }
-.bitmap-icon--external-link { --bitmap: url("/icons/external-link.png"); }
 
 ::selection { background: var(--accent-color); color: var(--accent-ink); }
 a { color: var(--accent-color); }
@@ -146,7 +127,8 @@ input::placeholder, textarea::placeholder {
 select {
   appearance: none;
   padding-inline-end: 2rem;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%23b8c0e0' stroke-width='1.5' d='m1 1 5 5 5-5'/%3E%3C/svg%3E");
+  background-image: url("/icons/chevron-down.png");
+  background-size: 1rem 1rem;
   background-position: right .75rem center;
   background-repeat: no-repeat;
 }
@@ -232,9 +214,15 @@ summary { cursor: pointer; }
   letter-spacing: .035em;
 }
 
-.main-nav button .ui-icon { color: var(--info); }
+.main-nav button .bitmap-icon, .clock-display > .bitmap-icon, .panel-heading .bitmap-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-basis: 1rem;
+}
+
+.main-nav button .bitmap-icon { color: var(--info); }
 .main-nav button:hover:not(:disabled), .main-nav button.active { background: var(--surface-raised); }
-.main-nav button.active, .main-nav button.active .ui-icon { color: var(--accent-color); }
+.main-nav button.active, .main-nav button.active .bitmap-icon { color: var(--accent-color); }
 .main-nav button:focus-visible { outline-offset: -4px; }
 
 .main-nav button.active::after {
@@ -257,7 +245,7 @@ summary { cursor: pointer; }
   letter-spacing: .035em;
 }
 
-.clock-display > .ui-icon { color: var(--accent-color); }
+.clock-display > .bitmap-icon { color: var(--accent-color); }
 .clock-item { display: flex; align-items: baseline; gap: .3125rem; white-space: nowrap; }
 .clock-label { color: var(--text-secondary); font-size: .75rem; }
 .clock-time { font-variant-numeric: tabular-nums; }
@@ -368,7 +356,7 @@ summary { cursor: pointer; }
   border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
 }
 
-.panel-heading .ui-icon { color: var(--accent-color); }
+.panel-heading .bitmap-icon { color: var(--accent-color); }
 
 .panel-heading h2 {
   font: 400 .9375rem/1.4 var(--mono);
@@ -869,8 +857,28 @@ input.settings-input { max-width: 100%; }
   .watchlist-drawer::backdrop { background: #11111ba6; }
   html:has(.watchlist-drawer[open]) { overflow: hidden; }
   .drawer-close { min-width: 2.75rem; min-height: 2.75rem; }
-  .mobile-sidebar-toggle { display: flex; gap: .625rem; align-items: center; text-align: start; }
-  .mobile-sidebar-toggle .ui-icon:last-child { margin-inline-start: auto; }
+  .workspace { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+
+  .mobile-sidebar-toggle {
+    position: fixed;
+    inset: auto calc(.875rem + env(safe-area-inset-right, 0px)) calc(.875rem + env(safe-area-inset-bottom, 0px)) auto;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    padding: 0;
+    border: 1px solid var(--accent-color);
+    border-radius: calc(var(--radius) + 4px);
+    background: var(--accent-color);
+    color: var(--accent-ink);
+    box-shadow: 0 3px 12px #0009;
+  }
+
+  .mobile-sidebar-toggle:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
   .results-idle { min-height: 9rem; }
   .results-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 9.25rem), 1fr)); gap: .625rem; }
 }
@@ -880,11 +888,11 @@ input.settings-input { max-width: 100%; }
   .wordmark { font-size: 1.0625rem; }
   .wordmark img { width: 1.375rem; height: 1.375rem; }
   .clock-display { font-size: .9375rem; gap: .4375rem; flex-wrap: wrap; justify-content: flex-end; }
-  .clock-display > .ui-icon { display: none; }
+  .clock-display > .bitmap-icon { display: none; }
   .clock-item { gap: .1875rem; }
   .clock-label { font-size: .6875rem; }
   .clock-divider { display: none; }
-  .main-nav button { padding-inline: .125rem; gap: .25rem; font-size: .9375rem; }
+  .main-nav button { padding-inline: .125rem; gap: .1875rem; font-size: .9375rem; }
   .watchlist-top-row button, .watchlist-results button, .mobile-sidebar-toggle,
   .watchlist-sidebar button, .add-watch-form button, .workspace select { min-height: 2.75rem; }
   .results-filter input { flex: 1 1 100%; }

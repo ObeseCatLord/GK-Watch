@@ -64,7 +64,7 @@ describe('notification settings saving', () => {
         change(view, 'email', 'new@example.com');
         change(view, 'smtpHost', 'new.example.com');
         change(view, 'smtpUser', 'new-user');
-        await screen.findByText('✓ Settings saved');
+        await screen.findByText('Settings saved');
 
         expect(api.getStored()).toMatchObject({ email: 'new@example.com', smtpHost: 'new.example.com', smtpUser: 'new-user' });
         const saves = api.authenticatedFetch.mock.calls.filter(([url, opts]) => url === '/api/settings' && opts?.method === 'POST');
@@ -105,7 +105,7 @@ describe('notification settings saving', () => {
         change(view, 'email', 'new@example.com');
         fireEvent.click(screen.getByRole('button', { name: /Send Test Email/ }));
         expect(await screen.findByRole('alert')).toHaveTextContent('Server rejected these settings');
-        expect(screen.queryByText('✓ Settings saved')).not.toBeInTheDocument();
+        expect(screen.queryByText('Settings saved')).not.toBeInTheDocument();
         expect(api.testsSent).toHaveLength(0);
         expect(api.getStored().email).toBe('old@example.com');
     });
@@ -115,7 +115,7 @@ describe('notification settings saving', () => {
         const view = await openOptions(api);
         change(view, 'smtpHost', 'new.example.com');
         expect(await screen.findByRole('alert')).toHaveTextContent('Server rejected these settings');
-        expect(screen.queryByText('✓ Settings saved')).not.toBeInTheDocument();
+        expect(screen.queryByText('Settings saved')).not.toBeInTheDocument();
         expect(api.getStored().smtpHost).toBe('old.example.com');
     });
 

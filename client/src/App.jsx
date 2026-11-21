@@ -643,7 +643,7 @@ function App() {
     return (
       <div className="App login-screen">
         <div className="login-container">
-          <img src="/mamizou.svg" alt="" width="56" height="56" />
+          <img src="/favicon.png" alt="" width="56" height="56" />
           <h1>GK Watcher</h1>
           <form onSubmit={handleLogin}>
             <input
@@ -669,7 +669,7 @@ function App() {
       <header className="desktop-bar">
         <div className="desktop-bar-inner">
           <div className="wordmark">
-            <img src="/mamizou.svg" alt="" width="36" height="36" />
+            <img src="/favicon.png" alt="" width="36" height="36" />
             <span>GK Watcher</span>
           </div>
           <nav className="main-nav" aria-label="Main navigation"
@@ -814,7 +814,7 @@ function App() {
                       aria-label="Clear title filter"
                       onClick={() => { setResultFilter(''); setCurrentPage(1); }}
                       >
-                      ✕
+                      <Icon name="close" />
                     </button>
                   )}
 
@@ -835,7 +835,7 @@ function App() {
                       className="clear-filter-btn"
                       onClick={() => { setSourceFilter('All'); setCurrentPage(1); }}
                     >
-                      ✕ Clear
+                      <Icon name="close" /> Clear
                     </button>
                   )}
                   <select

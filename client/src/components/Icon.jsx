@@ -1,17 +1,14 @@
-const glyphs = {
-    folder: '\uf07b',
-    search: '\uf002',
-    list: '\uf03a',
-    settings: '\uf013',
-    run: '\uf04b',
-    refresh: '\uf021',
-    block: '\uf05e',
-    add: '\uf067',
-    chevron: '\uf078',
-    clock: '\uf017'
-};
-
 const bitmaps = {
+    folder: 'folder',
+    search: 'search',
+    list: 'list-box',
+    settings: 'settings-cog',
+    run: 'play',
+    refresh: 'refresh',
+    block: 'cancel',
+    add: 'plus',
+    clock: 'clock',
+    check: 'check',
     close: 'close',
     edit: 'pencil',
     favorite: 'star',
@@ -21,8 +18,9 @@ const bitmaps = {
 };
 
 export default function Icon({ name }) {
-    if (bitmaps[name]) {
-        return <span className={`bitmap-icon bitmap-icon--${bitmaps[name]}`} aria-hidden="true" />;
-    }
-    return <span className="ui-icon" aria-hidden="true">{glyphs[name]}</span>;
+    const bitmap = bitmaps[name];
+    return (
+        <span className={`bitmap-icon bitmap-icon--${bitmap}`}
+            style={{ '--bitmap': `url("/icons/${bitmap}.png")` }} aria-hidden="true" />
+    );
 }
