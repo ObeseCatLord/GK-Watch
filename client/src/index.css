@@ -676,6 +676,25 @@ a.watch-meta { color: var(--accent-color); }
 }
 
 .card-meta { color: var(--text-secondary); font-size: .75rem; }
+.source-badge {
+  --source-color: var(--line-strong);
+  max-width: 100%;
+  padding: .125rem .375rem;
+  border: 1px solid var(--source-color);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--source-color) 24%, var(--surface-inset));
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.source-badge.mercari { --source-color: #ea352d; }
+.source-badge.yahoo, .source-badge.yahoo-auctions { --source-color: #ff0033; }
+.source-badge.suruga-ya { --source-color: #667bde; }
+.source-badge.mandarake { --source-color: #2fbf71; }
+.source-badge.paypay-flea-market { --source-color: #ff0033; }
+.source-badge.fril, .source-badge.rakuma { --source-color: #ff6b81; }
+.source-badge.taobao { --source-color: #ff5000; }
+.source-badge.goofish { --source-color: #f1c40f; }
+
 .card-title { font-size: .9375rem; line-height: 1.4; overflow-wrap: anywhere; }
 .card-price {
   display: grid;

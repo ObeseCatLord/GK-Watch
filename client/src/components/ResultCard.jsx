@@ -9,6 +9,7 @@ const availablePrice = (value) => {
 
 const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     const { title, image, price, source, endTime } = item;
+    const sourceClass = (source || '').trim().toLowerCase().replace(/\s+/g, '-');
     const link = item.link || item.url;
     const listedPrice = availablePrice(price);
     const explicitBid = availablePrice(item.bidPrice);
@@ -103,7 +104,7 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
                 </div>
                 <div className="card-content">
                     <div className="card-meta">
-                        <span>{source || 'Unknown source'}</span>
+                        <span className={`source-badge ${sourceClass}`}>{source || 'Unknown source'}</span>
                         {timeLeft && <span title="Time remaining">{timeLeft}</span>}
                     </div>
                     <h3 className="card-title" title={title}>{title}</h3>
