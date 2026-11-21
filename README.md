@@ -1,3 +1,15 @@
+```text
+         _______
+       _/     (oo)        ____ _  ____        ___  _____ ____ _   _
+      /    ___   \_      / ___| |/ /\ \      / / \|_   _/ ___| | | |
+     /__--'   \____)    | |  _| ' /  \ \ /\ / / _ \ | || |   | |_| |
+      /~ ,---. _  \     | |_| | . \   \ V  V / ___ \| || |___|  _  |
+     {  ( o  )-( o )     \____|_|\_\   \_/\_/_/   \_\_| \____|_| |_|
+      \  '---' '---'/
+     (~\    -w-   /~)
+      ~ '.______.' ~
+```
+
 # GK Watcher
 
 GK Watcher is a tool built on Vite and React for automatically scraping Japanese websites, mostly for GKs, and emailing you when new items are found.
@@ -17,11 +29,11 @@ The server runs on port 3000 and is started automatically when you run the clien
 
 ## Interface credits
 
-The browser theme follows [Nobara Dotfiles](https://github.com/slashedzer0/nobara-dotfiles)
-and the [Catppuccin Macchiato](https://github.com/catppuccin/catppuccin) palette.
-Terminal text uses [Iosevka Term](https://github.com/be5invis/Iosevka), clock numerals
-use [VCR OSD Mono by Riciery Leal](https://www.dafont.com/vcr-osd-mono.font), and
-the ASCII headings use FIGlet's Standard font.
+The interface follows [Daniela](https://github.com/gh0stzk/dotfiles#-the-themes)
+with its Catppuccin Mocha palette, Bebas Neue status bar, and JetBrains Mono
+interface. [HyDE](https://github.com/HyDE-Project/HyDE#styles) informed the
+controls. Icons use Font Awesome glyphs from [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) and 24 px bitmaps rendered
+from [Pixelarticons](https://github.com/halfmage/pixelarticons).
 
 ## Operations
 

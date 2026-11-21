@@ -4,16 +4,17 @@ import WatchlistManager from './components/WatchlistManager';
 import BlockedManager from './components/BlockedManager';
 import OptionsManager from './components/OptionsManager';
 import Clock from './components/Clock';
-import AsciiHeading from './components/AsciiHeading';
+import Icon from './components/Icon';
+import ScanIndicator from './components/ScanIndicator';
 import { buildExportHtml, downloadExportHtml, makeExportFilename } from './utils/exportHelpers';
 
 const MAX_HISTORY = 10;
 const ITEMS_PER_PAGE = 24;
 const VIEWS = {
-  watchlist: 'Watchlist',
-  search: 'Live Search',
-  blocked: 'Lists',
-  options: 'Options'
+  watchlist: { label: 'Watchlist', icon: 'folder' },
+  search: { label: 'Live Search', icon: 'search' },
+  blocked: { label: 'Lists', icon: 'list' },
+  options: { label: 'Options', icon: 'settings' }
 };
 
 const loadSearchHistory = () => {
@@ -643,7 +644,7 @@ function App() {
       <div className="App login-screen">
         <div className="login-container">
           <img src="/mamizou.svg" alt="" width="56" height="56" />
-          <AsciiHeading label="GK Watcher" />
+          <h1>GK Watcher</h1>
           <form onSubmit={handleLogin}>
             <input
               type="password"
@@ -674,7 +675,7 @@ function App() {
           <nav className="main-nav" aria-label="Main navigation"
             style={{ '--workspace-index': Object.keys(VIEWS).indexOf(view) }}
           >
-            {Object.entries(VIEWS).map(([id, label]) => (
+            {Object.entries(VIEWS).map(([id, { label, icon }]) => (
               <button
                 key={id}
                 type="button"
@@ -682,6 +683,7 @@ function App() {
                 className={view === id ? 'active' : ''}
                 onClick={() => setView(id)}
               >
+                <Icon name={icon} />
                 {label}
               </button>
             ))}
@@ -690,9 +692,7 @@ function App() {
         </div>
       </header>
       <main className="workspace">
-        <div className="workspace-heading" key={view}>
-          <AsciiHeading label={VIEWS[view]} />
-        </div>
+        <h1 className="sr-only">{VIEWS[view].label}</h1>
 
         {view === 'search' && (
           <>
@@ -715,7 +715,7 @@ function App() {
                   Strict
                 </label>
                 <button type="submit" className="add-btn">
-                  Search
+                  <Icon name="search" /> Search
                 </button>
                 <button
                   type="button"
@@ -745,7 +745,7 @@ function App() {
 
               {loading && (
                 <div className="search-progress" role="status">
-                  <span>{progress.current || 'Searching…'}</span>
+                  <span className="scan-status"><ScanIndicator /> {progress.current || 'Searching…'}</span>
                   <progress aria-label="Search progress" max={progress.total || 1} value={progress.total > 0 ? progress.completed : undefined} />
                 </div>
               )}

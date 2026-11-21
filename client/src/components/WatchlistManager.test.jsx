@@ -58,6 +58,22 @@ describe('WatchlistManager', () => {
         }
     );
 
+    it('enables Add and Add GK only for nonblank terms', async () => {
+        mockAuthenticatedFetch.mockResolvedValue({ ok: true, json: async () => [] });
+        render(<WatchlistManager authenticatedFetch={mockAuthenticatedFetch} />);
+        await screen.findByText('No items in watchlist.');
+        const add = screen.getByRole('button', { name: 'Add' });
+        const addGk = screen.getByRole('button', { name: 'Add GK' });
+        const term = screen.getByRole('textbox', { name: 'New watch term' });
+        fireEvent.change(term, { target: { value: '  ' } });
+        expect(add).toBeDisabled();
+        expect(addGk).toBeDisabled();
+        fireEvent.change(term, { target: { value: 'Mamizou' } });
+        expect(add).toBeEnabled();
+        expect(addGk).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Add CN' })).toBeDisabled();
+    });
+
     it('handles network connection errors gracefully', async () => {
         // Mock fetch to reject (network error)
         mockAuthenticatedFetch.mockRejectedValue(new Error('Network Error'));
@@ -246,7 +262,7 @@ describe('WatchlistManager', () => {
 
         await waitFor(() => {
             expect(screen.getByText('(25 results)')).toBeInTheDocument();
-            expect(screen.getByText('/ 2')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Load page 2' })).toBeInTheDocument();
         });
     });
 });

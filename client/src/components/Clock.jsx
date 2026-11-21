@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Icon from './Icon';
 
 const JST_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Tokyo',
@@ -24,7 +25,7 @@ const getLocalTimeZoneName = () => {
     }
 };
 
-function useClockTime() {
+const Clock = ({ authenticatedFetch }) => {
     const [time, setTime] = useState(() => new Date());
 
     useEffect(() => {
@@ -32,22 +33,6 @@ function useClockTime() {
         return () => clearInterval(timer);
     }, []);
 
-    return time;
-}
-
-export function TokyoClock() {
-    const time = useClockTime();
-
-    return (
-        <div className="tokyo-clock">
-            <time dateTime={time.toISOString()}>{JST_TIME_FORMATTER.format(time)}</time>
-            <span>Tokyo · JST</span>
-        </div>
-    );
-}
-
-const Clock = ({ authenticatedFetch }) => {
-    const time = useClockTime();
     const [countdown, setCountdown] = useState(null);
     const [isRunning, setIsRunning] = useState(false);
 
@@ -92,6 +77,7 @@ const Clock = ({ authenticatedFetch }) => {
 
     return (
         <div className="clock-display">
+            <Icon name="clock" />
             <div className="clock-item">
                 <span className="clock-label">JST</span>
                 <span className="clock-time">{jstTime}</span>

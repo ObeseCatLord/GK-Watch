@@ -1,8 +1,21 @@
 import React from 'react';
+import Icon from './Icon';
+
+const availablePrice = (value) => {
+    if (value == null) return null;
+    const text = String(value).trim();
+    return text && !/^n\/?a$/i.test(text) ? text : null;
+};
 
 const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     const { title, image, price, source, endTime } = item;
     const link = item.link || item.url;
+    const listedPrice = availablePrice(price);
+    const explicitBid = availablePrice(item.bidPrice);
+    const explicitBuy = availablePrice(item.binPrice);
+    const isAuction = /yahoo/i.test(source || '') || Boolean(explicitBid);
+    const bid = explicitBid || (isAuction && !explicitBuy ? listedPrice : null);
+    const buy = explicitBuy || (isAuction ? null : listedPrice);
     const [failedImage, setFailedImage] = React.useState(null);
     const [timeLeft, setTimeLeft] = React.useState('');
     const isUpdated = item.isUpdated || item.newType === 'updated';
@@ -94,16 +107,12 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
                         {timeLeft && <span title="Time remaining">{timeLeft}</span>}
                     </div>
                     <h3 className="card-title" title={title}>{title}</h3>
-                    <div className="card-price">
-                        {item.bidPrice && item.binPrice ? (
-                            <>
-                                <span>{item.bidPrice} <small>bid</small></span>
-                                <span>{item.binPrice} <small>buy</small></span>
-                            </>
-                        ) : (
-                            <span>{price}</span>
-                        )}
-                    </div>
+                    {(bid || buy) && (
+                        <div className="card-price">
+                            {bid && <span className="bid-price">{bid} <small>bid</small></span>}
+                            {buy && <span className="buy-price">{buy} <small>buy</small></span>}
+                        </div>
+                    )}
                 </div>
             </a>
             <div className="listing-actions">
@@ -113,16 +122,16 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
                         title={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
                         aria-label={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
                     >
-                        {item.isFavorite ? '★' : '☆'}
+                        <Icon name={item.isFavorite ? 'favorite' : 'unfavorite'} />
                     </button>
                 )}
                 {link && (
                     <button type="button" className="fj-btn" onClick={handleFromJapan}
-                        title="Open in FromJapan" aria-label="Open in FromJapan">FJ</button>
+                        title="Open in FromJapan" aria-label="Open in FromJapan"><Icon name="external" /></button>
                 )}
                 {onBlock && (
                     <button type="button" className="block-btn" onClick={handleBlock}
-                        title="Permanently block" aria-label="Permanently block">×</button>
+                        title="Permanently block" aria-label="Permanently block"><Icon name="block" /></button>
                 )}
             </div>
         </article>

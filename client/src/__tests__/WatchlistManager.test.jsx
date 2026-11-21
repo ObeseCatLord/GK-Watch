@@ -407,7 +407,7 @@ describe('WatchlistManager Crash Regression', () => {
             const resultsRequest = mockFetch.mock.calls.find(([calledUrl]) => calledUrl.startsWith('/api/results/watch-1'));
             expect(resultsRequest?.[0]).toBe('/api/results/watch-1?page=1&pageSize=24&sort=firstSeen&order=desc');
             expect(screen.getByText('(42 results)')).toBeInTheDocument();
-            expect(screen.getByText('/ 2')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Load page 2' })).toBeInTheDocument();
         });
     });
 

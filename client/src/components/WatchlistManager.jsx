@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { TokyoClock } from './Clock';
+import Icon from './Icon';
+import ScanIndicator from './ScanIndicator';
 import ResultCard from './ResultCard';
 import {
     buildExportHtml,
@@ -76,11 +77,31 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const pendingSeenRequestsRef = React.useRef(new Map());
     const resultsRequestVersionRef = React.useRef(0);
     const lastResultsRequest = React.useRef('');
+    const [resultMode, setResultMode] = useState('scroll');
+    const [resultsLoading, setResultsLoading] = useState(false);
+    const [resultsLoadError, setResultsLoadError] = useState(null);
+    const nextPageTriggerRef = React.useRef(null);
+    const resultsLoadingRef = React.useRef(false);
     const [schedulerProgress, setSchedulerProgress] = useState(null);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const resultsPanelRef = React.useRef(null);
+    const watchDrawerRef = React.useRef(null);
+    const watchDrawerButtonRef = React.useRef(null);
+    const WatchRail = mobileSidebarOpen ? 'dialog' : 'aside';
 
-    // Track window resize for responsive placeholder
+    const closeWatchDrawer = React.useCallback((focusResults = false) => {
+        watchDrawerRef.current?.close();
+        setMobileSidebarOpen(false);
+        (focusResults ? resultsPanelRef : watchDrawerButtonRef).current?.focus();
+    }, []);
+
+    useEffect(() => {
+        if (!mobileSidebarOpen) return;
+        const desktop = window.matchMedia('(min-width: 701px)');
+        const handleResize = (event) => { if (event.matches) closeWatchDrawer(); };
+        desktop.addEventListener('change', handleResize);
+        return () => desktop.removeEventListener('change', handleResize);
+    }, [closeWatchDrawer, mobileSidebarOpen]);
 
 
     // Track previous running state to detect completion
@@ -200,8 +221,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         resultsRequestVersionRef.current += 1;
     }, [acknowledgeWatch]);
 
-    const fetchWatchResults = React.useCallback(async (id, page = 1, { filter = resultFilter, source = sourceFilter } = {}) => {
+    const fetchWatchResults = React.useCallback(async (id, page = 1, { filter = resultFilter, source = sourceFilter, append = false } = {}) => {
+        if (append && resultsLoadingRef.current) return;
         const requestVersion = ++resultsRequestVersionRef.current;
+        resultsLoadingRef.current = true;
+        setResultsLoading(true);
+        setResultsLoadError(null);
 
         try {
             // A quick return to a watch must wait for its previous acknowledgement.
@@ -236,9 +261,24 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     useServerPagination: true
                 };
                 setSelectedResultsMeta(serverMeta);
-                setSelectedResults(Array.isArray(data.items) ? data.items : []);
+                const items = (Array.isArray(data.items) ? data.items : [])
+                    .map(item => ({ ...item, watchResultPage: serverMeta.page }));
+                setSelectedResults(previous => {
+                    if (!append || !previous) return items;
+
+                    const seen = new Set(previous.map(item => item.link || item.url).filter(Boolean));
+                    const newItems = items.filter(item => {
+                        const link = item.link || item.url;
+                        if (!link) return true;
+                        if (seen.has(link)) return false;
+                        seen.add(link);
+                        return true;
+                    });
+
+                    return [...previous, ...newItems];
+                });
                 setAvailableSources(Array.isArray(data.sources) ? data.sources : []);
-                setCurrentPage(serverMeta.page || page);
+                if (!append) setCurrentPage(serverMeta.page);
                 return;
             }
 
@@ -255,7 +295,13 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             setCurrentPage(Math.max(1, page));
 
         } catch (err) {
+            if (resultsRequestVersionRef.current === requestVersion) setResultsLoadError({ page, append });
             console.error('Error fetching stored results', err);
+        } finally {
+            if (resultsRequestVersionRef.current === requestVersion) {
+                resultsLoadingRef.current = false;
+                setResultsLoading(false);
+            }
         }
     }, [authenticatedFetch, getSortParams, resultFilter, sourceFilter, sortBy]);
 
@@ -278,8 +324,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
 
     const refreshSelectedResults = React.useCallback(async () => {
         if (!selectedId) return;
-        await fetchWatchResults(selectedId, selectedResultsMeta.page || 1);
-    }, [fetchWatchResults, selectedId, selectedResultsMeta.page]);
+        await fetchWatchResults(selectedId, resultMode === 'scroll' ? 1 : selectedResultsMeta.page || 1);
+        if (resultMode === 'scroll') setCurrentPage(1);
+    }, [fetchWatchResults, resultMode, selectedId, selectedResultsMeta.page]);
     const refreshSelectedResultsRef = React.useRef(refreshSelectedResults);
     useEffect(() => {
         refreshSelectedResultsRef.current = refreshSelectedResults;
@@ -798,14 +845,57 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     const resultCount = selectedResultsMeta.useServerPagination
         ? selectedResultsMeta.total
         : (selectedResults ? selectedResults.filter(item => !item.hidden).length : 0);
-    const visibleResults = React.useMemo(
-        () => (
-            selectedResultsMeta.useServerPagination
-                ? filteredAndSortedResults
-                : filteredAndSortedResults.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
-        ),
-        [filteredAndSortedResults, selectedResultsMeta.useServerPagination, safePage]
-    );
+    const serverPagination = selectedResultsMeta.useServerPagination;
+    const loadedPage = serverPagination ? selectedResultsMeta.page : safePage;
+    const visibleResults = React.useMemo(() => {
+        if (serverPagination) return filteredAndSortedResults;
+        const start = resultMode === 'scroll' ? 0 : (safePage - 1) * ITEMS_PER_PAGE;
+        return filteredAndSortedResults.slice(start, safePage * ITEMS_PER_PAGE);
+    }, [filteredAndSortedResults, resultMode, serverPagination, safePage]);
+
+    const visiblePages = React.useMemo(() => {
+        const pages = new Map();
+        visibleResults.forEach((item, index) => {
+            const page = serverPagination ? item.watchResultPage
+                : resultMode === 'scroll' ? Math.floor(index / ITEMS_PER_PAGE) + 1 : safePage;
+            if (!pages.has(page)) pages.set(page, []);
+            pages.get(page).push(item);
+        });
+        return Array.from(pages.entries());
+    }, [visibleResults, resultMode, serverPagination, safePage]);
+
+    const canLoadNext = resultMode === 'scroll' && loadedPage < totalPages;
+
+    const loadNextResults = React.useCallback(() => {
+        if (!selectedId || !canLoadNext || resultsLoadingRef.current) return;
+        if (serverPagination) {
+            void fetchWatchResults(selectedId, loadedPage + 1, { append: true });
+        } else {
+            setCurrentPage(loadedPage + 1);
+        }
+    }, [canLoadNext, fetchWatchResults, loadedPage, selectedId, serverPagination]);
+
+    useEffect(() => {
+        const trigger = nextPageTriggerRef.current;
+        if (!trigger || resultsLoading || resultsLoadError || typeof IntersectionObserver === 'undefined') return;
+
+        const observer = new IntersectionObserver(entries => {
+            if (entries.some(entry => entry.isIntersecting)) loadNextResults();
+        }, { rootMargin: '0px 0px 160px' });
+
+        observer.observe(trigger);
+        return () => observer.disconnect();
+    }, [loadNextResults, resultsLoadError, resultsLoading]);
+
+    const switchResultMode = () => {
+        setResultMode(mode => mode === 'scroll' ? 'paged' : 'scroll');
+        setCurrentPage(1);
+        if (serverPagination) {
+            lastResultsRequest.current = `${selectedId}|1|${sortBy}|${resultFilter}|${sourceFilter}`;
+            void fetchWatchResults(selectedId, 1);
+        }
+    };
+
     const resultSources = selectedResultsMeta.useServerPagination
         ? availableSources
         : [...new Set((selectedResults || []).filter(item => !item.hidden).map(item => item.source).filter(Boolean))].sort();
@@ -840,8 +930,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                         />
                         Strict
                     </label>
-                    <button type="submit" className="add-btn">Add</button>
-                    <button type="button" className="add-btn gk-btn" onClick={addGKEntries}>Add GK</button>
+                    <button type="submit" className="add-btn" disabled={!newTerm.trim()}><Icon name="add" /> Add</button>
+                    <button type="button" className="add-btn gk-btn" onClick={addGKEntries} disabled={!newTerm.trim()}>Add GK</button>
                     <button
                         type="button"
                         className="add-btn taobao-btn"
@@ -868,7 +958,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                             ? 'Queued'
                             : isGlobalRunning
                                 ? 'Background...'
-                                : 'Run All'}
+                                : <><Icon name="run" /> Run All</>}
                 </button>
 
 
@@ -880,9 +970,12 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     {/* Background scheduler running */}
                     {isGlobalRunning && !currentQueueItem && (
                         <span className="queue-item active">
-                            {schedulerProgress
-                                ? `Scheduled ${schedulerProgress.current}/${schedulerProgress.total}: ${schedulerProgress.currentItem}`
-                                : 'Scheduled search running...'}
+                            <span className="scan-status" role="status">
+                                <ScanIndicator />
+                                {schedulerProgress
+                                    ? `Scheduled ${schedulerProgress.current}/${schedulerProgress.total}: ${schedulerProgress.currentItem}`
+                                    : 'Scheduled search running…'}
+                            </span>
                             <button
                                 className="queue-remove-btn"
                                 onClick={async () => {
@@ -893,17 +986,22 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     }
                                 }}
                                 title="Stop scheduled search"
-                            >✕</button>
+                                aria-label="Stop scheduled search"
+                            ><Icon name="close" /></button>
                         </span>
                     )}
                     {currentQueueItem && (
                         <span className="queue-item active">
-                            {currentQueueItem.progress || currentQueueItem.name}
+                            <span className="scan-status" role="status">
+                                <ScanIndicator />
+                                {currentQueueItem.progress || currentQueueItem.name}
+                            </span>
                             <button
                                 className="queue-remove-btn"
                                 onClick={() => stopSearch(currentQueueItem.id)}
                                 title="Stop search"
-                            >✕</button>
+                                aria-label="Stop search"
+                            ><Icon name="close" /></button>
                         </span>
                     )}
                     {searchQueue.map((q) => (
@@ -913,7 +1011,8 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                 className="queue-remove-btn"
                                 onClick={() => stopSearch(q.id)}
                                 title="Remove from queue"
-                            >✕</button>
+                                aria-label="Remove from queue"
+                            ><Icon name="close" /></button>
                         </span>
                     ))}
                 </div>
@@ -923,17 +1022,45 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 {/* Mobile toggle button */}
                 <button
                     className="mobile-sidebar-toggle"
+                    type="button"
+                    ref={watchDrawerButtonRef}
                     aria-controls="watch-rail"
+                    aria-haspopup="dialog"
                     aria-expanded={mobileSidebarOpen}
-                    onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+                    onClick={() => setMobileSidebarOpen(true)}
                 >
-                    {mobileSidebarOpen ? 'Hide watches' : `Watches (${watchlist.length})`}
+                    <Icon name="folder" />
+                    {`Watches (${watchlist.length})`}
+                    <Icon name="chevron" />
                 </button>
 
-                <aside id="watch-rail" className={`watchlist-sidebar ${mobileSidebarOpen ? 'open' : ''}`} aria-labelledby="watches-title">
+                <WatchRail
+                    id="watch-rail"
+                    className={`watchlist-sidebar ${mobileSidebarOpen ? 'watchlist-drawer' : ''}`}
+                    aria-labelledby="watches-title"
+                    {...(mobileSidebarOpen && {
+                        ref: node => {
+                            watchDrawerRef.current = node;
+                            if (node && !node.open) node.showModal();
+                        },
+                        onCancel: event => {
+                            event.preventDefault();
+                            closeWatchDrawer();
+                        },
+                        onClick: event => {
+                            if (event.target !== event.currentTarget) return;
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            if (event.clientX > rect.right) closeWatchDrawer();
+                        }
+                    })}
+                >
                     <div className="panel-heading">
-                        <h2 id="watches-title">Saved watches</h2>
-                        <span className="panel-count">{watchlist.length}</span>
+                        <h2 id="watches-title"><Icon name="folder" /> Saved watches</h2>
+                        {mobileSidebarOpen ? (
+                            <button type="button" className="drawer-close" aria-label="Close watches" onClick={() => closeWatchDrawer()}>
+                                <Icon name="close" />
+                            </button>
+                        ) : <span className="panel-count">{watchlist.length}</span>}
                     </div>
                     <div className="sidebar-actions">
                         {!isMerging ? (
@@ -978,10 +1105,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         if (isMerging) toggleCheck(item.id);
                                         else {
                                             viewResults(item.id, item.name || item.term);
-                                            if (mobileSidebarOpen) {
-                                                setMobileSidebarOpen(false);
-                                                resultsPanelRef.current?.focus();
-                                            }
+                                            if (mobileSidebarOpen) closeWatchDrawer(true);
                                         }
                                     }}
                                 >
@@ -1007,7 +1131,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         onClick={(e) => startEdit(e, item)}
                                         title="Edit terms"
                                     >
-                                        ✎
+                                        <Icon name="edit" />
                                     </button>
                                 )}
 
@@ -1018,13 +1142,13 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         onClick={(e) => removeWatch(item.id, e)}
                                         title="Remove from watchlist"
                                     >
-                                        &times;
+                                        <Icon name="trash" />
                                     </button>
                                 )}
                             </li>
                             ))}
                     </ul>
-                </aside>
+                </WatchRail>
 
                 {editingItem && (
                     <dialog
@@ -1157,7 +1281,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                         ? 'Searching...'
                                         : searchQueue.some(q => q.id === selectedId)
                                             ? 'Queued'
-                                            : 'Run Search'}
+                                            : <><Icon name="refresh" /> Run Search</>}
                                 </button>
                                 <button
                                     className={`action-btn email-toggle-btn ${emailSettings[selectedId] ? 'email-on' : 'email-off'}`}
@@ -1225,7 +1349,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                         <>
                             <div className="panel-heading"><h2>Stored results</h2></div>
                             <div className="results-idle">
-                                <TokyoClock />
                                 <p>{watchlist.length ? 'Select a watch to see its results.' : 'Add a watch to start tracking listings.'}</p>
                             </div>
                         </>
@@ -1280,28 +1403,43 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                     <option value="priceHigh">Sort: Price High→Low</option>
                                     <option value="priceLow">Sort: Price Low→High</option>
                                 </select>
+                                <button type="button" className="view-mode-btn" onClick={switchResultMode}>
+                                    <Icon name="list" /> {resultMode === 'scroll' ? 'Paged view' : 'Infinite scroll'}
+                                </button>
                             </div>
-                            <div className="results-grid" key={selectedId}>
-                                {(() => {
-                                    if (filteredAndSortedResults.length === 0) {
-                                        return <p className="empty-results-message">{resultFilter || sourceFilter !== 'All' ? 'No results match your filter.' : 'No stored results yet.'}</p>;
-                                    }
-
-                                    return visibleResults
-                                        .map((item, idx) => (
+                            {visiblePages.map(([page, items]) => (
+                                <section key={`${selectedId}:${page}`} aria-label={`Page ${page}`}>
+                                    {totalPages > 1 && resultMode === 'scroll' && (
+                                        <h3 className="watch-page-divider">Page {page}</h3>
+                                    )}
+                                    <div className="results-grid">
+                                        {items.map((item, index) => (
                                             <ResultCard
-                                                key={item.link || item.url || idx}
+                                                key={item.link || item.url || index}
                                                 item={item}
                                                 onBlock={handleLocalBlock}
                                                 onFavoriteToggle={handleLocalFavoriteToggle}
                                                 isNew={item.isNew}
                                             />
-                                        ));
-                                })()}
-                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+                            ))}
 
-                            {/* Pagination */}
-                            {totalPages > 1 && (
+                            {visiblePages.length === 0 && !resultsLoading && !resultsLoadError && (
+                                <p className="empty-results-message">
+                                    {resultFilter || sourceFilter !== 'All' ? 'No results match your filter.' : 'No stored results yet.'}
+                                </p>
+                            )}
+                            {canLoadNext && !resultsLoadError && (
+                                <div className="watch-page-next" ref={nextPageTriggerRef}>
+                                    <button type="button" className="page-btn" onClick={loadNextResults} disabled={resultsLoading}>
+                                        Load page {loadedPage + 1}
+                                    </button>
+                                </div>
+                            )}
+
+                            {resultMode === 'paged' && totalPages > 1 && (
                                 <div className="pagination">
                                     <button
                                         className="page-btn"
@@ -1385,7 +1523,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                             )}
 
                             {/* Export Button (shown when no pagination) */}
-                            {visibleResults.length > 0 && totalPages <= 1 && (
+                            {visibleResults.length > 0 && (resultMode === 'scroll' || totalPages <= 1) && (
                                 <div className="export-actions standalone">
                                     <button
                                         className="page-btn"
@@ -1408,6 +1546,17 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                                 </div>
                             )}
                         </>
+                    )}
+                    {resultsLoading && <p className="watch-results-status" role="status">Loading results…</p>}
+                    {resultsLoadError && (
+                        <div className="watch-results-status">
+                            <p role="alert">Could not load page {resultsLoadError.page}.</p>
+                            <button type="button" className="page-btn" onClick={() => fetchWatchResults(
+                                selectedId,
+                                resultsLoadError.page,
+                                { append: resultsLoadError.append }
+                            )}>Retry</button>
+                        </div>
                     )}
                 </section>
             </div>

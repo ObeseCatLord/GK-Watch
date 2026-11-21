@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import Icon from './Icon';
 
 const BlockedManager = ({ authenticatedFetch }) => {
     const [blockedItems, setBlockedItems] = useState([]);
@@ -133,7 +134,7 @@ const BlockedManager = ({ authenticatedFetch }) => {
             <div className="blocked-grid">
                 {/* Favorite Items Section */}
                 <div className="blocked-section">
-                    <h2>Favorited items</h2>
+                    <h2>Favorites</h2>
                     <p className="options-description">
                         Favorited items are tracked for price changes in scheduled email digests.
                     </p>
@@ -172,54 +173,17 @@ const BlockedManager = ({ authenticatedFetch }) => {
                                         {item.url.substring(0, 50)}...
                                     </a>
                                 </div>
-                                <button className="delete-btn" onClick={() => unfavoriteItem(item.id)} title="Unfavorite">
-                                    ★
+                                <button className="delete-btn" onClick={() => unfavoriteItem(item.id)} title="Unfavorite" aria-label="Unfavorite">
+                                    <Icon name="favorite" />
                                 </button>
                             </li>
                         ))}
                     </ul>
                 </div>
 
-                {/* Universal Blacklist Section */}
-                <div className="blocked-section">
-                    <h2>Universal blacklist</h2>
-                    <p className="options-description">
-                        Items containing these terms will be hidden from <strong>all</strong> search results.<br />
-                        <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>One term per line.</span>
-                    </p>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <textarea
-                            value={blacklistText}
-                            onChange={(e) => setNewTerm(e.target.value)}
-                            placeholder="Enter terms to block (one per line)..."
-                            className="settings-input"
-                            aria-label="Terms to block"
-                            rows={10}
-                            style={{
-                                width: '100%',
-                                minHeight: '200px',
-                                fontFamily: 'monospace',
-                                lineHeight: '1.5',
-                                padding: '10px'
-                            }}
-                        />
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                            <button
-                                onClick={saveBulkBlacklist}
-                                className="save-btn"
-
-                            >
-                                Save Blacklist
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
                 {/* Blocked Items Section */}
                 <div className="blocked-section">
-                    <h2>Blocked items</h2>
+                    <h2>Blocked Items</h2>
                     <p className="options-description">
                         These specific items (by URL) will be permanently hidden from future search results.
                     </p>
@@ -260,6 +224,43 @@ const BlockedManager = ({ authenticatedFetch }) => {
                             </li>
                         ))}
                     </ul>
+                </div>
+
+                {/* Universal Blacklist Section */}
+                <div className="blocked-section">
+                    <h2>Blacklisted Terms</h2>
+                    <p className="options-description">
+                        Items containing these terms will be hidden from <strong>all</strong> search results.<br />
+                        <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>One term per line.</span>
+                    </p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <textarea
+                            value={blacklistText}
+                            onChange={(e) => setNewTerm(e.target.value)}
+                            placeholder="Enter terms to block (one per line)..."
+                            className="settings-input"
+                            aria-label="Terms to block"
+                            rows={10}
+                            style={{
+                                width: '100%',
+                                minHeight: '200px',
+                                fontFamily: 'monospace',
+                                lineHeight: '1.5',
+                                padding: '10px'
+                            }}
+                        />
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <button
+                                onClick={saveBulkBlacklist}
+                                className="save-btn"
+
+                            >
+                                Save Blacklist
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

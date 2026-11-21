@@ -63,6 +63,7 @@ describe('watch unread lifecycle', () => {
         fireEvent.click(screen.getByRole('button', { name: /^First watch/ }));
         await screen.findByText('Updated favorite');
 
+        fireEvent.click(screen.getByRole('button', { name: 'Paged view' }));
         fireEvent.click(screen.getByText('Next →'));
         expect((await screen.findByText('New item 24')).closest('a')).toHaveClass('is-new');
         fireEvent.click(screen.getByText('← Prev'));
@@ -82,6 +83,23 @@ describe('watch unread lifecycle', () => {
         expect(screen.getByText('Updated favorite').closest('a')).not.toHaveClass('is-updated');
         const lastRequest = api.resultCalls().at(-1)[0];
         expect(lastRequest).not.toContain('filter=');
+    });
+
+    it.each([true, false])('appends page divisions and supports returning to paged view (server pagination: %s)', async (paginated) => {
+        const api = createApi({ paginated });
+        render(<WatchlistManager authenticatedFetch={api.fetch} />);
+        fireEvent.click(await screen.findByText('First watch'));
+        expect(await screen.findByRole('heading', { name: 'Page 1' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Load page 2' }));
+        expect(await screen.findByRole('heading', { name: 'Page 2' })).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Page 1' })).toHaveTextContent('New item 1');
+        if (paginated) expect(api.resultCalls().some(([url]) => url.includes('page=2'))).toBe(true);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Paged view' }));
+        await waitFor(() => expect(screen.queryByRole('region', { name: 'Page 2' })).not.toBeInTheDocument());
+        fireEvent.click(screen.getByText('Next →'));
+        expect(await screen.findByRole('region', { name: 'Page 2' })).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Page 1' })).not.toBeInTheDocument();
     });
 
     it('waits for a pending acknowledgement before quickly reopening the watch', async () => {
