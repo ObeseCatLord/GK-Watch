@@ -50,10 +50,36 @@ function sourceKey(source) {
     return normalized;
 }
 
-function titleSourceKey(title, source) {
-    // Direct Fril searches and proxy results may use either marketplace name.
-    const identitySource = sourceKey(source) === 'fril' ? 'fril' : source;
-    return `${String(title).trim()}|${identitySource}`;
+const PATH_LISTING_IDS = {
+    'page.auctions.yahoo.co.jp': /^\/jp\/auction\/([a-z0-9]+)\/?$/i,
+    'auctions.yahoo.co.jp': /^\/jp\/auction\/([a-z0-9]+)\/?$/i,
+    'paypayfleamarket.yahoo.co.jp': /^\/item\/(z\d+)\/?$/i,
+    'jp.mercari.com': /^\/(item\/m\d+|shops\/product\/[a-z0-9]+)\/?$/i,
+    'www.suruga-ya.jp': /^\/product\/detail\/([a-z0-9_-]+)\/?$/i,
+    'item.fril.jp': /^\/([a-f\d]{32})\/?$/i
+};
+
+function listingKey({ link, source }) {
+    if (!/^https?:\/\//i.test(link)) return link;
+    const url = URL.parse(link);
+    if (!url) return link;
+
+    const marketplace = sourceKey(source);
+    const pathPattern = Object.hasOwn(PATH_LISTING_IDS, url.hostname) && PATH_LISTING_IDS[url.hostname];
+    const pathId = pathPattern && pathPattern.exec(url.pathname)?.[1];
+    if (pathId) return JSON.stringify([marketplace, pathId]);
+
+    if (url.hostname === 'order.mandarake.co.jp' && url.pathname === '/order/detailPage/item') {
+        const code = url.searchParams.get('itemCode');
+        if (code) return JSON.stringify([marketplace, code]);
+    }
+    return link;
+}
+
+function frilRelistKey(item) {
+    const title = String(item.title || '').trim();
+    if (sourceKey(item.source) !== 'fril' || !title || !item.image) return null;
+    return JSON.stringify([title, item.image]);
 }
 
 function createSourceOutcomeTracker() {
@@ -231,7 +257,6 @@ const stmts = {
         WHERE watch_id = ? AND LOWER(source) LIKE '%paypay%' AND end_time IS NOT NULL
     `),
     findByLink: db.prepare('SELECT * FROM results WHERE watch_id = ? AND link = ?'),
-    findByTitleSource: db.prepare('SELECT * FROM results WHERE watch_id = ? AND title = ? AND source = ?'),
     upsertResult: db.prepare(`
         INSERT INTO results (watch_id, title, link, image, price, bid_price, bin_price, end_time, source, first_seen, last_seen, is_new, new_type, hidden)
         VALUES (@watchId, @title, @link, @image, @price, @bidPrice, @binPrice, @endTime, @source, @firstSeen, @lastSeen, @isNew, @newType, @hidden)
@@ -584,12 +609,15 @@ const Scheduler = {
         const successfulSources = searchStatus?.successfulSources instanceof Set
             ? searchStatus.successfulSources
             : null;
-        const YAHOO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
-        const SURUGAYA_GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
-        const MERCARI_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
-        const TAOBAO_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
-        const GOOFISH_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
-        const MANDARAKE_GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
+        const gracePeriods = {
+            yahoo: 3 * DAY_MS,
+            suruga: 14 * DAY_MS,
+            mercari: 2 * DAY_MS,
+            paypay: PAYPAY_GRACE_PERIOD_MS,
+            taobao: 3 * DAY_MS,
+            goofish: 3 * DAY_MS,
+            mandarake: 3 * DAY_MS
+        };
 
         let newItems = [];
         let favoritePriceUpdates = [];
@@ -598,78 +626,62 @@ const Scheduler = {
         const saveTransaction = db.transaction(() => {
             // Get existing items for this watch ID
             const existingItems = stmts.getResultsByWatchId.all(watchId);
-            const existingByLink = new Map(existingItems.map(item => [item.link, item]));
             const favoritesByUrl = FavoriteItems.getByUrlMap();
-
-            // Create map for duplicate detection by Title + Source
-            const existingByTitleSource = new Map();
-            existingItems.forEach(item => {
-                if (!blockedUrls.has(item.link) && item.title && item.source) {
-                    const key = titleSourceKey(item.title, item.source);
-                    existingByTitleSource.set(key, item);
+            const existingByLink = new Map(existingItems.map(item => [item.link, item]));
+            const existingByListing = new Map(existingItems.map(item => [listingKey(item), item]));
+            const incomingByListing = new Map();
+            for (const result of persistableResults) {
+                const key = listingKey(result);
+                const previous = incomingByListing.get(key);
+                if (!previous || blockedUrls.has(result.link) ||
+                    (!blockedUrls.has(previous.link) && existingByLink.has(result.link))) {
+                    incomingByListing.set(key, result);
                 }
-            });
+            }
 
-            // Track which items per source are in new results (by title)
-            const newTitlesBySource = {
-                yahoo: new Set(),
-                suruga: new Set(),
-                mercari: new Set(),
-                paypay: new Set(),
-                taobao: new Set(),
-                goofish: new Set(),
-                mandarake: new Set(),
-            };
-
-            persistableResults.forEach(result => {
-                if (!result.title || blockedUrls.has(result.link)) return;
-                const title = result.title.trim();
-                const source = result.source ? result.source.toLowerCase() : '';
-
-                if (source.includes('yahoo')) newTitlesBySource.yahoo.add(title);
-                else if (source.includes('suruga')) newTitlesBySource.suruga.add(title);
-                else if (source.includes('mercari')) newTitlesBySource.mercari.add(title);
-                else if (source.includes('paypay')) newTitlesBySource.paypay.add(title);
-                else if (source === 'taobao') newTitlesBySource.taobao.add(title);
-                else if (source === 'goofish') newTitlesBySource.goofish.add(title);
-                else if (source === 'mandarake') newTitlesBySource.mandarake.add(title);
-            });
+            // A Rakuma relist may use a new ID. Carry history over only when
+            // a single missing listing matches the title and listing image.
+            const frilHistory = new Map();
+            for (const item of existingItems) {
+                const key = frilRelistKey(item);
+                if (key && !blockedUrls.has(item.link) && !incomingByListing.has(listingKey(item))) {
+                    frilHistory.set(key, frilHistory.has(key) ? null : item);
+                }
+            }
+            const incomingFrilCounts = new Map();
+            for (const result of incomingByListing.values()) {
+                const key = frilRelistKey(result);
+                if (key) incomingFrilCounts.set(key, (incomingFrilCounts.get(key) || 0) + 1);
+            }
 
             // Process new results
             const processedLinks = new Set();
 
-            for (const result of persistableResults) {
-                const existing = existingByLink.get(result.link);
-                const isBlocked = blockedUrls.has(result.link);
-                const favorite = isBlocked ? null : favoritesByUrl.get(result.link);
-                const source = result.source ? result.source.toLowerCase() : '';
-                const isTimedSource = source.includes('yahoo') || source.includes('suruga') ||
-                    source.includes('mercari') || source.includes('paypay') ||
-                    source === 'taobao' || source === 'goofish' || source === 'mandarake' || sourceKey(source) === 'fril';
-
-                let duplicateInfo = null;
-                if (!isBlocked && result.title && result.source) {
-                    const duplicateKey = titleSourceKey(result.title, result.source);
-                    duplicateInfo = existingByTitleSource.get(duplicateKey);
-                }
+            for (const [key, incoming] of incomingByListing) {
+                const existing = existingByLink.get(incoming.link) || existingByListing.get(key);
+                const result = existing ? { ...incoming, link: existing.link } : incoming;
+                const blockedLink = blockedUrls.has(incoming.link) ? incoming.link
+                    : blockedUrls.has(result.link) ? result.link : null;
+                const favorite = blockedLink ? null : favoritesByUrl.get(result.link);
+                const source = sourceKey(result.source);
+                const isTimedSource = Object.hasOwn(gracePeriods, source) || source === 'fril';
+                const relistKey = frilRelistKey(result);
+                const relist = incomingFrilCounts.get(relistKey) === 1 ? frilHistory.get(relistKey) : null;
 
                 if (isExpiredPayPaySold({
                     ...result,
-                    source: result.source || existing?.source || duplicateInfo?.source,
-                    firstSeen: existing?.firstSeen || duplicateInfo?.firstSeen
+                    source: result.source || existing?.source,
+                    firstSeen: existing?.firstSeen
                 }, nowMs)) {
                     if (existing) {
                         stmts.deleteExpiredGrace.run(watchId, existing.link);
                     }
-                    if (duplicateInfo && duplicateInfo.link !== existing?.link) {
-                        stmts.deleteExpiredGrace.run(watchId, duplicateInfo.link);
-                    }
-                    if (isBlocked) BlockedItems.confirmMissing(result.link, now);
+                    if (blockedLink) BlockedItems.confirmMissing(blockedLink, now);
                     processedLinks.add(result.link);
                     continue;
                 }
 
-                if (isBlocked) {
+                if (blockedLink) {
                     stmts.upsertResult.run({
                         watchId,
                         title: result.title || '',
@@ -707,11 +719,11 @@ const Scheduler = {
                     isNew = existing.isNew;
                     newType = existing.newType || 'new';
                     hidden = 0;
-                } else if (duplicateInfo) {
-                    firstSeen = duplicateInfo.firstSeen;
-                    lastSeen = isTimedSource ? now : duplicateInfo.lastSeen;
-                    isNew = duplicateInfo.isNew;
-                    newType = duplicateInfo.newType || 'new';
+                } else if (relist) {
+                    firstSeen = relist.firstSeen;
+                    lastSeen = now;
+                    isNew = relist.isNew;
+                    newType = relist.newType || 'new';
                     hidden = 0;
                 } else {
                     firstSeen = now;
@@ -751,9 +763,7 @@ const Scheduler = {
             for (const item of existingItems) {
                 if (processedLinks.has(item.link)) continue;
 
-                const source = item.source ? item.source.toLowerCase() : '';
-                let preserve = false;
-                let hidden = 1; // Default to hidden
+                const source = sourceKey(item.source);
 
                 if (isExpiredPayPaySold(item, nowMs)) {
                     stmts.deleteExpiredGrace.run(watchId, item.link);
@@ -761,7 +771,7 @@ const Scheduler = {
                     continue;
                 }
 
-                if (successfulSources && !successfulSources.has(sourceKey(source))) {
+                if (successfulSources && !successfulSources.has(source)) {
                     continue;
                 }
 
@@ -769,58 +779,11 @@ const Scheduler = {
                     item.firstSeen ? new Date(item.firstSeen).getTime() : 0;
                 const ageMs = nowMs - lastSeenTime;
 
-                if (sourceKey(source) === 'fril') {
-                    // Keep hidden listing history so gaps in search results and
-                    // relists with a new URL don't turn seen listings into new ones.
-                    preserve = true;
-                } else if (source.includes('yahoo')) {
-                    if (ageMs < YAHOO_GRACE_PERIOD_MS) {
-                        if (!item.title || !newTitlesBySource.yahoo.has(item.title.trim())) {
-                            preserve = true;
-                        }
-                    }
-                } else if (source.includes('suruga')) {
-                    if (item.title && item.title.startsWith('Search Suruga-ya for')) continue;
-                    if (ageMs < SURUGAYA_GRACE_PERIOD_MS) {
-                        if (!item.title || !newTitlesBySource.suruga.has(item.title.trim())) {
-                            preserve = true;
-                        }
-                    }
-                } else if (source.includes('mercari')) {
-                    if (ageMs < MERCARI_GRACE_PERIOD_MS) {
-                        if (!item.title || !newTitlesBySource.mercari.has(item.title.trim())) {
-                            preserve = true;
-                        }
-                    }
-                } else if (source.includes('paypay')) {
-                    if (ageMs < PAYPAY_GRACE_PERIOD_MS) {
-                        if (!item.title || !newTitlesBySource.paypay.has(item.title.trim())) {
-                            preserve = true;
-                        }
-                    }
-                } else if (source === 'taobao') {
-                    if (ageMs < TAOBAO_GRACE_PERIOD_MS) {
-                        if (!item.title || !newTitlesBySource.taobao.has(item.title.trim())) {
-                            preserve = true;
-                        }
-                    }
-                } else if (source === 'goofish') {
-                    if (ageMs < GOOFISH_GRACE_PERIOD_MS) {
-                        if (!item.title || !newTitlesBySource.goofish.has(item.title.trim())) {
-                            preserve = true;
-                        }
-                    }
-                } else if (source === 'mandarake') {
-                    if (ageMs < MANDARAKE_GRACE_PERIOD_MS) {
-                        if (!item.title || !newTitlesBySource.mandarake.has(item.title.trim())) {
-                            preserve = true;
-                        }
-                    }
-                }
+                if (source === 'suruga' && item.title?.startsWith('Search Suruga-ya for')) continue;
 
-                if (preserve) {
-                    // Update hidden/isNew status for preserved items
-                    stmts.hideResult.run(hidden, watchId, item.link);
+                // Rakuma history also supports relist detection after the normal grace period.
+                if (source === 'fril' || ageMs < gracePeriods[source]) {
+                    stmts.hideResult.run(1, watchId, item.link);
                 } else {
                     // Remove expired items
                     stmts.deleteExpiredGrace.run(watchId, item.link);

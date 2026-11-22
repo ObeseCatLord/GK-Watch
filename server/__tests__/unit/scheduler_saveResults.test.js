@@ -40,7 +40,10 @@ beforeEach(() => {
 describe('Scheduler.saveResults', () => {
     test.each(['same-link', 'relisted-link'])('remembers Fril listings after they disappear and return as %s', async returningLink => {
         const watch = await Watchlist.add({ term: 'fril-history', strict: false });
-        const original = { link: 'same-link', title: 'Garage Kit', source: 'Rakuma', price: '¥1,000' };
+        const original = {
+            link: 'same-link', title: 'Garage Kit', source: 'Rakuma', price: '¥1,000',
+            image: 'https://example.test/kit-photo.jpg'
+        };
         const initial = Scheduler.saveResults(watch.id, [original]);
         expect(initial.newItems).toHaveLength(1);
         Scheduler.clearNewFlags(watch.id);
@@ -66,17 +69,57 @@ describe('Scheduler.saveResults', () => {
 
     test('a Fril relist preserves unread status and a distinct listing is still new', async () => {
         const watch = await Watchlist.add({ term: 'fril-relist', strict: false });
-        Scheduler.saveResults(watch.id, [{ link: 'old-link', title: 'Garage Kit', source: 'Rakuma' }]);
+        const original = {
+            link: 'old-link', title: 'Garage Kit', source: 'Rakuma', image: 'https://example.test/kit-photo.jpg'
+        };
+        Scheduler.saveResults(watch.id, [original]);
 
         const result = Scheduler.saveResults(watch.id, [
-            { link: 'new-link', title: 'Garage Kit', source: 'Rakuma' },
-            { link: 'distinct-link', title: 'Another Garage Kit', source: 'Rakuma' }
+            { ...original, link: 'new-link' },
+            { ...original, link: 'distinct-link', image: 'https://example.test/another-kit-photo.jpg' }
         ]);
         expect(result.newItems.map(item => item.link)).toEqual(['distinct-link']);
         expect(result.totalCount).toBe(2);
         const apiResults = await Scheduler.getResults(watch.id);
         expect(apiResults.newCount).toBe(2);
         expect(apiResults.items.find(item => item.link === 'new-link').isNew).toBe(true);
+    });
+
+    test.each([
+        ['Mercari', 'https://jp.mercari.com/item/m123', 'https://jp.mercari.com/item/m456'],
+        ['Yahoo', 'https://page.auctions.yahoo.co.jp/jp/auction/a123', 'https://page.auctions.yahoo.co.jp/jp/auction/a456'],
+        ['PayPay Flea Market', 'https://paypayfleamarket.yahoo.co.jp/item/z123', 'https://paypayfleamarket.yahoo.co.jp/item/z456'],
+        ['Suruga-ya', 'https://www.suruga-ya.jp/product/detail/602323035', 'https://www.suruga-ya.jp/product/detail/602325284'],
+        ['Mandarake', 'https://order.mandarake.co.jp/order/detailPage/item?itemCode=123', 'https://order.mandarake.co.jp/order/detailPage/item?itemCode=456'],
+        ['Fril', 'https://item.fril.jp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'https://item.fril.jp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']
+    ])('%s records a different listing ID with the same title as new', async (source, oldLink, newLink) => {
+        const watch = await Watchlist.add({ term: 'same title', strict: false });
+        Scheduler.saveResults(watch.id, [{ title: 'Garage Kit', link: oldLink, source }]);
+        const oldDate = new Date(Date.now() - 60_000).toISOString();
+        db.prepare('UPDATE results SET first_seen = ? WHERE watch_id = ?').run(oldDate, watch.id);
+        Scheduler.clearNewFlags(watch.id);
+
+        const result = Scheduler.saveResults(watch.id, [{ title: 'Garage Kit', link: newLink, source }]);
+        expect(result.newItems.map(item => item.link)).toEqual([newLink]);
+        const rows = db.prepare('SELECT link, first_seen, is_new, hidden FROM results WHERE watch_id = ? ORDER BY id').all(watch.id);
+        expect(rows[0]).toMatchObject({ link: oldLink, first_seen: oldDate, is_new: 0, hidden: 1 });
+        expect(rows[1]).toMatchObject({ link: newLink, is_new: 1, hidden: 0 });
+        expect(rows[1].first_seen > oldDate).toBe(true);
+    });
+
+    test('preserves listing history when only a tracking parameter changes', async () => {
+        const watch = await Watchlist.add({ term: 'tracked link', strict: false });
+        const original = {
+            title: 'Garage Kit', source: 'Mandarake',
+            link: 'https://order.mandarake.co.jp/order/detailPage/item?itemCode=123&ref=list'
+        };
+        Scheduler.saveResults(watch.id, [original]);
+        Scheduler.clearNewFlags(watch.id);
+
+        const result = Scheduler.saveResults(watch.id, [{ ...original, link: original.link.replace('ref=list', 'lang=ja') }]);
+        expect(result.newItems).toEqual([]);
+        const rows = db.prepare('SELECT link, is_new, hidden FROM results WHERE watch_id = ?').all(watch.id);
+        expect(rows).toEqual([{ link: original.link, is_new: 0, hidden: 0 }]);
     });
 
     test('preserves isNew flag on repeated runs and accurately counts new items', async () => {
