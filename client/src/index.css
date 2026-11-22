@@ -256,7 +256,7 @@ summary { cursor: pointer; }
 
 
 .search-container, .watchlist-top-row, .watchlist-sidebar, .watchlist-results,
-.options-section, .blocked-section, .login-container, .modal-content {
+.options-section, .lists-panel, .login-container, .modal-content {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
@@ -622,6 +622,9 @@ a.watch-meta { color: var(--accent-color); }
 .listing:hover, .listing:focus-within { border-color: var(--line-strong); }
 .listing:has(.result-card.is-new) { border-top-color: var(--accent-color); }
 .listing:has(.result-card.is-updated) { border-top-color: var(--warning); }
+.listing-missing .result-card { color: var(--text-secondary); filter: grayscale(1); }
+.listing-missing .card-image { opacity: .55; }
+.listing-missing-label { font-weight: 600; color: var(--text-primary); }
 
 .result-card {
   flex: 1;
@@ -744,6 +747,11 @@ a.watch-meta { color: var(--accent-color); }
 }
 
 .listing-actions .favorite-btn.active { color: var(--accent-color); background: var(--accent-dark); }
+.listing-actions .block-btn[aria-pressed="true"] {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--line));
+}
 .pagination { margin-top: .875rem; justify-content: space-between; }
 .watchlist-results .pagination { margin: 0; padding: 0 .875rem .875rem; }
 .page-numbers, .page-jump { display: flex; gap: .25rem; align-items: center; }
@@ -764,25 +772,40 @@ input.page-input { width: 4.25rem; }
 .site-errors, .error, .login-error { color: var(--danger); overflow-wrap: anywhere; }
 .error { margin-block: 1rem; }
 
-.options-container, .blocked-grid { display: grid; gap: 1rem; }
-.blocked-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+.options-container { display: grid; gap: 1rem; }
+.lists-manager { display: grid; gap: .75rem; }
 
-.options-section, .blocked-section {
+.options-section, .lists-panel {
   min-width: 0;
   border: 1px solid var(--line);
   padding: clamp(.875rem, 2vw, 1.5rem);
   background: var(--surface);
 }
 
-.options-section > h3, .blocked-section > h2, .modal-content h3 {
+.options-section > h3, .modal-content h3 {
   margin-bottom: .5rem;
   font: 600 1.25rem/1.4 var(--mono);
 }
 
 .options-description { color: var(--text-secondary); margin-bottom: 1rem; }
 .options-section [type="checkbox"] { margin-inline-end: .5rem; }
-.list-thumbnail { flex: 0 0 2.75rem; height: 2.75rem; margin-inline-end: .375rem; }
-.list-thumbnail img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lists-tabs, .lists-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+}
+.lists-toolbar { margin-bottom: .75rem; }
+.lists-toolbar p { color: var(--text-secondary); }
+.lists-toolbar button { margin-inline-start: auto; }
+.blacklist-editor { display: grid; gap: .75rem; }
+.blacklist-editor textarea {
+  width: 100%;
+  min-height: clamp(16rem, 58dvh, 40rem);
+  resize: vertical;
+  font: .9375rem/1.5 var(--mono);
+}
+.blacklist-editor button { justify-self: end; }
 
 .schedule-interval-toggle { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: .75rem; }
 .segment-btn.active, .hour-btn.active { color: var(--accent-color); border-color: var(--teal); background: var(--accent-dark); }
@@ -886,14 +909,13 @@ input.settings-input { max-width: 100%; }
   .desktop-bar-inner { grid-template-columns: minmax(0, 1fr) auto; gap: 0 .5rem; }
   .wordmark, .clock-display { min-height: 2.75rem; }
   .main-nav { grid-row: 2; grid-column: 1 / -1; }
-  .blocked-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .watchlist-top-row { align-items: flex-start; }
   .add-watch-form { flex-wrap: wrap; }
   .add-watch-form .search-input { flex-basis: 100%; }
 }
 
 @media (max-width: 700px) {
-  .watchlist-grid, .blocked-grid { grid-template-columns: minmax(0, 1fr); }
+  .watchlist-grid { grid-template-columns: minmax(0, 1fr); }
   .watchlist-top-row { flex-wrap: wrap; gap: .625rem; }
   .watchlist-top-row .add-watch-form { flex-basis: 100%; }
   .watchlist-sidebar:not(.watchlist-drawer) { display: none; }

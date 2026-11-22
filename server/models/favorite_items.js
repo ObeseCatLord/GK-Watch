@@ -1,6 +1,10 @@
 const db = require('./database');
 const crypto = require('crypto');
 
+const missingFromResults = `NOT EXISTS (
+    SELECT 1 FROM results WHERE results.link = favorite_items.url AND results.hidden = 0
+)`;
+
 const stmts = {
     getAll: db.prepare(`
         SELECT id, url, title, image, price, bid_price as bidPrice, bin_price as binPrice,
@@ -8,6 +12,7 @@ const stmts = {
         FROM favorite_items
         ORDER BY favorited_at DESC
     `),
+    getMissingUrls: db.prepare(`SELECT url FROM favorite_items WHERE ${missingFromResults}`),
     insert: db.prepare(`
         INSERT OR IGNORE INTO favorite_items
         (id, url, title, image, price, bid_price, bin_price, source, favorited_at, updated_at)
@@ -17,12 +22,7 @@ const stmts = {
     removeByUrl: db.prepare('DELETE FROM favorite_items WHERE url = ?'),
     clearMissingFromResults: db.prepare(`
         DELETE FROM favorite_items
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM results
-            WHERE results.link = favorite_items.url
-              AND results.hidden = 0
-        )
+        WHERE ${missingFromResults}
     `),
     findByUrl: db.prepare(`
         SELECT id, url, title, image, price, bid_price as bidPrice, bin_price as binPrice,
@@ -111,8 +111,8 @@ function add(url, title, image, price, source, bidPrice, binPrice) {
 
 const FavoriteItems = {
     getAll: () => {
-        const list = loadCache();
-        return list.map(item => ({ ...item }));
+        const missing = new Set(stmts.getMissingUrls.all().map(item => item.url));
+        return loadCache().map(item => ({ ...item, isMissing: missing.has(item.url) }));
     },
 
     add,

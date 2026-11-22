@@ -9,7 +9,6 @@ describe('BlockedManager', () => {
         vi.restoreAllMocks();
         authenticatedFetch.mockReset();
         vi.spyOn(window, 'confirm').mockReturnValue(true);
-        vi.spyOn(window, 'alert').mockImplementation(() => {});
     });
 
     it('clears blocked items missing from stored results and refreshes the list', async () => {
@@ -20,7 +19,7 @@ describe('BlockedManager', () => {
                 return Promise.resolve({
                     ok: true,
                     json: async () => blockedReads === 1
-                        ? [{ id: 'blocked-1', url: 'https://example.test/missing', title: 'Missing Item' }]
+                        ? [{ id: 'blocked-1', url: 'https://example.test/missing', title: 'Missing Item', isMissing: true }]
                         : []
                 });
             }
@@ -38,14 +37,15 @@ describe('BlockedManager', () => {
 
         render(<BlockedManager authenticatedFetch={authenticatedFetch} />);
 
-        fireEvent.click(await screen.findByTitle('Unblock items that are no longer in stored results'));
+        fireEvent.click(screen.getByRole('tab', { name: 'Blocked Items' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Clear Missing' }));
 
         await waitFor(() => {
             expect(authenticatedFetch).toHaveBeenCalledWith('/api/blocked/clear-missing', { method: 'POST' });
-            expect(window.alert).toHaveBeenCalledWith('Removed 1 blocked item.');
+            expect(screen.getByText('Cleared 1 item.')).toBeInTheDocument();
         });
         expect(window.confirm).toHaveBeenCalledWith(
-            'Clear blocked items confirmed missing by tracked watch searches?'
+            'Unblock items confirmed missing by tracked watch searches?'
         );
         expect(await screen.findByText('No blocked items.')).toBeInTheDocument();
     });
@@ -57,7 +57,7 @@ describe('BlockedManager', () => {
                 return Promise.resolve({
                     ok: true,
                     json: async () => [
-                        { id: 'blocked-1', url: 'https://example.test/still-blocked', title: 'Still Blocked' }
+                        { id: 'blocked-1', url: 'https://example.test/still-blocked', title: 'Still Blocked', isMissing: true }
                     ]
                 });
             }
@@ -75,10 +75,11 @@ describe('BlockedManager', () => {
         });
 
         render(<BlockedManager authenticatedFetch={authenticatedFetch} />);
-        fireEvent.click(await screen.findByTitle('Unblock items that are no longer in stored results'));
+        fireEvent.click(screen.getByRole('tab', { name: 'Blocked Items' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Clear Missing' }));
 
         await waitFor(() => {
-            expect(window.alert).toHaveBeenCalledWith('Failed to clear missing blocked items');
+            expect(screen.getByRole('alert')).toHaveTextContent('Could not clear missing items.');
         });
         expect(screen.getByText('Still Blocked')).toBeInTheDocument();
         expect(authenticatedFetch.mock.calls.filter(([url]) => url === '/api/blocked')).toHaveLength(1);

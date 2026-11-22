@@ -1,268 +1,166 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import Icon from './Icon';
+import { useEffect, useId, useState } from 'react';
+import ResultCard from './ResultCard';
+
+const tabs = [
+    { id: 'favorites', label: 'Favorites', empty: 'No favorited items.' },
+    { id: 'blocked', label: 'Blocked Items', empty: 'No blocked items.' },
+    { id: 'blacklist', label: 'Blacklisted Terms' }
+];
 
 const BlockedManager = ({ authenticatedFetch }) => {
-    const [blockedItems, setBlockedItems] = useState([]);
-    const [favoriteItems, setFavoriteItems] = useState([]);
-    // blacklist state is now just for tracking changes if needed, but we mainly use newTerm for the textarea
-    // to avoid confusion, let's rename newTerm to blacklistText
-    const [blacklistText, setNewTerm] = useState(''); // Reusing setNewTerm setter to minimize diff, but essentially it's the text block 
-
-    const fetchBlockedItems = useCallback(async () => {
-        try {
-            const res = await authenticatedFetch('/api/blocked');
-            const data = await res.json();
-            setBlockedItems(data);
-        } catch (err) {
-            console.error('Error fetching blocked items:', err);
-        }
-    }, [authenticatedFetch]);
-
-    const fetchFavoriteItems = useCallback(async () => {
-        try {
-            const res = await authenticatedFetch('/api/favorites');
-            const data = await res.json();
-            setFavoriteItems(data);
-        } catch (err) {
-            console.error('Error fetching favorite items:', err);
-        }
-    }, [authenticatedFetch]);
-
-    const fetchBlacklist = useCallback(async () => {
-        try {
-            const res = await authenticatedFetch('/api/blacklist');
-            const data = await res.json();
-            // Convert list to newline-separated string
-            const text = data.map(item => item.term).join('\n');
-            setNewTerm(text);
-        } catch (err) {
-            console.error('Error fetching blacklist:', err);
-        }
-    }, [authenticatedFetch]);
+    const tabGroup = useId();
+    const [activeTab, setActiveTab] = useState('favorites');
+    const [lists, setLists] = useState({});
+    const [loadErrors, setLoadErrors] = useState({});
+    const [messages, setMessages] = useState({});
+    const [pending, setPending] = useState(false);
+    const [blacklistDraft, setBlacklistDraft] = useState(null);
 
     useEffect(() => {
-        const loadInitialData = async () => {
-            await Promise.all([
-                fetchBlockedItems(),
-                fetchFavoriteItems(),
-                fetchBlacklist()
-            ]);
-        };
-        void loadInitialData();
-    }, [fetchBlockedItems, fetchFavoriteItems, fetchBlacklist]);
+        let current = true;
+        for (const { id } of tabs) {
+            const load = async () => {
+                try {
+                    const response = await authenticatedFetch(`/api/${id}`);
+                    if (!response.ok) throw new Error('Could not load this list.');
+                    const items = await response.json();
+                    if (current) setLists(previous => ({ ...previous, [id]: items }));
+                } catch {
+                    if (current) setLoadErrors(previous => ({ ...previous, [id]: 'Could not load this list.' }));
+                }
+            };
+            void load();
+        }
+        return () => { current = false; };
+    }, [authenticatedFetch]);
 
-    const saveBulkBlacklist = async () => {
-        const terms = blacklistText.split('\n').map(t => t.trim()).filter(t => t);
+    const selectByKey = (event, index) => {
+        const next = {
+            ArrowRight: (index + 1) % tabs.length,
+            ArrowLeft: (index + tabs.length - 1) % tabs.length,
+            Home: 0,
+            End: tabs.length - 1
+        }[event.key];
+        if (typeof next !== 'number') return;
+        event.preventDefault();
+        const nextTab = tabs[next].id;
+        setActiveTab(nextTab);
+        document.getElementById(`${tabGroup}-tab-${nextTab}`)?.focus();
+    };
+
+    const updateList = async (id, action) => {
+        setMessages(previous => ({ ...previous, [id]: null }));
+        setPending(true);
         try {
-            const res = await authenticatedFetch('/api/blacklist', {
+            await action();
+        } catch (err) {
+            setMessages(previous => ({ ...previous, [id]: { text: err.message, error: true } }));
+        } finally {
+            setPending(false);
+        }
+    };
+
+    const removeItem = (id, item) => updateList(id, async () => {
+        const response = await authenticatedFetch(`/api/${id}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error(id === 'blocked' ? 'Could not unblock the item.' : 'Could not remove the favorite.');
+        setLists(previous => ({ ...previous, [id]: previous[id].filter(entry => entry.id !== item.id) }));
+    });
+
+    const clearMissing = (id) => {
+        const description = id === 'favorites'
+            ? 'Remove favorites that are missing from stored watch results?'
+            : 'Unblock items confirmed missing by tracked watch searches?';
+        if (!window.confirm(description)) return;
+        return updateList(id, async () => {
+            const response = await authenticatedFetch(`/api/${id}/clear-missing`, { method: 'POST' });
+            if (!response.ok) throw new Error('Could not clear missing items.');
+            const { removed } = await response.json();
+            const updated = await authenticatedFetch(`/api/${id}`);
+            if (!updated.ok) throw new Error('Missing items were cleared. Could not reload this list.');
+            const items = await updated.json();
+            setLists(previous => ({ ...previous, [id]: items }));
+            setMessages(previous => ({ ...previous, [id]: { text: `Cleared ${removed} item${removed === 1 ? '' : 's'}.` } }));
+        });
+    };
+
+    const savedBlacklist = lists.blacklist?.map(item => item.term).join('\n') ?? '';
+    const blacklistText = blacklistDraft ?? savedBlacklist;
+
+    const saveBlacklist = (event) => {
+        event.preventDefault();
+        return updateList('blacklist', async () => {
+            const terms = blacklistText.split('\n').map(term => term.trim()).filter(Boolean);
+            const response = await authenticatedFetch('/api/blacklist', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ terms })
             });
-            if (res.ok) {
-                alert('Blacklist updated!');
-                fetchBlacklist(); // Refresh to normalize formatting
-            } else {
-                const data = await res.json();
-                alert(data.error || 'Failed to update blacklist');
-            }
-        } catch (err) {
-            console.error('Error saving blacklist:', err);
-            alert('Failed to save blacklist');
-        }
-    };
-
-    const unblockItem = async (id) => {
-        try {
-            await authenticatedFetch(`/api/blocked/${id}`, {
-                method: 'DELETE'
-            });
-            fetchBlockedItems();
-        } catch (err) {
-            console.error('Error unblocking item:', err);
-        }
-    };
-
-    const unfavoriteItem = async (id) => {
-        try {
-            await authenticatedFetch(`/api/favorites/${id}`, {
-                method: 'DELETE'
-            });
-            fetchFavoriteItems();
-        } catch (err) {
-            console.error('Error unfavoriting item:', err);
-        }
-    };
-
-    const clearMissingFavorites = async () => {
-        if (!window.confirm('Clear favorited items that are no longer found in stored results?')) return;
-
-        try {
-            const res = await authenticatedFetch('/api/favorites/clear-missing', {
-                method: 'POST'
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to clear missing favorites');
-            await fetchFavoriteItems();
-            alert(`Removed ${data.removed || 0} favorited item${data.removed === 1 ? '' : 's'}.`);
-        } catch (err) {
-            console.error('Error clearing missing favorites:', err);
-            alert('Failed to clear missing favorites');
-        }
-    };
-
-    const clearMissingBlockedItems = async () => {
-        if (!window.confirm('Clear blocked items confirmed missing by tracked watch searches?')) return;
-
-        try {
-            const res = await authenticatedFetch('/api/blocked/clear-missing', {
-                method: 'POST'
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to clear missing blocked items');
-            await fetchBlockedItems();
-            alert(`Removed ${data.removed || 0} blocked item${data.removed === 1 ? '' : 's'}.`);
-        } catch (err) {
-            console.error('Error clearing missing blocked items:', err);
-            alert('Failed to clear missing blocked items');
-        }
+            if (!response.ok) throw new Error('Could not save blacklisted terms.');
+            const items = await response.json();
+            setLists(previous => ({ ...previous, blacklist: items }));
+            setBlacklistDraft(null);
+            setMessages(previous => ({ ...previous, blacklist: { text: 'Blacklisted terms saved.' } }));
+        });
     };
 
     return (
-        <div className="watchlist-container">
-            {/* Desktop: Side-by-side grid, Mobile: Stack */}
-            <div className="blocked-grid">
-                {/* Favorite Items Section */}
-                <div className="blocked-section">
-                    <h2>Favorites</h2>
-                    <p className="options-description">
-                        Favorited items are tracked for price changes in scheduled email digests.
-                    </p>
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-                        <button
-                            className="page-btn"
-                            onClick={clearMissingFavorites}
-                            disabled={favoriteItems.length === 0}
-                            title="Unfavorite items that are no longer in stored results"
-                        >
-                            Clear Missing
-                        </button>
-                    </div>
-
-                    <ul className="watchlist-items" style={{ margin: '0' }}>
-                        {favoriteItems.length === 0 && <p className="rail-empty">No favorited items.</p>}
-
-                        {favoriteItems.map(item => (
-                            <li key={item.id} className="watchlist-item">
-                                {item.image && (
-                                    <div className="list-thumbnail">
-                                        <img
-                                            src={item.image}
-                                            alt=""
-                                        />
-                                    </div>
-                                )}
-                                <div className="watch-info">
-                                    <span className="watch-term" style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{item.title}</span>
-                                    <span className="watch-meta">
-                                        {item.price || item.bidPrice || item.binPrice || 'No price saved'}
-                                        {item.source && ` • ${item.source}`}
-                                    </span>
-                                    <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" >
-                                        {item.url.substring(0, 50)}...
-                                    </a>
-                                </div>
-                                <button className="delete-btn" onClick={() => unfavoriteItem(item.id)} title="Unfavorite" aria-label="Unfavorite">
-                                    <Icon name="favorite" />
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-
-                {/* Blocked Items Section */}
-                <div className="blocked-section">
-                    <h2>Blocked Items</h2>
-                    <p className="options-description">
-                        These specific items (by URL) will be permanently hidden from future search results.
-                    </p>
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-                        <button
-                            className="page-btn"
-                            onClick={clearMissingBlockedItems}
-                            disabled={blockedItems.length === 0}
-                            title="Unblock items that are no longer in stored results"
-                        >
-                            Clear Missing
-                        </button>
-                    </div>
-
-                    <ul className="watchlist-items" style={{ margin: '0' }}>
-                        {blockedItems.length === 0 && <p className="rail-empty">No blocked items.</p>}
-
-                        {blockedItems.map(item => (
-                            <li key={item.id} className="watchlist-item">
-                                {item.image && (
-                                    <div className="list-thumbnail">
-                                        <img
-                                            src={item.image}
-                                            alt=""
-                                        />
-                                    </div>
-                                )}
-                                <div className="watch-info">
-                                    <span className="watch-term" style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{item.title}</span>
-                                    <a href={item.url} target="_blank" rel="noreferrer" className="watch-meta" >
-                                        {item.url.substring(0, 50)}...
-                                    </a>
-                                </div>
-                                <button className="delete-btn" onClick={() => unblockItem(item.id)} title="Unblock">
-                                    Unblock
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-
-                {/* Universal Blacklist Section */}
-                <div className="blocked-section">
-                    <h2>Blacklisted Terms</h2>
-                    <p className="options-description">
-                        Items containing these terms will be hidden from <strong>all</strong> search results.<br />
-                        <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>One term per line.</span>
-                    </p>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <textarea
-                            value={blacklistText}
-                            onChange={(e) => setNewTerm(e.target.value)}
-                            placeholder="Enter terms to block (one per line)..."
-                            className="settings-input"
-                            aria-label="Terms to block"
-                            rows={10}
-                            style={{
-                                width: '100%',
-                                minHeight: '200px',
-                                fontFamily: 'monospace',
-                                lineHeight: '1.5',
-                                padding: '10px'
-                            }}
-                        />
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                            <button
-                                onClick={saveBulkBlacklist}
-                                className="save-btn"
-
-                            >
-                                Save Blacklist
-                            </button>
-                        </div>
-                    </div>
-                </div>
+        <div className="lists-manager">
+            <div className="lists-tabs" role="tablist" aria-label="Lists">
+                {tabs.map(({ id, label }, index) => (
+                    <button key={id} type="button" role="tab" id={`${tabGroup}-tab-${id}`}
+                        aria-controls={`${tabGroup}-panel-${id}`} aria-selected={activeTab === id}
+                        tabIndex={activeTab === id ? 0 : -1}
+                        className={`segment-btn${activeTab === id ? ' active' : ''}`}
+                        onClick={() => setActiveTab(id)} onKeyDown={event => selectByKey(event, index)}>
+                        {label}
+                    </button>
+                ))}
             </div>
+            {tabs.map(({ id, empty }) => {
+                const items = lists[id];
+                const message = messages[id];
+                const isFavoriteTab = id === 'favorites';
+                return (
+                    <section key={id} className="lists-panel" id={`${tabGroup}-panel-${id}`}
+                        role="tabpanel" aria-labelledby={`${tabGroup}-tab-${id}`}
+                        tabIndex={0} hidden={activeTab !== id}>
+                        {activeTab === id && <>
+                            {loadErrors[id] && <p role="alert" className="error">{loadErrors[id]}</p>}
+                            {message && <p role={message.error ? 'alert' : 'status'}
+                                className={message.error ? 'error' : undefined}>{message.text}</p>}
+                            {!items && !loadErrors[id] && <p role="status">Loading…</p>}
+                            {items && (id === 'blacklist' ? (
+                                <form className="blacklist-editor" onSubmit={saveBlacklist}>
+                                    <label htmlFor={`${tabGroup}-terms`}>One term per line</label>
+                                    <textarea id={`${tabGroup}-terms`} aria-label="Blacklisted terms"
+                                        value={blacklistText} onChange={event => setBlacklistDraft(event.target.value)}
+                                        disabled={pending} />
+                                    <button className="save-btn" disabled={pending || blacklistText === savedBlacklist}>
+                                        Save Blacklist
+                                    </button>
+                                </form>
+                            ) : (
+                                <>
+                                    <div className="lists-toolbar">
+                                        {isFavoriteTab && <p>Missing favorites are absent from stored watch results.</p>}
+                                        <button type="button" onClick={() => clearMissing(id)}
+                                            disabled={pending || !items.some(item => item.isMissing)}>Clear Missing</button>
+                                    </div>
+                                    {items.length ? <div className="results-grid">
+                                        {items.map(item => (
+                                            <ResultCard key={item.id}
+                                                item={{ ...item, title: item.title || item.url, isFavorite: isFavoriteTab, isBlocked: !isFavoriteTab }}
+                                                onFavoriteToggle={isFavoriteTab ? entry => removeItem(id, entry) : undefined}
+                                                onBlock={!isFavoriteTab ? entry => removeItem(id, entry) : undefined}
+                                                actionsDisabled={pending} />
+                                        ))}
+                                    </div> : <p>{empty}</p>}
+                                </>
+                            ))}
+                        </>}
+                    </section>
+                );
+            })}
         </div>
     );
 };

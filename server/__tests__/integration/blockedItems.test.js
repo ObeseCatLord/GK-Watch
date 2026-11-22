@@ -109,10 +109,13 @@ describe('BlockedItems', () => {
 
         test('a later raw sighting cancels confirmed absence', () => {
             const item = BlockedItems.add('http://example.com/reappeared', 'Reappeared Item');
-            BlockedItems.confirmMissing(item.url, '2026-08-01T00:00:00.000Z');
+            BlockedItems.confirmMissing(item.url, item.blockedAt);
+            expect(BlockedItems.getAll()[0]).toMatchObject({ isMissing: true });
 
-            BlockedItems.recordSeen([{ link: item.url }], '2026-08-02T00:00:00.000Z');
+            const returnedAt = new Date(Date.parse(item.blockedAt) + 60_000).toISOString();
+            BlockedItems.recordSeen([{ link: item.url }], returnedAt);
 
+            expect(BlockedItems.getAll()[0]).toMatchObject({ isMissing: false });
             expect(BlockedItems.clearMissingFromResults()).toBe(0);
             expect(BlockedItems.isBlocked(item.url)).toBe(true);
         });

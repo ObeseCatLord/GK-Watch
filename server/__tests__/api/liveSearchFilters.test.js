@@ -63,6 +63,7 @@ jest.mock('../../scheduler', () => ({
     isRunning: false,
     progress: null,
     completionVersion: 12,
+    recordWatchUpdate: jest.fn(),
     createSourceOutcomeTracker: () => ({
         onProgress: mockSourceProgress,
         successfulSources: mockSuccessfulSources

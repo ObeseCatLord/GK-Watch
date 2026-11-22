@@ -1,9 +1,26 @@
 const db = require('./database');
 const crypto = require('crypto');
 
+const confirmedMissing = `
+    blocked_items.missing_confirmed_at IS NOT NULL
+    AND (blocked_items.last_seen_at IS NULL OR blocked_items.missing_confirmed_at >= blocked_items.last_seen_at)
+    AND NOT EXISTS (SELECT 1 FROM results WHERE results.link = blocked_items.url)
+`;
+
 // Prepared statements
 const stmts = {
     getAll: db.prepare('SELECT id, url, title, image, blocked_at as blockedAt FROM blocked_items ORDER BY blocked_at DESC'),
+    getCards: db.prepare(`
+        SELECT blocked_items.id, blocked_items.url, blocked_items.title, blocked_items.image,
+               blocked_items.blocked_at AS blockedAt, saved.source, saved.price,
+               saved.bid_price AS bidPrice, saved.bin_price AS binPrice, saved.end_time AS endTime,
+               (${confirmedMissing}) AS isMissing
+        FROM blocked_items
+        LEFT JOIN results saved ON saved.id = (
+            SELECT id FROM results WHERE results.link = blocked_items.url ORDER BY last_seen DESC, id DESC LIMIT 1
+        )
+        ORDER BY blocked_items.blocked_at DESC
+    `),
     insert: db.prepare(`
         INSERT OR IGNORE INTO blocked_items
         (id, url, title, image, blocked_at, last_seen_at, missing_confirmed_at)
@@ -12,13 +29,7 @@ const stmts = {
     remove: db.prepare('DELETE FROM blocked_items WHERE id = ?'),
     clearMissingFromResults: db.prepare(`
         DELETE FROM blocked_items
-        WHERE missing_confirmed_at IS NOT NULL
-          AND (last_seen_at IS NULL OR missing_confirmed_at >= last_seen_at)
-          AND NOT EXISTS (
-            SELECT 1
-            FROM results
-            WHERE results.link = blocked_items.url
-        )
+        WHERE ${confirmedMissing}
     `),
     findByUrl: db.prepare('SELECT id FROM blocked_items WHERE url = ?'),
     recordSeen: db.prepare(`
@@ -82,10 +93,7 @@ function invalidateCache() {
 }
 
 const BlockedItems = {
-    getAll: () => {
-        const list = loadCache();
-        return list.map(item => ({ ...item }));
-    },
+    getAll: () => stmts.getCards.all().map(item => ({ ...item, isMissing: Boolean(item.isMissing) })),
 
     add: (url, title, image) => {
         if (!url) return null;

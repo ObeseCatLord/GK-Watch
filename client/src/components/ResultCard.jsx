@@ -7,7 +7,7 @@ const availablePrice = (value) => {
     return text && !/^n\/?a$/i.test(text) ? text : null;
 };
 
-const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
+const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew, actionsDisabled = false }) => {
     const { title, image, price, source, endTime } = item;
     const sourceClass = (source || '').trim().toLowerCase().replace(/\s+/g, '-');
     const link = item.link || item.url;
@@ -21,6 +21,7 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     const [timeLeft, setTimeLeft] = React.useState('');
     const isUpdated = item.isUpdated || item.newType === 'updated';
     const showStatusRibbon = isNew || isUpdated;
+    const blockLabel = item.isBlocked ? 'Unblock item' : 'Permanently block';
 
     React.useEffect(() => {
         if (!endTime) return;
@@ -58,7 +59,7 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     const handleBlock = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (window.confirm('Permanently block this item?')) {
+        if (item.isBlocked || window.confirm('Permanently block this item?')) {
             onBlock(item);
         }
     };
@@ -87,7 +88,7 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
     };
 
     return (
-        <article className="listing">
+        <article className={item.isMissing ? 'listing listing-missing' : 'listing'}>
             <a href={link} target="_blank" rel="noopener noreferrer" className={`result-card ${showStatusRibbon ? 'is-new' : ''} ${isUpdated ? 'is-updated' : ''}`}>
                 <div className="card-image-container">
                     {image && image !== failedImage ? (
@@ -105,7 +106,8 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
                 <div className="card-content">
                     <div className="card-meta">
                         <span className={`source-badge ${sourceClass}`}>{source || 'Unknown source'}</span>
-                        {timeLeft && <span title="Time remaining">{timeLeft}</span>}
+                        {item.isMissing ? <span className="listing-missing-label">Missing</span>
+                            : timeLeft && <span title="Time remaining">{timeLeft}</span>}
                     </div>
                     <h3 className="card-title" title={title}>{title}</h3>
                     {(bid || buy) && (
@@ -119,7 +121,7 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
             <div className="listing-actions">
                 {onFavoriteToggle && (
                     <button type="button" className={`favorite-btn ${item.isFavorite ? 'active' : ''}`}
-                        onClick={handleFavoriteToggle} aria-pressed={Boolean(item.isFavorite)}
+                        onClick={handleFavoriteToggle} aria-pressed={Boolean(item.isFavorite)} disabled={actionsDisabled}
                         title={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
                         aria-label={item.isFavorite ? 'Remove favorite' : 'Add favorite'}
                     >
@@ -132,7 +134,8 @@ const ResultCard = ({ item, onBlock, onFavoriteToggle, isNew }) => {
                 )}
                 {onBlock && (
                     <button type="button" className="block-btn" onClick={handleBlock}
-                        title="Permanently block" aria-label="Permanently block"><Icon name="block" /></button>
+                        aria-pressed={Boolean(item.isBlocked)} disabled={actionsDisabled}
+                        title={blockLabel} aria-label={blockLabel}><Icon name="block" /></button>
                 )}
             </div>
         </article>

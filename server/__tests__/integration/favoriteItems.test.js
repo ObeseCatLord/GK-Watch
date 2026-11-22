@@ -105,6 +105,11 @@ describe('FavoriteItems', () => {
         insertResult.run(watch.id, 'Visible Item', 'http://example.com/visible', now, now, 0);
         insertResult.run(watch.id, 'Hidden Item', 'http://example.com/hidden', now, now, 1);
 
+        expect(FavoriteItems.getAll()).toEqual(expect.arrayContaining([
+            expect.objectContaining({ title: 'Visible Item', isMissing: false }),
+            expect.objectContaining({ title: 'Hidden Item', isMissing: true }),
+            expect.objectContaining({ title: 'Missing Item', isMissing: true })
+        ]));
         const removed = FavoriteItems.clearMissingFromResults();
         const remainingUrls = FavoriteItems.getAll().map(item => item.url);
 

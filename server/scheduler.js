@@ -310,7 +310,13 @@ const Scheduler = {
     progress: null,
     shouldAbort: false,
     completionVersion: 0,
+    watchUpdateVersion: 0,
+    watchUpdates: new Map(),
     createSourceOutcomeTracker,
+
+    recordWatchUpdate(id) {
+        Scheduler.watchUpdates.set(id, ++Scheduler.watchUpdateVersion);
+    },
 
     // No longer need results cache - SQLite is the source of truth
     // Keep loadResults/persistResults as no-ops for backward compatibility
@@ -438,6 +444,7 @@ const Scheduler = {
         Scheduler.isRunning = true;
         Scheduler.shouldAbort = false;
         Scheduler.progress = { current: startIndex, total: items.length, currentItem: '' };
+        Scheduler.watchUpdates.clear();
 
         const allNewItems = {};
         const batchStartedAt = Date.now();
@@ -541,6 +548,8 @@ const Scheduler = {
                             item.name,
                             { successfulSources: sourceOutcomes.successfulSources() }
                         );
+                        await Watchlist.updateLastRun(item.id, totalCount);
+                        Scheduler.recordWatchUpdate(item.id);
 
                         const digestItemsByLink = new Map();
                         for (const newItem of newItems || []) {
@@ -564,7 +573,6 @@ const Scheduler = {
                                 }
                             }
                         }
-                        Watchlist.updateLastRun(item.id, totalCount);
                     } catch (err) {
                         console.error(`[Batch] Error saving results for ${item.name}:`, err);
                     }

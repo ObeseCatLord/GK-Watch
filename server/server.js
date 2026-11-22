@@ -758,6 +758,8 @@ app.get('/api/status', requireAuth, (req, res) => {
         isRunning: Scheduler.isRunning,
         progress: Scheduler.progress,
         completionVersion: Scheduler.completionVersion,
+        watchUpdateVersion: Scheduler.watchUpdateVersion,
+        watchUpdates: Object.fromEntries(Scheduler.watchUpdates || []),
         nextScheduled,
         minutesUntilNext,
         admission: searchAggregator.getAdmissionStats?.()
@@ -1055,6 +1057,7 @@ app.post('/api/run-single/:id', requireAuth, async (req, res) => {
             { successfulSources: sourceOutcomes.successfulSources() }
         );
         await Watchlist.updateLastRun(item.id, totalCount);
+        Scheduler.recordWatchUpdate(item.id);
         res.json({ success: true, resultCount: filtered.length, newCount: newItems.length });
     } catch (err) {
         console.error(`[Manual Single] Error:`, err);

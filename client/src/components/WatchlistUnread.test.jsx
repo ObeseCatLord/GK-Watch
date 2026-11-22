@@ -7,7 +7,7 @@ const makeItem = (title, flags = {}) => ({
     source: 'Mercari', price: '100', ...flags
 });
 
-const createApi = ({ paginated = true, deferSeen = false } = {}) => {
+const createApi = ({ paginated = true, deferSeen = false, running = false } = {}) => {
     let items = [
         makeItem('Seen item'),
         makeItem('Updated favorite', { isNew: true, isUpdated: true, newType: 'updated', isFavorite: true }),
@@ -15,14 +15,18 @@ const createApi = ({ paginated = true, deferSeen = false } = {}) => {
     ];
     let completeSeen;
     let completionVersion = 0;
+    let watchUpdateVersion = 0;
+    const watchUpdates = {};
     const response = data => Promise.resolve({ ok: true, json: async () => data });
     const fetch = vi.fn((url, options = {}) => {
         if (url === '/api/watchlist') return response([
-            { id: 'a', name: 'First watch', term: 'first' },
-            { id: 'b', name: 'Other watch', term: 'other' }
+            { id: 'a', name: 'First watch', term: 'first', lastResultCount: watchUpdates.a ? items.length : 26 },
+            { id: 'b', name: 'Other watch', term: 'other', lastResultCount: watchUpdates.b ? 1 : 0 }
         ]);
         if (url === '/api/watchlist/newcounts') return response({ a: items.filter(i => i.isNew).length });
-        if (url === '/api/status') return response({ isRunning: false, completionVersion });
+        if (url === '/api/status') return response({
+            isRunning: running, completionVersion, watchUpdateVersion, watchUpdates: { ...watchUpdates }
+        });
         if (url === '/api/results/a/seen' && options.method === 'POST') {
             const finish = () => {
                 items = items.map(item => ({ ...item, isNew: false, isUpdated: false, newType: 'new' }));
@@ -45,11 +49,42 @@ const createApi = ({ paginated = true, deferSeen = false } = {}) => {
     });
     return {
         fetch, finishSeen: () => completeSeen(), completeSearch: () => { completionVersion += 1; },
+        saveWatch(id) {
+            watchUpdates[id] = ++watchUpdateVersion;
+            if (id === 'a') items = [makeItem('Scheduled discovery', { isNew: true }), ...items];
+        },
         resultCalls: () => fetch.mock.calls.filter(([url]) => url.startsWith('/api/results/a?'))
     };
 };
 
 describe('watch unread lifecycle', () => {
+    it('polls saved watch updates during an active batch without discarding loaded pages', async () => {
+        vi.useFakeTimers();
+        try {
+            const api = createApi({ running: true });
+            render(<WatchlistManager authenticatedFetch={api.fetch} />);
+            await act(() => vi.advanceTimersByTimeAsync(0));
+            await act(async () => fireEvent.click(screen.getByText('First watch')));
+            await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Load page 2' })));
+            expect(screen.getByRole('region', { name: 'Page 2' })).toBeInTheDocument();
+
+            const beforeOtherWatch = api.resultCalls().length;
+            api.saveWatch('b');
+            await act(() => vi.advanceTimersByTimeAsync(2000));
+            expect(api.resultCalls()).toHaveLength(beforeOtherWatch);
+            expect(screen.getByRole('button', { name: /^Other watch/ })).toHaveTextContent('1 results');
+
+            api.saveWatch('a');
+            await act(() => vi.advanceTimersByTimeAsync(2000));
+            expect(screen.getByText('Scheduled discovery').closest('a')).toHaveClass('is-new');
+            expect(within(screen.getByRole('region', { name: 'Page 2' })).getAllByRole('link')).toHaveLength(2);
+            expect(screen.getByText('26 NEW')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /^First watch/ })).toHaveTextContent('27 results');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('keeps highlights through pagination, filters and sorting, then clears them when switching watches', async () => {
         const api = createApi();
         render(<WatchlistManager authenticatedFetch={api.fetch} />);

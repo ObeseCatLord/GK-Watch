@@ -11,7 +11,7 @@ const bitmaps = {
     check: 'check',
     close: 'close',
     edit: 'pencil',
-    favorite: 'star',
+    favorite: 'star-filled',
     unfavorite: 'star',
     trash: 'trash',
     external: 'external-link'

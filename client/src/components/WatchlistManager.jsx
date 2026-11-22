@@ -109,8 +109,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     // Track previous running state to detect completion
     const wasRunningRef = React.useRef(false);
     const completionVersionRef = React.useRef(0);
-
-    // Poll for global search status and auto-refresh on completion
+    const watchStatusRef = React.useRef({ version: 0, updates: {} });
 
     // Multi-term / Merge / Edit State
     const [isMerging, setIsMerging] = useState(false);
@@ -136,7 +135,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         }
     }, [authenticatedFetch]);
 
-    const fetchWatchlist = React.useCallback(async () => {
+    const fetchWatchlist = React.useCallback(async ({ statusOnly = false } = {}) => {
         try {
             const res = await authenticatedFetch('/api/watchlist');
 
@@ -153,6 +152,14 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
 
             const data = await res.json();
             if (Array.isArray(data)) {
+                if (statusOnly) {
+                    const savedWatches = new Map(data.map(item => [item.id, item]));
+                    setWatchlist(previous => previous.map(item => {
+                        const saved = savedWatches.get(item.id);
+                        return saved ? { ...item, lastRun: saved.lastRun, lastResultCount: saved.lastResultCount } : item;
+                    }));
+                    return;
+                }
                 setWatchlist(data);
                 // Build email/priority settings map
                 const emailMap = {};
@@ -221,7 +228,9 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
         resultsRequestVersionRef.current += 1;
     }, [acknowledgeWatch]);
 
-    const fetchWatchResults = React.useCallback(async (id, page = 1, { filter = resultFilter, source = sourceFilter, append = false } = {}) => {
+    const fetchWatchResults = React.useCallback(async (id, page = 1, {
+        filter = resultFilter, source = sourceFilter, append = false, throughPage = page
+    } = {}) => {
         if (append && resultsLoadingRef.current) return;
         const requestVersion = ++resultsRequestVersionRef.current;
         resultsLoadingRef.current = true;
@@ -232,7 +241,6 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
             // A quick return to a watch must wait for its previous acknowledgement.
             await pendingSeenRequestsRef.current.get(id);
             const params = new URLSearchParams();
-            params.set('page', String(page || 1));
             params.set('pageSize', String(ITEMS_PER_PAGE));
             const { sort, order } = getSortParams(sortBy);
             params.set('sort', sort);
@@ -247,22 +255,37 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                 params.set('source', source);
             }
 
-            const res = await authenticatedFetch(`/api/results/${id}?${params.toString()}`);
-            if (!res.ok) throw new Error(`Failed to fetch results: ${res.status}`);
-            const data = await res.json();
-            if (viewedWatchRef.current?.id !== id || resultsRequestVersionRef.current !== requestVersion) return;
-            viewedWatchRef.current.loaded = true;
+            const loadPage = async (number) => {
+                const query = new URLSearchParams({ page: String(number || 1) });
+                for (const [key, value] of params) query.set(key, value);
+                const res = await authenticatedFetch(`/api/results/${id}?${query.toString()}`);
+                if (!res.ok) throw new Error(`Failed to fetch results: ${res.status}`);
+                return res.json();
+            };
+            const isCurrent = () => viewedWatchRef.current?.id === id && resultsRequestVersionRef.current === requestVersion;
+            const data = await loadPage(page);
+            if (!isCurrent()) return;
             if (hasServerPaginationResponse(data)) {
+                const pages = [data];
+                const lastPage = Math.min(throughPage, data.totalPages);
+                for (let first = page + 1; first <= lastPage; first += 4) {
+                    const batch = await Promise.all(Array.from(
+                        { length: Math.min(4, lastPage - first + 1) }, (_, offset) => loadPage(first + offset)
+                    ));
+                    if (!isCurrent()) return;
+                    pages.push(...batch);
+                }
+                viewedWatchRef.current.loaded = true;
                 const serverMeta = {
                     total: Number(data.total) || 0,
-                    page: Number(data.page) || 1,
+                    page: Number(pages.at(-1).page) || 1,
                     pageSize: Number(data.pageSize) || ITEMS_PER_PAGE,
                     totalPages: Number(data.totalPages) || 1,
                     useServerPagination: true
                 };
                 setSelectedResultsMeta(serverMeta);
-                const items = (Array.isArray(data.items) ? data.items : [])
-                    .map(item => ({ ...item, watchResultPage: serverMeta.page }));
+                const items = pages.flatMap(result => (Array.isArray(result.items) ? result.items : [])
+                    .map(item => ({ ...item, watchResultPage: Number(result.page) || 1 })));
                 setSelectedResults(previous => {
                     if (!append || !previous) return items;
 
@@ -278,24 +301,30 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     return [...previous, ...newItems];
                 });
                 setAvailableSources(Array.isArray(data.sources) ? data.sources : []);
-                if (!append) setCurrentPage(serverMeta.page);
+                if (!append) {
+                    const selectedPage = Number(data.page) || 1;
+                    lastResultsRequest.current = `${id}|${selectedPage}|${sortBy}|${filter}|${source}`;
+                    setCurrentPage(selectedPage);
+                }
                 return;
             }
 
             const fallbackItems = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+            const fallbackPage = Math.min(throughPage, Math.max(1, Math.ceil(fallbackItems.length / ITEMS_PER_PAGE)));
+            viewedWatchRef.current.loaded = true;
             setSelectedResultsMeta({
                 total: fallbackItems.length,
-                page: Math.max(1, page),
+                page: fallbackPage,
                 pageSize: ITEMS_PER_PAGE,
                 totalPages: Math.max(1, Math.ceil(fallbackItems.length / ITEMS_PER_PAGE)),
                 useServerPagination: false
             });
             setSelectedResults(fallbackItems);
             setAvailableSources([...new Set(fallbackItems.map(item => item.source).filter(Boolean))].sort());
-            setCurrentPage(Math.max(1, page));
+            setCurrentPage(fallbackPage);
 
         } catch (err) {
-            if (resultsRequestVersionRef.current === requestVersion) setResultsLoadError({ page, append });
+            if (resultsRequestVersionRef.current === requestVersion) setResultsLoadError({ page, append, throughPage });
             console.error('Error fetching stored results', err);
         } finally {
             if (resultsRequestVersionRef.current === requestVersion) {
@@ -323,16 +352,18 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
     }, [acknowledgeWatch, fetchWatchResults, sortBy]);
 
     const refreshSelectedResults = React.useCallback(async () => {
-        if (!selectedId) return;
-        await fetchWatchResults(selectedId, resultMode === 'scroll' ? 1 : selectedResultsMeta.page || 1);
-        if (resultMode === 'scroll') setCurrentPage(1);
-    }, [fetchWatchResults, resultMode, selectedId, selectedResultsMeta.page]);
+        if (!selectedId || viewedWatchRef.current?.id !== selectedId) return;
+        const page = resultMode === 'scroll' ? 1 : currentPage;
+        const throughPage = resultMode === 'scroll' && selectedResultsMeta.useServerPagination
+            ? selectedResultsMeta.page : currentPage;
+        await fetchWatchResults(selectedId, page, { throughPage });
+    }, [fetchWatchResults, resultMode, selectedId, currentPage, selectedResultsMeta.page, selectedResultsMeta.useServerPagination]);
     const refreshSelectedResultsRef = React.useRef(refreshSelectedResults);
     useEffect(() => {
         refreshSelectedResultsRef.current = refreshSelectedResults;
     }, [refreshSelectedResults]);
 
-    // Poll for global search status and auto-refresh on completion
+    // Refresh saved results as each watch finishes, including while the batch is running.
     useEffect(() => {
         let cancelled = false;
         let timeoutId = null;
@@ -351,21 +382,29 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                     signal: statusController.signal
                 });
                 const data = await res.json();
+                if (cancelled) return;
                 const running = Boolean(data.isRunning);
                 const completionVersion = Number(data.completionVersion) || 0;
                 const completionChanged = completionVersion !== completionVersionRef.current;
-                nextDelay = running ? 2000 : (document.hidden ? 60000 : 15000);
+                const previousWatchStatus = watchStatusRef.current;
+                const watchUpdateVersion = Number(data.watchUpdateVersion) || 0;
+                const watchUpdates = data.watchUpdates || {};
+                const watchlistChanged = watchUpdateVersion !== previousWatchStatus.version;
+                const currentWatchUpdated = Boolean(selectedId && watchUpdates[selectedId] &&
+                    watchUpdates[selectedId] !== previousWatchStatus.updates[selectedId]);
+                nextDelay = document.hidden ? 60000 : running ? 2000 : 15000;
 
                 // The completion version catches runs that start and finish between polls.
-                if ((wasRunningRef.current && !running) || completionChanged) {
-                    console.log('Search completed, refreshing data...');
-                    fetchWatchlist();
+                const batchCompleted = (wasRunningRef.current && !running) || completionChanged;
+                if (watchlistChanged || batchCompleted) {
+                    fetchWatchlist({ statusOnly: !batchCompleted });
                     fetchNewCounts();
-                    if (selectedId) {
-                        refreshSelectedResultsRef.current();
-                    }
+                }
+                if (currentWatchUpdated || (batchCompleted && !watchUpdates[selectedId])) {
+                    refreshSelectedResultsRef.current();
                 }
 
+                watchStatusRef.current = { version: watchUpdateVersion, updates: watchUpdates };
                 wasRunningRef.current = running;
                 completionVersionRef.current = completionVersion;
                 setIsGlobalRunning(previous => previous === running ? previous : running);
@@ -1555,7 +1594,7 @@ const WatchlistManager = ({ authenticatedFetch, onBlock, onFavoriteToggle, taoba
                             <button type="button" className="page-btn" onClick={() => fetchWatchResults(
                                 selectedId,
                                 resultsLoadError.page,
-                                { append: resultsLoadError.append }
+                                { append: resultsLoadError.append, throughPage: resultsLoadError.throughPage }
                             )}>Retry</button>
                         </div>
                     )}
