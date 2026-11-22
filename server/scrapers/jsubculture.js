@@ -54,6 +54,7 @@ function parsePage(html, url, page, marketplace) {
         total,
         next,
         hasPagination: pagination.length > 0,
+        hasListingCards: titles.length > 0,
         emptyNotice: $('.no_search_result').text().includes('No items matched your search.')
     };
 }
@@ -64,8 +65,10 @@ async function search(query, site, signal) {
     const items = new Map();
     let url = new URL(marketplace.route, BASE_URL);
     url.searchParams.set('keyword', query);
+    let retriedPage = false;
+    let page = 1;
 
-    for (let page = 1; page <= MAX_PAGES && Date.now() >= retryAfter; page++) {
+    while (page <= MAX_PAGES && Date.now() >= retryAfter) {
         try {
             const { data } = await axios.get(url.href, { timeout: 10000, signal });
             signal?.throwIfAborted();
@@ -78,8 +81,16 @@ async function search(query, site, signal) {
             for (const [link, item] of result.items) {
                 if (!items.has(link)) items.set(link, item);
             }
-            if (site === 'rakuma' && page > 1 && !result.next && result.items.size === 0 && result.emptyNotice) {
+            const checkingRakumaPage = site === 'rakuma' && page > 1;
+            if (checkingRakumaPage && !result.next && !result.hasListingCards &&
+                (result.emptyNotice || result.total <= previousSize)) {
                 return { items: [...items.values()], complete: true };
+            }
+            if (checkingRakumaPage && items.size === previousSize && !retriedPage) {
+                // The proxy can change result count or repeat cards between requests.
+                retriedPage = true;
+                await delay(300, undefined, { signal: signal ?? undefined });
+                continue;
             }
             if (items.size === previousSize) throw new Error('Search page contained no new marketplace listings');
             if (!result.next) {
@@ -90,7 +101,9 @@ async function search(query, site, signal) {
             }
 
             url = result.next;
-            if (page === MAX_PAGES) break;
+            retriedPage = false;
+            page++;
+            if (page > MAX_PAGES) break;
             await delay(300, undefined, { signal: signal ?? undefined });
         } catch (error) {
             signal?.throwIfAborted();

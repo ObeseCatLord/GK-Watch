@@ -7,6 +7,11 @@ const nativeUrl = /^https:\/\/fril\.jp\/s\?/;
 const doorzoUrl = 'https://sig.doorzo.com/';
 const itemId = 'edd0871f2af74b9d826e09a584994285';
 const itemUrl = `https://item.fril.jp/${itemId}`;
+const primaryPage = (total, link, hasNext = false) => `
+    <div class="showing">We could find ${total} results for garage kit</div>
+    ${link ? `<div class="product-title"><a href="?shopping_url=${encodeURIComponent(link)}">Asuka garage kit</a></div>` : ''}
+    ${hasNext ? '<div class="shop-pagination"><a href="?keyword=garage+kit&amp;page=2">2</a></div>' : ''}
+`;
 
 describe('Rakuma provider order', () => {
     let mock;
@@ -97,6 +102,27 @@ describe('Rakuma provider order', () => {
         expect(mock.history.get).toHaveLength(1);
     });
 
+    test('stops at a terminal empty page when the upstream total falls below the page boundary', async () => {
+        mock.onGet(primaryUrl).replyOnce(200, primaryPage(2, itemUrl, true));
+        mock.onGet(primaryUrl).replyOnce(200, primaryPage(1));
+
+        await expect(fril.search('garage kit')).resolves.toEqual([expect.objectContaining({ link: itemUrl })]);
+        expect(mock.history.get).toHaveLength(2);
+    });
+
+    test('recovers an intermittent stalled page before switching providers', async () => {
+        const nextItem = `https://item.fril.jp/${'b'.repeat(32)}`;
+        mock.onGet(primaryUrl).replyOnce(200, primaryPage(2, itemUrl, true));
+        mock.onGet(primaryUrl).replyOnce(200, primaryPage(2, itemUrl));
+        mock.onGet(primaryUrl).replyOnce(200, primaryPage(2, nextItem));
+
+        await expect(fril.search('garage kit')).resolves.toEqual([
+            expect.objectContaining({link: itemUrl}), expect.objectContaining({link: nextItem})
+        ]);
+        expect(mock.history.get[2].url).toBe(mock.history.get[1].url);
+        expect(mock.history.get).toHaveLength(3);
+    });
+
     test('preserves the initial page when J-Subculture repeats it', async () => {
         const html = `<div class="showing">We could find 2 results for garage kit</div>
             <div class="product-title"><a href="?shopping_url=${encodeURIComponent(itemUrl)}">Asuka garage kit</a></div>
@@ -109,7 +135,27 @@ describe('Rakuma provider order', () => {
         });
         const results = await fril.search('garage kit');
         expect(results.map(item => item.link)).toEqual([itemUrl, `https://item.fril.jp/${secondId}`]);
-        expect(mock.history.get).toHaveLength(3);
+        expect(mock.history.get).toHaveLength(4);
+    });
+
+    test('merges partial Doorzo results and still tries native Rakuma if Doorzo pagination fails', async () => {
+        const doorzoId = 'b'.repeat(32);
+        const nativeUrlItem = `https://item.fril.jp/${'c'.repeat(32)}`;
+        mock.onGet(primaryUrl).replyOnce(200, primaryPage(2, itemUrl, true));
+        mock.onGet(primaryUrl).reply(502);
+        mock.onGet(doorzoUrl).replyOnce(200, {
+            code: 0,
+            data: { items: [{ Asin: doorzoId, Name: 'Another garage kit' }], nextPageToken: 'page-2' }
+        });
+        mock.onGet(doorzoUrl).reply(502);
+        mock.onGet(nativeUrl).reply(200, `<div class="search_tab"><div class="item-box">
+            <div class="item-box__image-wrapper"><a href="${nativeUrlItem}"></a></div>
+            <div class="item-box__item-name"><span>Native garage kit</span></div>
+        </div></div>`);
+
+        const results = await fril.search('garage kit');
+        expect(results.map(item => item.link)).toEqual([itemUrl, `https://item.fril.jp/${doorzoId}`, nativeUrlItem]);
+        expect(mock.history.get.at(-1).url).toMatch(nativeUrl);
     });
 
     test('returns a provider failure when native Rakuma serves a challenge page', async () => {

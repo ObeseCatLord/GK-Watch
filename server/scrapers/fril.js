@@ -94,11 +94,11 @@ async function search(query, strictEnabled = true, filters = [], signal = null, 
 
     onFallback?.();
     try {
-        const fallback = await doorzo.search(query, 'rakuma', signal);
+        const fallback = await doorzo.searchWithStatus(query, 'rakuma', signal);
         signal?.throwIfAborted();
         const primaryCount = results.size;
-        addMatches(fallback || []);
-        if (results.size > primaryCount) return [...results.values()];
+        addMatches(fallback.items || []);
+        if (fallback.complete && results.size > primaryCount) return [...results.values()];
     } catch (error) {
         signal?.throwIfAborted();
         console.warn(`[Fril] Doorzo fallback failed: ${error.message}`);

@@ -97,7 +97,7 @@ function mapDoorzoItem(item, website) {
     };
 }
 
-async function search(query, targetSite = 'paypay', signal = null, onPage = null) {
+async function searchWithStatus(query, targetSite = 'paypay', signal = null, onPage = null) {
     signal?.throwIfAborted();
     // Doorzo requires specific params to filter
     const website = normalizeWebsite(targetSite);
@@ -162,28 +162,25 @@ async function search(query, targetSite = 'paypay', signal = null, onPage = null
             } else {
                 const itemShape = responseData?.items === undefined ? 'missing' : typeof responseData.items;
                 console.warn(`[Doorzo] Invalid API response while searching "${query}" on ${website} (code=${String(responseCode)}, items=${itemShape}).`);
-                return allItems.length > 0
-                    ? mapItems(allItems)
-                    : null;
+                return { items: allItems.length ? mapItems(allItems) : null, complete: false };
             }
 
         } while (nextToken && pageCount < MAX_PAGES);
 
         console.log(`[Doorzo] Finished searching "${query}" on ${website}. Total items: ${allItems.length}`);
 
-        return mapItems(allItems);
+        return { items: mapItems(allItems), complete: !nextToken };
 
     } catch (err) {
         if (signal?.aborted) throw err;
         console.error(`[Doorzo] Error searching for "${query}" on ${website}:`, err.message);
-        // If we found some items before error, return them? Or just return what we have?
-        // Better to return what we have if possible, but scraper logic expects null on critical failure.
-        // If we have items, return them.
-        if (allItems.length > 0) {
-            return mapItems(allItems);
-        }
-        return null;
+        return { items: allItems.length ? mapItems(allItems) : null, complete: false };
     }
 }
 
-module.exports = { search, _mapDoorzoItem: mapDoorzoItem };
+async function search(query, targetSite, signal, onPage) {
+    const result = await searchWithStatus(query, targetSite, signal, onPage);
+    return result.items;
+}
+
+module.exports = { search, searchWithStatus, _mapDoorzoItem: mapDoorzoItem };

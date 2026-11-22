@@ -14,6 +14,8 @@
 
 A completed J-Subculture search with matching results ends the search. Failed and incomplete searches can reach Doorzo. On Mercari and PayPay, empty searches also try Doorzo. Rakuma skips further requests after a completed search because extra providers repeatedly returned no additional matches during the monitored batch. DEJapan was removed from the Rakuma chain after repeated HTTP 403 responses. If pagination fails after yielding results, the results already found can be merged with the fallback by canonical marketplace URL.
 
+Rakuma retries a stalled J-Subculture page once. An empty final page can end the search if the reported total has fallen to the number of listings already collected. If Doorzo also stops mid-search, GKWatch keeps its results and still checks native Rakuma.
+
 ## Free search candidates
 
 November 2026 spot checks used Japanese garage-kit queries and compared canonical listing IDs. “Browser” refers to an interactive browser unless Chromium on Foundry is specified.
