@@ -716,17 +716,31 @@ a.watch-meta { color: var(--accent-color); }
   display: flex;
   justify-content: flex-end;
   gap: .25rem;
-  padding: .25rem .4375rem;
+  padding: .125rem .375rem;
   background: var(--surface);
   border-top: 1px solid var(--line);
 }
 
 .listing-actions button {
-  min-width: 2rem;
-  min-height: 2rem;
-  padding: .125rem .375rem;
+  display: grid;
+  place-items: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
   border-color: transparent;
   background: transparent;
+}
+
+.listing-actions .bitmap-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+@media (pointer: coarse) {
+  .listing-actions button {
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+  }
 }
 
 .listing-actions .favorite-btn.active { color: var(--accent-color); background: var(--accent-dark); }
@@ -936,7 +950,7 @@ input.settings-input { max-width: 100%; }
   .clock-label { font-size: .6875rem; }
   .clock-divider { display: none; }
   .main-nav button { padding-inline: .125rem; gap: .1875rem; font-size: .9375rem; }
-  .watchlist-top-row button, .watchlist-results button, .mobile-sidebar-toggle,
+  .watchlist-top-row button, .watchlist-results button:not(.listing-actions button), .mobile-sidebar-toggle,
   .watchlist-sidebar button, .add-watch-form button, .workspace select { min-height: 2.75rem; }
   .results-filter input { flex: 1 1 100%; }
   .results-filter select { flex: 1 1 8rem; }
