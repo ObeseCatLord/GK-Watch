@@ -85,6 +85,15 @@ describe('Yahoo cookie handling', () => {
 });
 
 describe('Yahoo live/watch provider routing', () => {
+    const nativePage = (items, totalResultsAvailable = items.length, isVectorSearch = false) => ({
+        status: 200,
+        data: `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+            props: { pageProps: { initialState: { search: { items: {
+                listing: { items, totalResultsAvailable, metadata: { searchEngineStatus: '200', isVectorSearch } }
+            } } } } }
+        })}</script>`
+    });
+
     function loadYahoo({ nativeGet, doorzoPost, cookies = null, realBottleneck = false }) {
         const retry = jest.fn();
         retry.exponentialDelay = jest.fn(() => 100);
@@ -148,6 +157,56 @@ describe('Yahoo live/watch provider routing', () => {
             retries: 2,
             shouldResetTimeout: true
         }));
+    });
+
+    test('returns Mokou auctions from the embedded native results with their bid and buy prices', async () => {
+        const title = '藤原妹紅 ガレージキット';
+        const nativeGet = jest.fn().mockResolvedValue(nativePage([
+            { auctionId: 'x1240546901', title, price: 30000, endTime: '2026-11-27T19:21:51+09:00' },
+            { auctionId: 'l1238698003', title, price: 35500, buyNowPrice: 35500, isFixedPrice: true },
+            { auctionId: 'z123', title, price: 42000, isFleamarketItem: true },
+            { auctionId: 'o123', title, price: 500, prefectureCode: '48' }
+        ]));
+        const doorzoPost = jest.fn();
+        const { yahoo } = loadYahoo({ nativeGet, doorzoPost });
+
+        await expect(yahoo.search(title, true, false, 'yahoo', [], null, { mode: 'live' })).resolves.toEqual([
+            expect.objectContaining({
+                link: 'https://page.auctions.yahoo.co.jp/jp/auction/x1240546901', bidPrice: '¥30,000',
+                binPrice: 'N/A', endTime: '2026-11-27T10:21:51.000Z'
+            }),
+            expect.objectContaining({
+                link: 'https://page.auctions.yahoo.co.jp/jp/auction/l1238698003', bidPrice: 'N/A', binPrice: '¥35,500'
+            })
+        ]);
+        expect(nativeGet).toHaveBeenCalledTimes(1);
+        expect(doorzoPost).not.toHaveBeenCalled();
+    });
+
+    test('continues native pagination when the first page only contains excluded marketplace listings', async () => {
+        const firstPage = Array.from({ length: 50 }, (_, i) => ({
+            auctionId: `z${i}`, title: 'test item', isFleamarketItem: true
+        }));
+        const nativeGet = jest.fn()
+            .mockResolvedValueOnce(nativePage(firstPage, 51))
+            .mockResolvedValueOnce(nativePage([{ auctionId: 'a51', title: 'test item', price: 500 }], 51));
+        const doorzoPost = jest.fn();
+        const { yahoo } = loadYahoo({ nativeGet, doorzoPost });
+
+        await expect(yahoo.search('test', true, false, 'yahoo', [], null, { mode: 'live' })).resolves.toEqual([
+            expect.objectContaining({ link: 'https://page.auctions.yahoo.co.jp/jp/auction/a51' })
+        ]);
+        expect(nativeGet).toHaveBeenCalledTimes(2);
+        expect(doorzoPost).not.toHaveBeenCalled();
+    });
+
+    test('falls back when native HTML is neither a legacy result list nor readable embedded results', async () => {
+        const nativeGet = jest.fn().mockResolvedValue({ status: 200, data: '<html>unknown result layout</html>' });
+        const doorzoPost = jest.fn().mockResolvedValue({ data: { data: { list: [] } } });
+        const { yahoo } = loadYahoo({ nativeGet, doorzoPost });
+
+        await expect(yahoo.search('test', false, false, 'yahoo', [], null, { mode: 'live' })).resolves.toEqual([]);
+        expect(doorzoPost).toHaveBeenCalledTimes(1);
     });
 
     test('keeps authenticated watch searches native after another term times out', async () => {

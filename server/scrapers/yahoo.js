@@ -256,6 +256,45 @@ function formatYahooPrice(priceText) {
     return 'N/A';
 }
 
+function readNativeListing($) {
+    const state = $('#__NEXT_DATA__').text();
+    if (!state) return null;
+    try {
+        const listing = JSON.parse(state).props?.pageProps?.initialState?.search?.items?.listing;
+        const status = listing?.metadata?.searchEngineStatus;
+        return Array.isArray(listing?.items) && (!status || Number(status) === 200) ? listing : null;
+    } catch {
+        return null;
+    }
+}
+
+function mapNativeListing(items, allowInternationalShipping, targetSource) {
+    return items.flatMap(item => {
+        if (!item || !/^[a-z0-9]+$/i.test(item.auctionId || '') ||
+            typeof item.title !== 'string' || !item.title.trim() || item.isShoppingItem) return [];
+        if (!allowInternationalShipping && String(item.prefectureCode) === '48') return [];
+
+        const isPayPay = item.isFleamarketItem === true;
+        if ((targetSource === 'yahoo' && isPayPay) || (targetSource === 'paypay' && !isPayPay)) return [];
+
+        const fixedPrice = item.isFixedPrice || isPayPay;
+        const bidPrice = fixedPrice ? 'N/A' : formatYahooPrice(String(item.price ?? ''));
+        const binPrice = formatYahooPrice(String(item.buyNowPrice ?? (fixedPrice ? item.price : '') ?? ''));
+        const endTime = Date.parse(item.endTime);
+        return [{
+            title: item.title.trim(),
+            link: isPayPay ? `https://paypayfleamarket.yahoo.co.jp/item/${item.auctionId}`
+                : `https://page.auctions.yahoo.co.jp/jp/auction/${item.auctionId}`,
+            image: item.imageUrl || '',
+            price: bidPrice === 'N/A' ? binPrice : bidPrice,
+            bidPrice,
+            binPrice,
+            endTime: Number.isFinite(endTime) ? new Date(endTime).toISOString() : null,
+            source: isPayPay ? 'PayPay Flea Market' : 'Yahoo'
+        }];
+    });
+}
+
 function calculateEndTime(timeStr) {
     if (!timeStr) return null;
 
@@ -375,6 +414,7 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
         for (const scope of searchScopes) {
             let page = 0;
             let scopeCompleted = false;
+            const seenNativeIds = new Set();
 
             while (page < MAX_PAGES) {
                 throwIfAborted(signal);
@@ -419,6 +459,36 @@ async function search(query, strictEnabled = true, allowInternationalShipping = 
                     }
 
                     const $ = cheerio.load(data);
+                    const listing = readNativeListing($);
+                    if (listing) {
+                        if (listing.metadata?.isVectorSearch) {
+                            console.log(`[Yahoo Native] [${query}] ${scope.name} approximate results detected. Skipping.`);
+                            break;
+                        }
+                        const { items, totalResultsAvailable } = listing;
+                        if (!items.length) {
+                            if (page === 0 && Number(totalResultsAvailable) > 0) {
+                                throw new Error('Yahoo reported listings but returned no items');
+                            }
+                            break;
+                        }
+                        const pageIds = items.map(item => item?.auctionId).filter(id => /^[a-z0-9]+$/i.test(id || ''));
+                        if (!pageIds.length) throw new Error('Yahoo listing data did not contain any auction IDs');
+                        if (pageIds.every(id => seenNativeIds.has(id))) break;
+                        for (const id of pageIds) seenNativeIds.add(id);
+                        for (const item of mapNativeListing(items, allowInternationalShipping, targetSource)) {
+                            if (seenLinks.has(item.link)) continue;
+                            seenLinks.add(item.link);
+                            results.push(item);
+                        }
+                        const hasMore = offset - 1 + items.length < Number(totalResultsAvailable);
+                        if (items.length < itemsPerPage || !hasMore) break;
+                        page++;
+                        continue;
+                    }
+                    if (!$('.Products__items').length) {
+                        throw new Error('Yahoo search response has an unrecognized listing format');
+                    }
                     let pageResults = [];
 
                     $('.Products__items li.Product').each((i, element) => {
